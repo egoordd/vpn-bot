@@ -7,7 +7,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from bot.handlers import buy, instructions, key, start, subscription, support
+from bot.handlers import admin, buy, instructions, key, start, subscription, support
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
 from config import settings
 from database.models import Base
@@ -49,6 +49,7 @@ async def main() -> None:
     dispatcher.callback_query.middleware(subscription_middleware)
 
     dispatcher.include_router(start.router)
+    dispatcher.include_router(admin.router)
     dispatcher.include_router(buy.router)
     dispatcher.include_router(subscription.router)
     dispatcher.include_router(key.router)
