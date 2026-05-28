@@ -27,5 +27,8 @@ INSTRUCTIONS_TEXT = (
 @router.callback_query(F.data == "instructions")
 async def instructions_handler(callback: CallbackQuery) -> None:
     if callback.message:
-        await callback.message.edit_text(INSTRUCTIONS_TEXT, reply_markup=back_to_menu_keyboard())
+        if callback.message.photo:
+            await callback.message.edit_caption(caption=INSTRUCTIONS_TEXT, reply_markup=back_to_menu_keyboard())
+        else:
+            await callback.message.edit_text(INSTRUCTIONS_TEXT, reply_markup=back_to_menu_keyboard())
     await callback.answer()

@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     )
 
     BOT_TOKEN: SecretStr
-    PAYMENT_TOKEN: str = ""
     DATABASE_URL: str
     REDIS_URL: str
 
@@ -25,6 +24,10 @@ class Settings(BaseSettings):
     WG_CLIENT_DNS: str = "1.1.1.1"
     WG_ALLOWED_IPS: str = "0.0.0.0/0, ::/0"
     WG_CLIENT_ADDRESS_POOL: str = "10.0.0.0/24"
+
+    CRYPTOBOT_TOKEN: str = ""
+    CRYPTOBOT_API_URL: str = "https://pay.crypt.bot/api"
+    CRYPTOBOT_POLL_INTERVAL: int = 30
 
     SUPPORT_USERNAME: str = "support"
     ADMIN_IDS: str = ""

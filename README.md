@@ -1,14 +1,14 @@
 # VPN Bot MVP
 
-MVP Telegram-бота для продажи VPN-доступа по подписке через Telegram Stars.
+MVP Telegram-бота для продажи VPN-доступа по подписке через CryptoBot.
 
 ## Что внутри
 
-- aiogram 3.x с FSM для покупки
+- aiogram 3.x
 - PostgreSQL + SQLAlchemy async
 - Redis FSM storage
 - WireGuard CLI через `wg`
-- Telegram Payments / Stars
+- CryptoBot payments
 - QR-коды WireGuard-конфига
 - APScheduler для напоминаний и отключения истекших подписок
 - Docker Compose для запуска бота, PostgreSQL и Redis
@@ -48,7 +48,9 @@ cp .env.example .env
 Заполните `.env`:
 
 - `BOT_TOKEN` - токен бота от `@BotFather`
-- `PAYMENT_TOKEN` - для Telegram Stars оставьте пустым
+- `CRYPTOBOT_TOKEN` - токен приложения CryptoBot
+- `CRYPTOBOT_API_URL` - URL CryptoBot API, по умолчанию `https://pay.crypt.bot/api`
+- `CRYPTOBOT_POLL_INTERVAL` - интервал проверки оплат в секундах
 - `WG_SERVER_PUBLIC_KEY` - публичный ключ сервера WireGuard
 - `WG_SERVER_ENDPOINT` - IP/домен сервера и порт, например `1.2.3.4:51820`
 - `SUPPORT_USERNAME` - контакт поддержки
@@ -80,4 +82,4 @@ Docker Compose монтирует `/etc/wireguard` и добавляет `NET_AD
 
 ## Проверка
 
-После старта отправьте боту `/start`, выберите «Купить VPN», оплатите invoice в Stars, затем бот пришлет `.conf` файл и QR-код.
+После старта отправьте боту `/start`, выберите тариф, оплатите invoice в CryptoBot, затем бот пришлет `.conf` файл и QR-код.

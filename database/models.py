@@ -5,6 +5,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -90,11 +91,16 @@ class WireguardKey(Base):
 
 class Payment(Base):
     __tablename__ = "payments"
+    __table_args__ = (
+        Index("ix_payments_external_invoice_id", "external_invoice_id", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
-    currency: Mapped[str] = mapped_column(String(10), default="XTR", nullable=False)
+    currency: Mapped[str] = mapped_column(String(10), default="USDT", nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), default="cryptobot", server_default="cryptobot", nullable=False)
+    external_invoice_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     telegram_payment_charge_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     provider_payment_charge_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     invoice_payload: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)

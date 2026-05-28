@@ -15,5 +15,8 @@ async def support_handler(callback: CallbackQuery) -> None:
         "Укажите ваш Telegram ID и кратко опишите проблему."
     )
     if callback.message:
-        await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard())
+        if callback.message.photo:
+            await callback.message.edit_caption(caption=text, reply_markup=back_to_menu_keyboard())
+        else:
+            await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard())
     await callback.answer()

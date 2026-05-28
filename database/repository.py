@@ -234,7 +234,7 @@ class Repository:
         self,
         user_id: int,
         amount: int,
-        currency: str = "XTR",
+        currency: str = "USDT",
         invoice_payload: str | None = None,
         status: str = "pending",
         telegram_payment_charge_id: str | None = None,
@@ -252,11 +252,37 @@ class Repository:
         self.session.add(payment)
         return await self._commit_refresh(payment)
 
+    async def create_cryptobot_payment(
+        self,
+        user_id: int,
+        amount: int,
+        external_invoice_id: str,
+        invoice_payload: str,
+        plan: str,
+    ) -> Payment:
+        payment = Payment(
+            user_id=user_id,
+            amount=amount,
+            currency="USDT",
+            provider="cryptobot",
+            external_invoice_id=str(external_invoice_id),
+            invoice_payload=invoice_payload,
+            status="pending",
+        )
+        self.session.add(payment)
+        return await self._commit_refresh(payment)
+
     async def get_payment(self, payment_id: int) -> Payment | None:
         return await self.session.get(Payment, payment_id)
 
     async def get_payment_by_payload(self, invoice_payload: str) -> Payment | None:
         result = await self.session.execute(select(Payment).where(Payment.invoice_payload == invoice_payload))
+        return result.scalar_one_or_none()
+
+    async def get_payment_by_external_id(self, external_invoice_id: str) -> Payment | None:
+        result = await self.session.execute(
+            select(Payment).where(Payment.external_invoice_id == str(external_invoice_id))
+        )
         return result.scalar_one_or_none()
 
     async def list_payments_by_user(self, user_id: int) -> list[Payment]:
@@ -278,6 +304,28 @@ class Repository:
         payment.telegram_payment_charge_id = telegram_payment_charge_id
         payment.provider_payment_charge_id = provider_payment_charge_id
         return await self._commit_refresh(payment)
+
+    async def complete_payment_by_external_id(self, external_invoice_id: str) -> Payment | None:
+        result = await self.session.execute(
+            update(Payment)
+            .where(
+                Payment.external_invoice_id == str(external_invoice_id),
+                Payment.provider == "cryptobot",
+                Payment.status == "pending",
+            )
+            .values(
+                status="completed",
+                provider_payment_charge_id=str(external_invoice_id),
+            )
+            .returning(Payment.id)
+        )
+        payment_id = result.scalar_one_or_none()
+        if payment_id is None:
+            await self.session.rollback()
+            return None
+
+        await self.session.commit()
+        return await self.get_payment(payment_id)
 
     async def update_payment_status(self, payment_id: int, status: str) -> Payment | None:
         payment = await self.get_payment(payment_id)
