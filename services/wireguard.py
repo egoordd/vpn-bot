@@ -145,6 +145,46 @@ async def allocate_next_ip(session: AsyncSession) -> str:
     raise WireGuardError(f"Свободные IP в пуле {settings.WG_CLIENT_ADDRESS_POOL} закончились")
 
 
+async def rotate_user_key(session: AsyncSession, user_id: int) -> tuple[WireguardKey, str]:
+    repo = Repository(session)
+    existing_key = await repo.get_wireguard_key_by_user_id(user_id)
+    if existing_key is not None:
+        await remove_peer(existing_key.public_key)
+        ip_address = existing_key.ip_address
+    else:
+        ip_address = await allocate_next_ip(session)
+
+    private_key, public_key = await generate_keypair()
+    config_file_path, config_text = await create_client_config(
+        user_id=user_id,
+        public_key=public_key,
+        private_key=private_key,
+        ip=ip_address,
+    )
+    await add_peer(public_key, f"{ip_address}/32")
+
+    if existing_key is not None:
+        key = await repo.update_wireguard_key(
+            existing_key.id,
+            public_key=public_key,
+            private_key=private_key,
+            ip_address=ip_address,
+            config_file_path=config_file_path,
+        )
+        if key is None:
+            raise WireGuardError("WireGuard ключ не найден для обновления")
+        return key, config_text
+
+    key = await repo.create_wireguard_key(
+        user_id=user_id,
+        public_key=public_key,
+        private_key=private_key,
+        ip_address=ip_address,
+        config_file_path=config_file_path,
+    )
+    return key, config_text
+
+
 async def ensure_user_peer(session: AsyncSession, user_id: int) -> tuple[WireguardKey, str]:
     repo = Repository(session)
     existing_key = await repo.get_wireguard_key_by_user_id(user_id)

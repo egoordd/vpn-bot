@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from bot.keyboards.main_menu import back_to_menu_keyboard
 from database.repository import Repository
 from services.qrcode import generate_qr_png_bytes
-from services.wireguard import WireGuardError, ensure_user_peer
+from services.wireguard import WireGuardError, rotate_user_key
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -26,7 +26,7 @@ async def get_key_handler(
             return
 
         try:
-            _, config_text = await ensure_user_peer(session=session, user_id=user.id)
+            _, config_text = await rotate_user_key(session=session, user_id=user.id)
         except WireGuardError:
             logger.exception("Could not provide WireGuard key for user_id=%s", user.id)
             await callback.answer("Не удалось подготовить ключ. Напишите в поддержку.", show_alert=True)
