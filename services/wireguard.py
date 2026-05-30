@@ -130,17 +130,14 @@ async def ensure_user_peer(session: AsyncSession, user_id: int) -> tuple[Wiregua
     repo = Repository(session)
     existing_key = await repo.get_wireguard_key_by_user_id(user_id)
     if existing_key is not None:
-        config_path = Path(existing_key.config_file_path)
-        if config_path.exists():
-            config_text = await get_client_config_text_by_path(existing_key.config_file_path)
-        else:
-            config_path_text, config_text = await create_client_config(
-                user_id=user_id,
-                public_key=existing_key.public_key,
-                private_key=existing_key.private_key,
-                ip=existing_key.ip_address,
-            )
-            await repo.update_wireguard_key(existing_key.id, config_file_path=config_path_text)
+        config_file_path, config_text = await create_client_config(
+            user_id=user_id,
+            public_key=existing_key.public_key,
+            private_key=existing_key.private_key,
+            ip=existing_key.ip_address,
+        )
+        if config_file_path != existing_key.config_file_path:
+            await repo.update_wireguard_key(existing_key.id, config_file_path=config_file_path)
         await add_peer(existing_key.public_key, f"{existing_key.ip_address}/32")
         return existing_key, config_text
 
