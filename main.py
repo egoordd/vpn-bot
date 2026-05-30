@@ -12,6 +12,7 @@ from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
 from config import settings
 from database.models import Base
 from scheduler.tasks import setup_scheduler
+from services.wireguard import resync_all_peers
 
 
 logging.basicConfig(
@@ -35,6 +36,12 @@ async def main() -> None:
     session_pool = async_sessionmaker(engine, expire_on_commit=False)
 
     await init_db(engine)
+    try:
+        async with session_pool() as session:
+            resynced_count = await resync_all_peers(session)
+        logger.info("Re-synced %s WireGuard peers", resynced_count)
+    except Exception as exc:
+        logger.warning("Failed to re-sync WireGuard peers on startup: %s", exc)
 
     bot = Bot(
         token=settings.bot_token,

@@ -95,6 +95,25 @@ async def add_peer(public_key: str, allowed_ips: str) -> None:
     logger.info("Added WireGuard peer %s with allowed_ips=%s", public_key, allowed_ips)
 
 
+async def resync_all_peers(session: AsyncSession) -> int:
+    repo = Repository(session)
+    keys = await repo.get_all_wireguard_keys()
+    resynced_count = 0
+    for key in keys:
+        try:
+            await add_peer(key.public_key, f"{key.ip_address}/32")
+        except Exception as exc:
+            logger.warning(
+                "Failed to re-sync WireGuard peer public_key=%s ip_address=%s: %s",
+                key.public_key,
+                key.ip_address,
+                exc,
+            )
+            continue
+        resynced_count += 1
+    return resynced_count
+
+
 async def remove_peer(public_key: str) -> None:
     await _run_command(["wg", "set", settings.WG_INTERFACE, "peer", public_key, "remove"])
     logger.info("Removed WireGuard peer %s", public_key)

@@ -209,6 +209,10 @@ class Repository:
         result = await self.session.execute(select(WireguardKey).where(WireguardKey.public_key == public_key))
         return result.scalar_one_or_none()
 
+    async def get_all_wireguard_keys(self) -> list[WireguardKey]:
+        result = await self.session.execute(select(WireguardKey).order_by(WireguardKey.id))
+        return list(result.scalars().all())
+
     async def get_used_wireguard_ips(self) -> set[str]:
         result = await self.session.execute(select(WireguardKey.ip_address))
         return set(result.scalars().all())
