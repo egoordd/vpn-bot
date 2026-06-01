@@ -42,6 +42,7 @@ services:
       - /dev/net/tun:/dev/net/tun
     volumes:
       - /etc/wireguard:/etc/wireguard
+      - /var/run/wireguard:/var/run/wireguard
 
 volumes:
   postgres_data:

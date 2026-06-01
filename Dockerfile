@@ -5,8 +5,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
+    && apt-get install -y --no-install-recommends build-essential git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/amnezia-vpn/amneziawg-tools \
+    && cd amneziawg-tools/src \
+    && make \
+    && make install DESTDIR=/awgout
 
 WORKDIR /build
 COPY requirements.txt .
@@ -18,10 +23,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends wireguard-tools iproute2 ca-certificates \
+    && apt-get install -y --no-install-recommends iproute2 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY --from=builder /awgout/usr/bin/awg /usr/bin/awg
+COPY --from=builder /awgout/usr/bin/awg-quick /usr/bin/awg-quick
 COPY --from=builder /wheels /wheels
 COPY requirements.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \

@@ -18,12 +18,21 @@ class Settings(BaseSettings):
     REDIS_URL: str
 
     WG_CONFIG_PATH: str = "/etc/wireguard/clients"
-    WG_INTERFACE: str = "wg0"
+    WG_INTERFACE: str = "awg0"
     WG_SERVER_PUBLIC_KEY: str
     WG_SERVER_ENDPOINT: str
     WG_CLIENT_DNS: str = "1.1.1.1"
     WG_ALLOWED_IPS: str = "0.0.0.0/0, ::/0"
     WG_CLIENT_ADDRESS_POOL: str = "10.0.0.0/24"
+    AWG_JC: int = 4
+    AWG_JMIN: int = 40
+    AWG_JMAX: int = 70
+    AWG_S1: int = 50
+    AWG_S2: int = 100
+    AWG_H1: int = 1234567
+    AWG_H2: int = 2345678
+    AWG_H3: int = 3456789
+    AWG_H4: int = 4567890
 
     CRYPTOBOT_TOKEN: str = ""
     CRYPTOBOT_API_URL: str = "https://pay.crypt.bot/api"

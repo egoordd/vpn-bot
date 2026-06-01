@@ -27,18 +27,18 @@ async def _run_command(command: list[str], input_text: str | None = None) -> str
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as exc:
-        raise WireGuardError("wireguard-tools не установлен или команда wg недоступна") from exc
+        raise WireGuardError("amneziawg-tools не установлен или команда awg недоступна") from exc
 
     stdout, stderr = await process.communicate(input_text.encode() if input_text is not None else None)
     if process.returncode != 0:
         error_text = stderr.decode().strip() or stdout.decode().strip()
-        raise WireGuardError(f"Ошибка WireGuard CLI: {error_text}")
+        raise WireGuardError(f"Ошибка AmneziaWG CLI: {error_text}")
     return stdout.decode().strip()
 
 
 async def generate_keypair() -> tuple[str, str]:
-    private_key = await _run_command(["wg", "genkey"])
-    public_key = await _run_command(["wg", "pubkey"], input_text=f"{private_key}\n")
+    private_key = await _run_command(["awg", "genkey"])
+    public_key = await _run_command(["awg", "pubkey"], input_text=f"{private_key}\n")
     return private_key, public_key
 
 
@@ -63,6 +63,15 @@ async def create_client_config(
             f"PrivateKey = {private_key}",
             f"Address = {ip}/32",
             f"DNS = {settings.WG_CLIENT_DNS}",
+            f"Jc = {settings.AWG_JC}",
+            f"Jmin = {settings.AWG_JMIN}",
+            f"Jmax = {settings.AWG_JMAX}",
+            f"S1 = {settings.AWG_S1}",
+            f"S2 = {settings.AWG_S2}",
+            f"H1 = {settings.AWG_H1}",
+            f"H2 = {settings.AWG_H2}",
+            f"H3 = {settings.AWG_H3}",
+            f"H4 = {settings.AWG_H4}",
             "",
             "[Peer]",
             f"PublicKey = {settings.WG_SERVER_PUBLIC_KEY}",
@@ -83,7 +92,7 @@ async def create_client_config(
 async def add_peer(public_key: str, allowed_ips: str) -> None:
     await _run_command(
         [
-            "wg",
+            "awg",
             "set",
             settings.WG_INTERFACE,
             "peer",
@@ -115,7 +124,7 @@ async def resync_all_peers(session: AsyncSession) -> int:
 
 
 async def remove_peer(public_key: str) -> None:
-    await _run_command(["wg", "set", settings.WG_INTERFACE, "peer", public_key, "remove"])
+    await _run_command(["awg", "set", settings.WG_INTERFACE, "peer", public_key, "remove"])
     logger.info("Removed WireGuard peer %s", public_key)
 
 
