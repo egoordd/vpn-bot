@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "unit: fast unit tests with mocked external boundaries",
+    "integration: tests that exercise the real async database repository",
+]
+addopts = "--cov=. --cov-report=term-missing"
