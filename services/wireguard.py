@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import os
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,8 +84,9 @@ async def create_client_config(
     )
 
     path = _client_config_path(user_id)
-    await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
+    await asyncio.to_thread(path.parent.mkdir, mode=0o700, parents=True, exist_ok=True)
     await asyncio.to_thread(path.write_text, config_text, "utf-8")
+    await asyncio.to_thread(os.chmod, path, 0o600)
     logger.info("Created WireGuard client config for user_id=%s public_key=%s", user_id, public_key)
     return str(path), config_text
 

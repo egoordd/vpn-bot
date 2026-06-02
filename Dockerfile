@@ -8,7 +8,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/amnezia-vpn/amneziawg-tools \
+RUN git clone --branch v1.0.20260223 --depth 1 https://github.com/amnezia-vpn/amneziawg-tools \
     && cd amneziawg-tools/src \
     && make \
     && make install DESTDIR=/awgout

@@ -1,3 +1,5 @@
+import os
+import stat
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, call
 
@@ -39,6 +41,7 @@ async def test_create_client_config_obfuscation_order(wg_settings):
     )
 
     assert path.endswith("client_55.conf")
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
     assert "[Interface]" in text
     assert "Address = 10.9.0.2/32" in text
     assert "DNS = 9.9.9.9" in text

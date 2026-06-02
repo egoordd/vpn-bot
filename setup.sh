@@ -47,9 +47,9 @@ if ! command -v awg >/dev/null; then
   log "PPA package unavailable for this release — building AmneziaWG from source (userspace)"
   apt-get install -y build-essential make golang-go
   rm -rf /opt/amneziawg-tools /opt/amneziawg-go
-  git clone https://github.com/amnezia-vpn/amneziawg-tools /opt/amneziawg-tools
+  git clone --branch v1.0.20260223 --depth 1 https://github.com/amnezia-vpn/amneziawg-tools /opt/amneziawg-tools
   ( cd /opt/amneziawg-tools/src && make && make install )
-  git clone https://github.com/amnezia-vpn/amneziawg-go /opt/amneziawg-go
+  git clone --branch v0.2.18 --depth 1 https://github.com/amnezia-vpn/amneziawg-go /opt/amneziawg-go
   ( cd /opt/amneziawg-go && make && cp amneziawg-go /usr/bin/ )
 fi
 command -v awg >/dev/null || { echo "AmneziaWG install failed."; exit 1; }
@@ -67,6 +67,7 @@ EXT_IF="$(ip route show default | awk '/default/{print $5; exit}')"
 PUB_IP="$(curl -4 -s --max-time 10 https://api.ipify.org || true)"
 [ -n "$EXT_IF" ] || { echo "Cannot detect external interface."; exit 1; }
 [ -n "$PUB_IP" ] || { echo "Cannot detect public IPv4."; exit 1; }
+echo "$PUB_IP" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || { echo "Detected public IP is not a valid IPv4: $PUB_IP"; exit 1; }
 log "External interface: $EXT_IF | Public IP: $PUB_IP"
 
 log "Server keypair"
