@@ -7,11 +7,12 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from bot.handlers import admin, buy, instructions, key, start, subscription, support
+from bot.handlers import admin, buy, connect_device, instructions, locations, start, subscription, support
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
 from config import settings
 from database.models import Base
 from scheduler.tasks import setup_scheduler
+from services.subscription import sync_default_plans
 from services.wireguard import resync_all_peers
 
 
@@ -36,6 +37,9 @@ async def main() -> None:
     session_pool = async_sessionmaker(engine, expire_on_commit=False)
 
     await init_db(engine)
+    async with session_pool() as session:
+        await sync_default_plans(session)
+
     try:
         async with session_pool() as session:
             resynced_count = await resync_all_peers(session)
@@ -59,7 +63,8 @@ async def main() -> None:
     dispatcher.include_router(admin.router)
     dispatcher.include_router(buy.router)
     dispatcher.include_router(subscription.router)
-    dispatcher.include_router(key.router)
+    dispatcher.include_router(locations.router)
+    dispatcher.include_router(connect_device.router)
     dispatcher.include_router(instructions.router)
     dispatcher.include_router(support.router)
 

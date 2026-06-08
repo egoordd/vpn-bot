@@ -1,0 +1,226 @@
+{  
+  "dns" : {  
+    "queryStrategy" : "UseIPv4",  
+    "servers" : [  
+      "8.8.8.8",  
+      "9.9.9.9"  
+    ],  
+    "tag" : "dns-in"  
+  },  
+  "inbounds" : [  
+    {  
+      "listen" : "127.0.0.1",  
+      "port" : 10808,  
+      "protocol" : "socks",  
+      "settings" : {  
+        "auth" : "noauth",  
+        "udp" : true  
+      },  
+      "sniffing" : {  
+        "destOverride" : [  
+          "http",  
+          "tls",  
+          "quic"  
+        ],  
+        "enabled" : true,  
+        "routeOnly" : false  
+      },  
+      "tag" : "socks"  
+    },  
+    {  
+      "listen" : "127.0.0.1",  
+      "port" : 10809,  
+      "protocol" : "http",  
+      "settings" : {  
+        "allowTransparent" : false  
+      },  
+      "sniffing" : {  
+        "destOverride" : [  
+          "http",  
+          "tls",  
+          "quic"  
+        ],  
+        "enabled" : true,  
+        "routeOnly" : false  
+      },  
+      "tag" : "http"  
+    }  
+  ],  
+  "log" : {  
+    "access" : "\/private\/var\/mobile\/Containers\/Shared\/AppGroup\/E139BDE9-690C-4B63-BA3A-7A8C2BEBD9FE\/Library\/Application Support\/Xray\/logs\/access.log",  
+    "dnsLog" : true,  
+    "loglevel" : "Warning"  
+  },  
+  "outbounds" : [  
+    {  
+      "protocol" : "hysteria",  
+      "settings" : {  
+        "address" : "jojod.save-node.com",  
+        "port" : 443,  
+        "version" : 2  
+      },  
+      "streamSettings" : {  
+        "finalmask" : {  
+          "quicParams" : {  
+            "congestion" : "bbr",  
+            "debug" : false  
+          }  
+        },  
+        "hysteriaSettings" : {  
+          "auth" : "0d5fd88e-faa0-4055-bd90-4086fe20f050",  
+          "version" : 2  
+        },  
+        "network" : "hysteria",  
+        "security" : "tls",  
+        "tlsSettings" : {  
+          "alpn" : [  
+            "h3"  
+          ],  
+          "fingerprint" : "chrome",  
+          "serverName" : "jojod.save-node.com"  
+        }  
+      },  
+      "tag" : "proxy"  
+    },  
+    {  
+      "protocol" : "freedom",  
+      "tag" : "direct"  
+    },  
+    {  
+      "protocol" : "blackhole",  
+      "tag" : "block"  
+    }  
+  ],  
+  "remarks" : "🇺🇸 США | Hysteria",  
+  "routing" : {  
+    "domainStrategy" : "IPIfNonMatch",  
+    "rules" : [  
+      {  
+        "outboundTag" : "direct",  
+        "protocol" : [  
+          "bittorrent"  
+        ],  
+        "type" : "field"  
+      },  
+      {  
+        "domain" : [  
+          "domain:cdn.sberbank.ru",  
+          "domain:cms-res.online.sberbank.ru",  
+          "domain:messenger.sberbank.ru",  
+          "domain:mobile-node6.online.sberbank.ru",  
+          "domain:mpsbol.ant.sberbank.ru",  
+          "domain:online.sberbank.ru",  
+          "domain:stat.online.sberbank.ru",  
+          "domain:api-common-gw.t-bank-app.ru",  
+          "domain:api-common-gw.tinkoff.ru",  
+          "domain:api-common.tinkoff.ru",  
+          "domain:api-dd.tinkoff.ru",  
+          "domain:api-invest-gw.t-bank-app.ru",  
+          "domain:api-invest-gw.tinkoff.ru",  
+          "domain:api-invest.t-bank-app.ru",  
+          "domain:api-stories.t-bank-app.ru",  
+          "domain:api.t-bank-app.ru",  
+          "domain:api.tinkoffinsurance.ru",  
+          "domain:as.t-bank-app.ru",  
+          "domain:baf-client-api.t-bank-app.ru",  
+          "domain:brands-prod.cdn-tinkoff.ru",  
+          "domain:cdn.t-bank-app.ru",  
+          "domain:cdn.t-bank-app.su",  
+          "domain:certs.t-bank-app.ru",  
+          "domain:cfg.t-bank-app.ru",  
+          "domain:content-hub.t-static.ru",  
+          "domain:csc.tbank.ru",  
+          "domain:cx-evolution-api.t-bank-app.ru",  
+          "domain:ded-pwa-static-pages.t-static.ru",  
+          "domain:fingerprint.t-static.ru",  
+          "domain:goods-platform-images-prod-1.t-static.ru",  
+          "domain:goods-platform-images-prod-27.t-static.ru",  
+          "domain:goods-platform-images-prod-28.t-static.ru",  
+          "domain:gtech-tax-deduction.tbank.ru",  
+          "domain:hotels-growth-feed.t-bank-app.ru",  
+          "domain:id.t-bank-app.ru",  
+          "domain:lifestyle.t-bank-app.ru",  
+          "domain:media.tinkoff.ru",  
+          "domain:mobile-bank.cdn-tinkoff.ru",  
+          "domain:mobile-bnpl-prod.cdn-tinkoff.ru",  
+          "domain:mobile-lifestyle-static-prod.cdn-tinkoff.ru",  
+          "domain:ms-ads-image.t-static.ru",  
+          "domain:ms-dsp.t-bank-app.ru",  
+          "domain:ms-loyalty-api.tinkoff.ru",  
+          "domain:ms-static-images.t-static.ru",  
+          "domain:muhu-assistant.t-bank-app.ru",  
+          "domain:my-home.tinkoff.ru",  
+          "domain:myauto.t-bank-app.ru",  
+          "domain:nfs-imgproxy-cdn.t-static.ru",  
+          "domain:preidentity.tbank-online.com",  
+          "domain:rtb-optout.t-bank-app.ru",  
+          "domain:rtb-s2p.tbank.ru",  
+          "domain:sage-collector.tbank.ru",  
+          "domain:shopping.t-bank-app.ru",  
+          "domain:shortcuts.tinkoff.ru",  
+          "domain:social-api.t-bank-app.ru",  
+          "domain:status-bar-application.tbank.ru",  
+          "domain:stories-rtb.t-bank-app.ru",  
+          "domain:tads.tbank.ru",  
+          "domain:tapi.t-bank-app.ru",  
+          "domain:tm.t-bank-app.ru",  
+          "domain:tmiaf.ru",  
+          "domain:web2web.tbank.ru",  
+          "domain:webim-tknzr.tinkoff.ru",  
+          "domain:www.cdn-tinkoff.ru",  
+          "geosite:telegram",  
+          "domain:xboxlive.com",  
+          "domain:xbox.com",  
+          "domain:live.com",  
+          "domain:login.live.com",  
+          "domain:microsoft.com",  
+          "domain:microsoftonline.com",  
+          "domain:azure.com",  
+          "domain:azureedge.net",  
+          "domain:azurewebsites.net",  
+          "domain:cloudapp.azure.com",  
+          "domain:cloudapp.net",  
+          "domain:msftcdn.net",  
+          "domain:msftconnecttest.com",  
+          "domain:msecnd.net",  
+          "domain:akamaized.net",  
+          "domain:akamaihd.net",  
+          "domain:akamai.net",  
+          "domain:akamaitechnologies.com",  
+          "domain:edgesuite.net",  
+          "domain:edgekey.net",  
+          "domain:akadns.net",  
+          "domain:flightsimulator.com"  
+        ],  
+        "outboundTag" : "proxy",  
+        "type" : "field"  
+      },  
+      {  
+        "domain" : [  
+          "domain:yandex.com",  
+          "domain:yandex.net",  
+          "domain:mail.ru",  
+          "domain:vk.com",  
+          "domain:vkusvill.ru",  
+          "domain:ozon.ru",  
+          "domain:wildberries.ru",  
+          "domain:tinkoff.ru",  
+          "domain:gosuslugi.ru",  
+          "domain:nalog.gov.ru",  
+          "domain:mos.ru",  
+          "domain:2gis.com",  
+          "domain:2gis.ru"  
+        ],  
+        "outboundTag" : "direct",  
+        "type" : "field"  
+      },  
+      {  
+        "ip" : [  
+          "17.0.0.0\/8"  
+        ],  
+        "outboundTag" : "direct",  
+        "type" : "field"  
+      }  
+    ]  
+  }  
+}  

@@ -1,0 +1,200 @@
+{  
+  "dns" : {  
+    "queryStrategy" : "UseIPv4",  
+    "servers" : [  
+      "8.8.8.8",  
+      "9.9.9.9"  
+    ],  
+    "tag" : "dns-in"  
+  },  
+  "inbounds" : [  
+    {  
+      "listen" : "127.0.0.1",  
+      "port" : 10808,  
+      "protocol" : "socks",  
+      "settings" : {  
+        "auth" : "noauth",  
+        "udp" : true  
+      },  
+      "sniffing" : {  
+        "destOverride" : [  
+          "http",  
+          "tls",  
+          "quic"  
+        ],  
+        "enabled" : true  
+      },  
+      "tag" : "socks"  
+    },  
+    {  
+      "listen" : "127.0.0.1",  
+      "port" : 10809,  
+      "protocol" : "http",  
+      "settings" : {  
+        "allowTransparent" : false  
+      },  
+      "sniffing" : {  
+        "destOverride" : [  
+          "http",  
+          "tls",  
+          "quic"  
+        ],  
+        "enabled" : true  
+      },  
+      "tag" : "http"  
+    }  
+  ],  
+  "log" : {  
+    "access" : "\/private\/var\/mobile\/Containers\/Shared\/AppGroup\/E139BDE9-690C-4B63-BA3A-7A8C2BEBD9FE\/Library\/Application Support\/Xray\/logs\/access.log",  
+    "dnsLog" : true,  
+    "loglevel" : "Warning"  
+  },  
+  "outbounds" : [  
+    {  
+      "protocol" : "vless",  
+      "settings" : {  
+        "vnext" : [  
+          {  
+            "address" : "nl.save-node.com",  
+            "port" : 443,  
+            "users" : [  
+              {  
+                "encryption" : "none",  
+                "flow" : "xtls-rprx-vision",  
+                "id" : "0d5fd88e-faa0-4055-bd90-4086fe20f050"  
+              }  
+            ]  
+          }  
+        ]  
+      },  
+      "streamSettings" : {  
+        "network" : "tcp",  
+        "realitySettings" : {  
+          "fingerprint" : "firefox",  
+          "publicKey" : "2GkAdtKwYUVngdY4UTMuUq-yD3QXWXNKv419YsyaoHY",  
+          "serverName" : "nl.save-node.com",  
+          "shortId" : "5e8b1d4c9a7f2e30"  
+        },  
+        "security" : "reality",  
+        "tcpSettings" : {  
+  
+        }  
+      },  
+      "tag" : "proxy"  
+    },  
+    {  
+      "protocol" : "freedom",  
+      "tag" : "direct"  
+    },  
+    {  
+      "protocol" : "blackhole",  
+      "tag" : "block"  
+    }  
+  ],  
+  "remarks" : "🇳🇱 Нидерланды⚡️",  
+  "routing" : {  
+    "domainStrategy" : "IPIfNonMatch",  
+    "rules" : [  
+      {  
+        "outboundTag" : "direct",  
+        "protocol" : [  
+          "bittorrent"  
+        ],  
+        "type" : "field"  
+      },  
+      {  
+        "domain" : [  
+          "domain:mtalk.google.com",  
+          "domain:push.apple.com",  
+          "domain:api.push.apple.com",  
+          "domain:push-apple.com.akadns.net",  
+          "domain:courier.push.apple.com",  
+          "domain:mangabuff.ru",  
+          "domain:yandex.com",  
+          "domain:yandex.net",  
+          "domain:mail.ru",  
+          "domain:vk.com",  
+          "domain:vkusvill.ru",  
+          "domain:ozon.ru",  
+          "domain:wildberries.ru",  
+          "domain:sberbank.ru",  
+          "domain:tinkoff.ru",  
+          "domain:gosuslugi.ru",  
+          "domain:nalog.gov.ru",  
+          "domain:mos.ru",  
+          "domain:2gis.com",  
+          "domain:2gis.ru"  
+        ],  
+        "outboundTag" : "direct",  
+        "type" : "field"  
+      },  
+      {  
+        "ip" : [  
+          "17.0.0.0\/8"  
+        ],  
+        "outboundTag" : "direct",  
+        "type" : "field"  
+      },  
+      {  
+        "domain" : [  
+          "domain:2ip.ru",  
+          "domain:2ip.io",  
+          "domain:habr.com",  
+          "domain:4pda.to",  
+          "domain:4pda.ru",  
+          "domain:kemono.su",  
+          "domain:jut.su",  
+          "domain:kara.su",  
+          "domain:theins.ru",  
+          "domain:tvrain.ru",  
+          "domain:echo.msk.ru",  
+          "domain:the-village.ru",  
+          "domain:snob.ru",  
+          "domain:novayagazeta.ru",  
+          "domain:moscowtimes.ru",  
+          "geosite:telegram",  
+          "domain:xboxlive.com",  
+          "domain:xbox.com",  
+          "domain:live.com",  
+          "domain:login.live.com",  
+          "domain:microsoft.com",  
+          "domain:microsoftonline.com",  
+          "domain:azure.com",  
+          "domain:azureedge.net",  
+          "domain:azurewebsites.net",  
+          "domain:cloudapp.azure.com",  
+          "domain:cloudapp.net",  
+          "domain:msftcdn.net",  
+          "domain:msftconnecttest.com",  
+          "domain:msecnd.net",  
+          "domain:akamaized.net",  
+          "domain:akamaihd.net",  
+          "domain:akamai.net",  
+          "domain:akamaitechnologies.com",  
+          "domain:edgesuite.net",  
+          "domain:edgekey.net",  
+          "domain:akadns.net",  
+          "domain:flightsimulator.com"  
+        ],  
+        "outboundTag" : "proxy",  
+        "type" : "field"  
+      },  
+      {  
+        "domain" : [  
+          "geosite:private",  
+          "geosite:category-ru"  
+        ],  
+        "outboundTag" : "direct",  
+        "type" : "field"  
+      },  
+      {  
+        "ip" : [  
+          "geoip:ru",  
+          "geoip:private"  
+        ],  
+        "outboundTag" : "direct",  
+        "type" : "field"  
+      }  
+    ]  
+  }  
+}  

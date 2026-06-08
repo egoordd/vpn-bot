@@ -7,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -29,6 +30,10 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    balance: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    lang: Mapped[str] = mapped_column(String(10), default="ru", server_default="ru", nullable=False)
+    referrer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    ref_code: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
@@ -50,6 +55,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    referrer: Mapped["User | None"] = relationship(
+        remote_side=[id],
+        back_populates="referrals",
+    )
+    referrals: Mapped[list["User"]] = relationship(back_populates="referrer")
 
 
 class Subscription(Base):
@@ -58,12 +68,73 @@ class Subscription(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
     plan: Mapped[str] = mapped_column(String(50), nullable=False)
+    tier: Mapped[str] = mapped_column(String(32), default="standard", server_default="standard", index=True, nullable=False)
+    panel_username: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    sub_token: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    subscription_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    traffic_limit_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    traffic_used_bytes: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0", nullable=False)
+    device_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", server_default="active", index=True, nullable=False)
+    node_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    static_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True, nullable=False)
     last_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
 
     user: Mapped[User] = relationship(back_populates="subscriptions")
+
+
+class Plan(Base):
+    __tablename__ = "plans"
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    tier: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    duration_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    price_rub: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    crypto_amount: Mapped[str] = mapped_column(String(32), nullable=False)
+    traffic_limit_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    device_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class Node(Base):
+    __tablename__ = "nodes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tier: Mapped[str] = mapped_column(String(32), default="premium", server_default="premium", index=True, nullable=False)
+    capacity: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    region: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    provider_instance_id: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
+    ip_address: Mapped[str] = mapped_column(String(45), unique=True, nullable=False)
+    panel_node_id: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
+    current_users: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    static_ips: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", server_default="active", index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
 
 
 class WireguardKey(Base):

@@ -3,8 +3,16 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from database.repository import Repository
+from services.panel_client import PanelUsage, PanelUser, RemnawaveNotFoundError
+from services.panel_gateway import PanelAccount, PanelUserNotFoundError
 from services.payment import PLANS
-from services.subscription import _aware, activate_subscription, check_subscription_active, get_subscription_info
+from services.subscription import (
+    _aware,
+    activate_panel_subscription,
+    activate_subscription,
+    check_subscription_active,
+    get_subscription_info,
+)
 
 
 @pytest.mark.integration
@@ -19,13 +27,27 @@ async def test_activate_subscription_without_prior_subscription_starts_now(db_se
     user = await repo.create_user(telegram_id=1, username="alice")
 
     before = datetime.now(timezone.utc)
-    subscription = await activate_subscription(db_session, user.id, "1m")
+    subscription = await activate_subscription(db_session, user.id, "standard_1m")
     after = datetime.now(timezone.utc)
 
     assert _aware(subscription.started_at) >= before - timedelta(seconds=1)
     assert _aware(subscription.started_at) <= after + timedelta(seconds=1)
-    assert _aware(subscription.expires_at) == _aware(subscription.started_at) + timedelta(days=PLANS["1m"]["days"])
+    assert _aware(subscription.expires_at) == _aware(subscription.started_at) + timedelta(
+        days=PLANS["standard_1m"]["days"]
+    )
+    assert subscription.plan == "standard_1m"
     assert subscription.is_active is True
+
+
+@pytest.mark.integration
+async def test_activate_subscription_accepts_legacy_plan_alias(db_session):
+    repo = Repository(db_session)
+    user = await repo.create_user(telegram_id=11)
+
+    subscription = await activate_subscription(db_session, user.id, "1m")
+
+    assert subscription.plan == "standard_1m"
+    assert subscription.tier == "standard"
 
 
 @pytest.mark.integration
@@ -41,11 +63,13 @@ async def test_activate_subscription_stacks_existing_active_subscription(db_sess
         is_active=True,
     )
 
-    new_subscription = await activate_subscription(db_session, user.id, "3m")
+    new_subscription = await activate_subscription(db_session, user.id, "standard_3m")
     await db_session.refresh(old)
 
     assert _aware(new_subscription.started_at) == _aware(old.expires_at)
-    assert _aware(new_subscription.expires_at) == _aware(old.expires_at) + timedelta(days=PLANS["3m"]["days"])
+    assert _aware(new_subscription.expires_at) == _aware(old.expires_at) + timedelta(
+        days=PLANS["standard_3m"]["days"]
+    )
     assert old.is_active is False
     assert new_subscription.is_active is True
 
@@ -101,7 +125,7 @@ async def test_get_subscription_info_states(db_session):
     info = await get_subscription_info(db_session, user.id)
     assert info["exists"] is True
     assert info["is_active"] is True
-    assert info["plan_title"] == PLANS["1m"]["title"]
+    assert info["plan_title"] == "Standard 1 месяц"
     assert info["expires_at"] == active.expires_at
 
     expired_user = await repo.create_user(telegram_id=5)
@@ -115,7 +139,7 @@ async def test_get_subscription_info_states(db_session):
     info = await get_subscription_info(db_session, expired_user.id)
     assert info["exists"] is True
     assert info["is_active"] is False
-    assert info["plan_title"] == PLANS["3m"]["title"]
+    assert info["plan_title"] == "Standard 3 месяца"
     assert info["expires_at"] == expired.expires_at
 
 
@@ -126,3 +150,153 @@ def test_aware_converts_naive_and_preserves_aware():
 
     assert _aware(naive).tzinfo == timezone.utc
     assert _aware(aware) is aware
+
+
+class FakePanelClient:
+    def __init__(self, exists: bool = False):
+        self.exists = exists
+        self.created: list[dict[str, object]] = []
+        self.modified: list[dict[str, object]] = []
+
+    async def get_user(self, username: str) -> PanelUser:
+        if not self.exists:
+            raise RemnawaveNotFoundError("missing")
+        return self._panel_user(username)
+
+    async def create_user(self, **kwargs) -> PanelUser:
+        self.created.append(kwargs)
+        self.exists = True
+        return self._panel_user(str(kwargs["username"]))
+
+    async def modify_user(self, **kwargs) -> PanelUser:
+        self.modified.append(kwargs)
+        self.exists = True
+        return self._panel_user(str(kwargs["username"]))
+
+    def _panel_user(self, username: str) -> PanelUser:
+        return PanelUser(
+            uuid="uuid",
+            username=username,
+            short_uuid="short",
+            subscription_url="https://sub.example/api/sub/short",
+            status="ACTIVE",
+            expire_at="2026-07-03T00:00:00Z",
+            traffic_limit_bytes=10 * 1024**3,
+            traffic_limit_strategy="NO_RESET",
+            hwid_device_limit=1,
+            usage=PanelUsage(used_traffic_bytes=42, lifetime_used_traffic_bytes=42),
+        )
+
+
+class FakeGenericPanelGateway:
+    provider = "marzban"
+
+    def __init__(self, exists: bool = False):
+        self.exists = exists
+        self.created: list[dict[str, object]] = []
+        self.modified: list[dict[str, object]] = []
+
+    def build_username(self, telegram_id: int) -> str:
+        return f"mz_{telegram_id}"
+
+    async def get_user(self, username: str) -> PanelAccount:
+        if not self.exists:
+            raise PanelUserNotFoundError("missing")
+        return self._account(username)
+
+    async def create_user(self, **kwargs) -> PanelAccount:
+        self.created.append(kwargs)
+        self.exists = True
+        return self._account(str(kwargs["username"]))
+
+    async def modify_user(self, **kwargs) -> PanelAccount:
+        self.modified.append(kwargs)
+        self.exists = True
+        return self._account(str(kwargs["username"]))
+
+    def _account(self, username: str) -> PanelAccount:
+        return PanelAccount(
+            username=username,
+            short_uuid=username,
+            subscription_url=f"https://marzban.example/sub/{username}",
+            status="active",
+            expire_at=1783036800,
+            traffic_limit_bytes=10 * 1024**3,
+            used_traffic_bytes=77,
+            lifetime_used_traffic_bytes=88,
+            device_limit=None,
+            provider=self.provider,
+        )
+
+
+@pytest.mark.integration
+async def test_activate_panel_subscription_creates_panel_user_and_subscription(db_session, monkeypatch):
+    monkeypatch.setattr(
+        "services.subscription.settings.REMNAWAVE_DEFAULT_INTERNAL_SQUAD_UUIDS",
+        "squad-1, squad-2",
+    )
+    repo = Repository(db_session)
+    user = await repo.create_user(telegram_id=600, username="alice")
+    panel = FakePanelClient(exists=False)
+
+    subscription = await activate_panel_subscription(db_session, user.id, "trial", panel_client=panel)
+
+    assert panel.created[0]["username"] == "tg_600"
+    assert panel.created[0]["telegram_id"] == 600
+    assert panel.created[0]["active_internal_squads"] == ["squad-1", "squad-2"]
+    assert subscription.plan == "trial"
+    assert subscription.tier == "trial"
+    assert subscription.panel_username == "tg_600"
+    assert subscription.sub_token == "short"
+    assert subscription.traffic_limit_bytes == 10 * 1024**3
+    assert subscription.traffic_used_bytes == 42
+    assert subscription.device_limit == 1
+
+
+@pytest.mark.integration
+async def test_activate_panel_subscription_extends_existing_panel_user(db_session, monkeypatch):
+    monkeypatch.setattr("services.subscription.settings.REMNAWAVE_DEFAULT_INTERNAL_SQUAD_UUIDS", "squad-1")
+    repo = Repository(db_session)
+    user = await repo.create_user(telegram_id=601)
+    now = datetime.now(timezone.utc)
+    old = await repo.create_subscription(
+        user_id=user.id,
+        plan="trial",
+        tier="trial",
+        panel_username="tg_601",
+        sub_token="old",
+        started_at=now - timedelta(days=1),
+        expires_at=now + timedelta(days=3),
+        is_active=True,
+    )
+    panel = FakePanelClient(exists=True)
+
+    subscription = await activate_panel_subscription(db_session, user.id, "standard_1m", panel_client=panel)
+    await db_session.refresh(old)
+
+    assert panel.created == []
+    assert panel.modified[0]["username"] == "tg_601"
+    assert panel.modified[0]["status"] == "ACTIVE"
+    assert panel.modified[0]["active_internal_squads"] == ["squad-1"]
+    assert _aware(subscription.started_at) == _aware(old.expires_at)
+    assert subscription.plan == "standard_1m"
+    assert subscription.tier == "standard"
+    assert old.is_active is False
+
+
+@pytest.mark.integration
+async def test_activate_panel_subscription_accepts_generic_panel_gateway(db_session):
+    repo = Repository(db_session)
+    user = await repo.create_user(telegram_id=602, username="marz")
+    gateway = FakeGenericPanelGateway(exists=False)
+
+    subscription = await activate_panel_subscription(db_session, user.id, "trial", panel_gateway=gateway)
+
+    assert gateway.created[0]["username"] == "mz_602"
+    assert gateway.created[0]["telegram_id"] == 602
+    assert subscription.plan == "trial"
+    assert subscription.tier == "trial"
+    assert subscription.panel_username == "mz_602"
+    assert subscription.sub_token == "mz_602"
+    assert subscription.subscription_url == "https://marzban.example/sub/mz_602"
+    assert subscription.traffic_used_bytes == 77

@@ -3,8 +3,10 @@ SQLAlchemy==2.0.36
 asyncpg==0.30.0
 redis==5.2.0
 APScheduler==3.10.4
+alembic==1.14.0
 pydantic-settings==2.6.1
 qrcode==8.0
 Pillow==11.0.0
 python-dotenv==1.0.1
 greenlet==3.1.1
+aiohttp==3.10.11

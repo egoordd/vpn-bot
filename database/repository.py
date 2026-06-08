@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from database.models import Payment, Subscription, User, WireguardKey
+from database.models import Node, Payment, Plan, Subscription, User, WireguardKey
 
 
 def _now() -> datetime:
@@ -22,8 +22,18 @@ class Repository:
         await self.session.refresh(instance)
         return instance
 
-    async def create_user(self, telegram_id: int, username: str | None = None) -> User:
-        user = User(telegram_id=telegram_id, username=username)
+    async def create_user(
+        self,
+        telegram_id: int,
+        username: str | None = None,
+        referrer_id: int | None = None,
+    ) -> User:
+        user = User(
+            telegram_id=telegram_id,
+            username=username,
+            referrer_id=referrer_id,
+            ref_code=f"tg{telegram_id}",
+        )
         self.session.add(user)
         try:
             return await self._commit_refresh(user)
@@ -79,10 +89,30 @@ class Repository:
         started_at: datetime,
         expires_at: datetime,
         is_active: bool = True,
+        tier: str = "standard",
+        panel_username: str | None = None,
+        sub_token: str | None = None,
+        subscription_url: str | None = None,
+        traffic_limit_bytes: int | None = None,
+        traffic_used_bytes: int = 0,
+        device_limit: int | None = None,
+        status: str = "active",
+        node_ids: list[str] | None = None,
+        static_ip: str | None = None,
     ) -> Subscription:
         subscription = Subscription(
             user_id=user_id,
             plan=plan,
+            tier=tier,
+            panel_username=panel_username,
+            sub_token=sub_token,
+            subscription_url=subscription_url,
+            traffic_limit_bytes=traffic_limit_bytes,
+            traffic_used_bytes=traffic_used_bytes,
+            device_limit=device_limit,
+            status=status,
+            node_ids=node_ids,
+            static_ip=static_ip,
             started_at=started_at,
             expires_at=expires_at,
             is_active=is_active,
@@ -139,6 +169,28 @@ class Repository:
         await self.session.commit()
         return True
 
+    async def update_subscription(self, subscription_id: int, **values: Any) -> Subscription | None:
+        subscription = await self.get_subscription(subscription_id)
+        if subscription is None:
+            return None
+        for key, value in values.items():
+            if hasattr(subscription, key):
+                setattr(subscription, key, value)
+        return await self._commit_refresh(subscription)
+
+    async def list_active_panel_subscriptions(self) -> list[Subscription]:
+        result = await self.session.execute(
+            select(Subscription)
+            .options(selectinload(Subscription.user))
+            .where(
+                Subscription.is_active.is_(True),
+                Subscription.expires_at > _now(),
+                Subscription.panel_username.is_not(None),
+            )
+            .order_by(Subscription.id)
+        )
+        return list(result.scalars().all())
+
     async def get_expiring_subscriptions(self, days: int = 3) -> list[Subscription]:
         now = _now()
         deadline = now + timedelta(days=days)
@@ -179,6 +231,159 @@ class Repository:
         result = await self.session.execute(delete(Subscription).where(Subscription.id == subscription_id))
         await self.session.commit()
         return result.rowcount > 0
+
+    async def upsert_plan(
+        self,
+        code: str,
+        title: str,
+        tier: str,
+        duration_days: int,
+        price_rub: int,
+        crypto_amount: str,
+        traffic_limit_bytes: int | None,
+        device_limit: int | None,
+        description: str | None = None,
+        is_active: bool = True,
+        sort_order: int = 0,
+    ) -> Plan:
+        plan = await self.get_plan(code)
+        if plan is None:
+            plan = Plan(
+                code=code,
+                title=title,
+                tier=tier,
+                duration_days=duration_days,
+                price_rub=price_rub,
+                crypto_amount=crypto_amount,
+                traffic_limit_bytes=traffic_limit_bytes,
+                device_limit=device_limit,
+                description=description,
+                is_active=is_active,
+                sort_order=sort_order,
+            )
+            self.session.add(plan)
+            return await self._commit_refresh(plan)
+
+        plan.title = title
+        plan.tier = tier
+        plan.duration_days = duration_days
+        plan.price_rub = price_rub
+        plan.crypto_amount = crypto_amount
+        plan.traffic_limit_bytes = traffic_limit_bytes
+        plan.device_limit = device_limit
+        plan.description = description
+        plan.is_active = is_active
+        plan.sort_order = sort_order
+        return await self._commit_refresh(plan)
+
+    async def get_plan(self, code: str) -> Plan | None:
+        return await self.session.get(Plan, code)
+
+    async def list_plans(self, active_only: bool = True) -> list[Plan]:
+        query = select(Plan).order_by(Plan.sort_order, Plan.code)
+        if active_only:
+            query = query.where(Plan.is_active.is_(True))
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def create_node(
+        self,
+        tier: str,
+        capacity: int,
+        region: str,
+        provider: str,
+        ip_address: str,
+        provider_instance_id: str | None = None,
+        panel_node_id: str | None = None,
+        current_users: int = 0,
+        static_ips: list[str] | None = None,
+        status: str = "active",
+        name: str | None = None,
+    ) -> Node:
+        node = Node(
+            name=name,
+            tier=tier,
+            capacity=capacity,
+            region=region,
+            provider=provider,
+            provider_instance_id=provider_instance_id,
+            ip_address=ip_address,
+            panel_node_id=panel_node_id,
+            current_users=current_users,
+            static_ips=list(static_ips or []),
+            status=status,
+        )
+        self.session.add(node)
+        return await self._commit_refresh(node)
+
+    async def get_node(self, node_id: int) -> Node | None:
+        return await self.session.get(Node, node_id)
+
+    async def get_node_by_panel_node_id(self, panel_node_id: str) -> Node | None:
+        result = await self.session.execute(select(Node).where(Node.panel_node_id == panel_node_id))
+        return result.scalar_one_or_none()
+
+    async def get_node_by_provider_instance_id(self, provider_instance_id: str) -> Node | None:
+        result = await self.session.execute(select(Node).where(Node.provider_instance_id == provider_instance_id))
+        return result.scalar_one_or_none()
+
+    async def list_nodes(
+        self,
+        tier: str | None = None,
+        region: str | None = None,
+        provider: str | None = None,
+        status: str | None = None,
+    ) -> list[Node]:
+        query = select(Node).order_by(Node.id)
+        if tier is not None:
+            query = query.where(Node.tier == tier)
+        if region is not None:
+            query = query.where(Node.region == region)
+        if provider is not None:
+            query = query.where(Node.provider == provider)
+        if status is not None:
+            query = query.where(Node.status == status)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def list_available_nodes(
+        self,
+        tier: str,
+        region: str | None = None,
+        provider: str | None = None,
+    ) -> list[Node]:
+        query = (
+            select(Node)
+            .where(
+                Node.tier == tier,
+                Node.status == "active",
+                Node.current_users < Node.capacity,
+            )
+            .order_by(Node.current_users, Node.capacity.desc(), Node.id)
+        )
+        if region is not None:
+            query = query.where(Node.region == region)
+        if provider is not None:
+            query = query.where(Node.provider == provider)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def update_node(self, node_id: int, **values: Any) -> Node | None:
+        node = await self.get_node(node_id)
+        if node is None:
+            return None
+        for key, value in values.items():
+            if hasattr(node, key):
+                setattr(node, key, value)
+        return await self._commit_refresh(node)
+
+    async def delete_node(self, node_id: int) -> bool:
+        node = await self.get_node(node_id)
+        if node is None:
+            return False
+        await self.session.delete(node)
+        await self.session.commit()
+        return True
 
     async def create_wireguard_key(
         self,
@@ -315,12 +520,31 @@ class Repository:
             .where(
                 Payment.external_invoice_id == str(external_invoice_id),
                 Payment.provider == "cryptobot",
-                Payment.status == "pending",
+                Payment.status.in_(("pending", "processing")),
             )
             .values(
                 status="completed",
                 provider_payment_charge_id=str(external_invoice_id),
             )
+            .returning(Payment.id)
+        )
+        payment_id = result.scalar_one_or_none()
+        if payment_id is None:
+            await self.session.rollback()
+            return None
+
+        await self.session.commit()
+        return await self.get_payment(payment_id)
+
+    async def claim_pending_cryptobot_payment(self, external_invoice_id: str) -> Payment | None:
+        result = await self.session.execute(
+            update(Payment)
+            .where(
+                Payment.external_invoice_id == str(external_invoice_id),
+                Payment.provider == "cryptobot",
+                Payment.status == "pending",
+            )
+            .values(status="processing")
             .returning(Payment.id)
         )
         payment_id = result.scalar_one_or_none()

@@ -11,6 +11,12 @@ from services.subscription import get_subscription_info
 router = Router()
 
 
+def _format_gb(value: object) -> str:
+    if value is None:
+        return "без лимита"
+    return f"{int(value) / 1024**3:.1f} ГБ"
+
+
 @router.callback_query(F.data == "my_subscription")
 async def subscription_handler(
     callback: CallbackQuery,
@@ -31,11 +37,23 @@ async def subscription_handler(
         if expires_at and expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         status = "активна" if info["is_active"] else "неактивна"
-        text = (
+        lines = [
             f"Подписка: {status}\n"
             f"Тариф: {info['plan_title']}\n"
             f"Действует до: {expires_at:%d.%m.%Y %H:%M} UTC"
-        )
+        ]
+        if info.get("tier"):
+            lines.append(f"Тип: {info['tier']}")
+        if info.get("traffic_limit_bytes") is not None:
+            lines.append(
+                "Трафик: "
+                f"{_format_gb(info.get('traffic_used_bytes'))} / {_format_gb(info.get('traffic_limit_bytes'))}"
+            )
+        if info.get("device_limit") is not None:
+            lines.append(f"Устройства: до {info['device_limit']}")
+        if info.get("subscription_url"):
+            lines.append(f"Ссылка-подписка:\n{info['subscription_url']}")
+        text = "\n".join(lines)
 
     if callback.message:
         await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard())

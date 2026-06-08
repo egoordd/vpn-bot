@@ -67,6 +67,43 @@ async def test_subscription_repository_methods(db_session):
 
 
 @pytest.mark.integration
+async def test_panel_subscription_repository_methods(db_session):
+    repo = Repository(db_session)
+    user = await repo.create_user(telegram_id=250)
+    now = datetime.now(timezone.utc)
+    panel_subscription = await repo.create_subscription(
+        user_id=user.id,
+        plan="trial",
+        tier="trial",
+        panel_username="tg_250",
+        sub_token="old",
+        subscription_url="https://sub.example/old",
+        started_at=now,
+        expires_at=now + timedelta(days=7),
+        is_active=True,
+    )
+    await repo.create_subscription(
+        user_id=user.id,
+        plan="legacy",
+        started_at=now,
+        expires_at=now + timedelta(days=7),
+        is_active=True,
+    )
+
+    assert await repo.list_active_panel_subscriptions() == [panel_subscription]
+
+    updated = await repo.update_subscription(
+        panel_subscription.id,
+        traffic_used_bytes=123,
+        status="active",
+        ignored="value",
+    )
+    assert updated.traffic_used_bytes == 123
+    assert updated.status == "active"
+    assert await repo.update_subscription(9999, status="missing") is None
+
+
+@pytest.mark.integration
 async def test_wireguard_key_repository_methods(db_session):
     repo = Repository(db_session)
     user1 = await repo.create_user(telegram_id=300)
@@ -110,6 +147,11 @@ async def test_payment_repository_methods(db_session):
     assert await repo.get_payment_by_external_id("invoice-1") == payment
     assert [item.id for item in await repo.list_payments_by_user(user.id)] == [payment.id, basic.id]
 
+    claimed = await repo.claim_pending_cryptobot_payment("invoice-1")
+    assert claimed.id == payment.id
+    assert claimed.status == "processing"
+    assert await repo.claim_pending_cryptobot_payment("invoice-1") is None
+
     completed = await repo.complete_payment_by_external_id("invoice-1")
     assert completed.id == payment.id
     assert completed.status == "completed"
@@ -125,3 +167,122 @@ async def test_payment_repository_methods(db_session):
     assert completed_by_payload.telegram_payment_charge_id == "tg"
     assert completed_by_payload.provider_payment_charge_id == "provider"
     assert await repo.complete_payment_by_payload("missing", "tg") is None
+
+
+@pytest.mark.integration
+async def test_plan_repository_methods(db_session):
+    repo = Repository(db_session)
+
+    plan = await repo.upsert_plan(
+        code="standard_1m",
+        title="Standard 1 month",
+        tier="standard",
+        duration_days=30,
+        price_rub=149,
+        crypto_amount="1.99",
+        traffic_limit_bytes=150 * 1024**3,
+        device_limit=3,
+        sort_order=10,
+    )
+    assert await repo.get_plan("standard_1m") == plan
+
+    updated = await repo.upsert_plan(
+        code="standard_1m",
+        title="Standard updated",
+        tier="standard",
+        duration_days=31,
+        price_rub=199,
+        crypto_amount="2.49",
+        traffic_limit_bytes=None,
+        device_limit=5,
+        is_active=False,
+        sort_order=20,
+    )
+    assert updated.code == plan.code
+    assert updated.title == "Standard updated"
+    assert await repo.list_plans(active_only=True) == []
+    assert [item.code for item in await repo.list_plans(active_only=False)] == ["standard_1m"]
+
+
+@pytest.mark.integration
+async def test_node_repository_methods(db_session):
+    repo = Repository(db_session)
+
+    premium_empty = await repo.create_node(
+        tier="premium",
+        capacity=10,
+        region="de-fra",
+        provider="vultr",
+        ip_address="203.0.113.10",
+        provider_instance_id="vultr-instance-1",
+        panel_node_id="panel-node-1",
+        current_users=2,
+        static_ips=["198.51.100.10"],
+        name="fra-premium-1",
+    )
+    premium_busy = await repo.create_node(
+        tier="premium",
+        capacity=10,
+        region="de-fra",
+        provider="vultr",
+        ip_address="203.0.113.11",
+        panel_node_id="panel-node-2",
+        current_users=10,
+    )
+    premium_other_region = await repo.create_node(
+        tier="premium",
+        capacity=5,
+        region="nl-ams",
+        provider="vultr",
+        ip_address="203.0.113.12",
+        panel_node_id="panel-node-3",
+        current_users=0,
+    )
+    await repo.create_node(
+        tier="standard",
+        capacity=100,
+        region="de-fra",
+        provider="vultr",
+        ip_address="203.0.113.13",
+        panel_node_id="panel-node-4",
+        current_users=0,
+    )
+    premium_draining = await repo.create_node(
+        tier="premium",
+        capacity=10,
+        region="de-fra",
+        provider="vultr",
+        ip_address="203.0.113.14",
+        panel_node_id="panel-node-5",
+        current_users=0,
+        status="draining",
+    )
+
+    assert await repo.get_node(premium_empty.id) == premium_empty
+    assert await repo.get_node_by_panel_node_id("panel-node-1") == premium_empty
+    assert await repo.get_node_by_provider_instance_id("vultr-instance-1") == premium_empty
+    assert premium_empty.static_ips == ["198.51.100.10"]
+    assert [node.id for node in await repo.list_nodes(tier="premium", region="de-fra")] == [
+        premium_empty.id,
+        premium_busy.id,
+        premium_draining.id,
+    ]
+    assert [node.id for node in await repo.list_available_nodes("premium")] == [
+        premium_other_region.id,
+        premium_empty.id,
+    ]
+    assert [node.id for node in await repo.list_available_nodes("premium", region="de-fra")] == [premium_empty.id]
+
+    updated = await repo.update_node(
+        premium_empty.id,
+        current_users=3,
+        status="active",
+        static_ips=["198.51.100.10", "198.51.100.11"],
+        ignored="value",
+    )
+    assert updated.current_users == 3
+    assert updated.static_ips == ["198.51.100.10", "198.51.100.11"]
+    assert await repo.update_node(9999, status="missing") is None
+
+    assert await repo.delete_node(premium_busy.id) is True
+    assert await repo.delete_node(premium_busy.id) is False

@@ -1,0 +1,13 @@
+services:
+  bot:
+    network_mode: "host"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vpn_bot}:${POSTGRES_PASSWORD:-vpn_bot_password}@127.0.0.1:5432/${POSTGRES_DB:-vpn_bot}
+      REDIS_URL: redis://127.0.0.1:6379/0
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - /etc/wireguard:/etc/wireguard
+      - /var/run/wireguard:/var/run/wireguard

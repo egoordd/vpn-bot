@@ -61,3 +61,36 @@ def test_support_contact(raw, expected):
 def test_bot_token_returns_secret_value():
     assert make_settings(BOT_TOKEN="test-secret").bot_token == "test-secret"
     assert settings.bot_token == "test:token"
+
+
+@pytest.mark.unit
+def test_autoscaler_list_settings_are_parsed():
+    parsed = make_settings(
+        VULTR_SSH_KEY_IDS="key-1, key-2",
+        REMNAWAVE_DEFAULT_INTERNAL_SQUAD_UUIDS="squad-1, squad-2",
+        REMNAWAVE_NODE_INBOUND_UUIDS="inbound-1, inbound-2",
+        VULTR_API_TOKEN="vultr-secret",
+        AUTOSCALE_PREMIUM_REGIONS="ams, fra",
+        PANEL_PROVIDER="marzban",
+        MARZBAN_ACCESS_TOKEN="marzban-token",
+        MARZBAN_PASSWORD="marzban-password",
+        MARZBAN_DEFAULT_PROXIES='{"vless":{}}',
+        MARZBAN_DEFAULT_INBOUNDS='{"vless":["VLESS TCP REALITY"]}',
+    )
+
+    assert parsed.PANEL_PROVIDER == "marzban"
+    assert parsed.vultr_ssh_key_ids_list == ["key-1", "key-2"]
+    assert parsed.remnawave_default_internal_squad_uuids_list == ["squad-1", "squad-2"]
+    assert parsed.remnawave_node_inbound_uuids_list == ["inbound-1", "inbound-2"]
+    assert parsed.vultr_api_token == "vultr-secret"
+    assert parsed.autoscale_premium_regions_list == ["ams", "fra"]
+    assert parsed.marzban_access_token == "marzban-token"
+    assert parsed.marzban_password == "marzban-password"
+    assert parsed.marzban_default_proxies_dict == {"vless": {}}
+    assert parsed.marzban_default_inbounds_dict == {"vless": ["VLESS TCP REALITY"]}
+
+
+@pytest.mark.unit
+def test_marzban_json_settings_must_be_objects():
+    with pytest.raises(ValueError, match="MARZBAN_DEFAULT_PROXIES"):
+        make_settings(MARZBAN_DEFAULT_PROXIES="[]").marzban_default_proxies_dict

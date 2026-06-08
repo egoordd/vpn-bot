@@ -1,0 +1,35 @@
+{
+  "endpoints": [
+    {
+      "protocol": "vless-reality",
+      "tag": "nl-reality-443",
+      "server": "node.example.com",
+      "server_port": 443,
+      "id": "00000000-0000-0000-0000-000000000000",
+      "pbk": "replace_with_reality_public_key",
+      "sni": "node.example.com",
+      "sid": "replace_with_short_id",
+      "fingerprint": "firefox",
+      "flow": "xtls-rprx-vision"
+    },
+    {
+      "protocol": "hysteria2",
+      "tag": "nl-hy2-8443",
+      "server": "node.example.com",
+      "server_port": 8443,
+      "password": "replace_with_hysteria2_password",
+      "sni": "node.example.com",
+      "fingerprint": "chrome",
+      "alpn": ["h3"],
+      "congestion": "bbr"
+    },
+    {
+      "protocol": "shadowsocks",
+      "tag": "nl-ss-1234",
+      "server": "node.example.com",
+      "server_port": 1234,
+      "method": "chacha20-ietf-poly1305",
+      "password": "replace_with_shadowsocks_password"
+    }
+  ]
+}

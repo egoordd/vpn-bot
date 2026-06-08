@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from database.repository import Repository
 from scheduler import tasks
+from services.panel_client import PanelUsage, PanelUser, RemnawaveNotFoundError
+from services.panel_gateway import PanelAccount
 from services.payment import create_invoice_payload
 from services.wireguard import WireGuardError
 
@@ -45,7 +48,7 @@ async def test_poll_cryptobot_payments_skips_non_pending_payment(fake_bot, sessi
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=500)
-        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-done", "payload", "1m")
+        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-done", "payload", "standard_1m")
         await repo.update_payment_status(payment.id, "completed")
 
     ensure_user_peer = AsyncMock()
@@ -62,7 +65,7 @@ async def test_poll_cryptobot_payments_skips_invalid_payload(fake_bot, session_p
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=501)
-        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-bad", "bad-payload", "1m")
+        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-bad", "bad-payload", "standard_1m")
 
     ensure_user_peer = AsyncMock()
     monkeypatch.setattr(tasks, "get_invoices_by_status", AsyncMock(return_value=[{"invoice_id": "inv-bad"}]))
@@ -82,8 +85,8 @@ async def test_poll_cryptobot_payments_skips_payload_user_mismatch(fake_bot, ses
         repo = Repository(session)
         user = await repo.create_user(telegram_id=502)
         other = await repo.create_user(telegram_id=503)
-        payload = create_invoice_payload(other.id, "1m")
-        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-mismatch", payload, "1m")
+        payload = create_invoice_payload(other.id, "standard_1m")
+        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-mismatch", payload, "standard_1m")
 
     ensure_user_peer = AsyncMock()
     monkeypatch.setattr(
@@ -106,8 +109,8 @@ async def test_poll_cryptobot_payments_happy_path(fake_bot, session_pool, monkey
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=504)
-        payload = create_invoice_payload(user.id, "1m")
-        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-paid", payload, "1m")
+        payload = create_invoice_payload(user.id, "standard_1m")
+        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-paid", payload, "standard_1m")
 
     monkeypatch.setattr(
         tasks,
@@ -131,6 +134,325 @@ async def test_poll_cryptobot_payments_happy_path(fake_bot, session_pool, monkey
     fake_bot.send_message.assert_awaited_once()
     fake_bot.send_document.assert_awaited_once()
     fake_bot.send_photo.assert_awaited_once()
+
+
+@pytest.mark.integration
+async def test_poll_cryptobot_payments_retries_when_legacy_provisioning_fails(
+    fake_bot,
+    session_pool,
+    monkeypatch,
+):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=514)
+        payload = create_invoice_payload(user.id, "standard_1m")
+        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-wg-fails", payload, "standard_1m")
+
+    monkeypatch.setattr(
+        tasks,
+        "get_invoices_by_status",
+        AsyncMock(return_value=[{"invoice_id": "inv-wg-fails", "payload": payload}]),
+    )
+    monkeypatch.setattr(tasks, "_remnawave_configured", lambda: False)
+    monkeypatch.setattr(tasks, "ensure_user_peer", AsyncMock(side_effect=WireGuardError("wg down")))
+
+    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_payment(payment.id)
+
+    assert refreshed.status == "pending"
+    fake_bot.send_message.assert_not_awaited()
+    fake_bot.send_document.assert_not_awaited()
+    fake_bot.send_photo.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_poll_cryptobot_payments_panel_happy_path(fake_bot, session_pool, monkeypatch):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=505)
+        payload = create_invoice_payload(user.id, "standard_1m")
+        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-panel", payload, "standard_1m")
+
+    monkeypatch.setattr(
+        tasks,
+        "get_invoices_by_status",
+        AsyncMock(return_value=[{"invoice_id": "inv-panel", "payload": payload}]),
+    )
+    monkeypatch.setattr(tasks, "_remnawave_configured", lambda: True)
+    activate_panel_subscription = AsyncMock(
+        return_value=SimpleNamespace(
+            subscription_url="https://sub.example/api/sub/paid",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+    )
+    ensure_user_peer = AsyncMock()
+    monkeypatch.setattr(tasks, "activate_panel_subscription", activate_panel_subscription)
+    monkeypatch.setattr(tasks, "ensure_user_peer", ensure_user_peer)
+    monkeypatch.setattr(tasks, "generate_qr_png_bytes", AsyncMock(return_value=b"png"))
+
+    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_payment(payment.id)
+
+    assert refreshed.status == "completed"
+    activate_panel_subscription.assert_awaited_once()
+    ensure_user_peer.assert_not_awaited()
+    fake_bot.send_message.assert_awaited_once()
+    fake_bot.send_photo.assert_awaited_once()
+    fake_bot.send_document.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_poll_cryptobot_payments_panel_premium_assigns_selected_region(fake_bot, session_pool, monkeypatch):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=516)
+        payload = create_invoice_payload(user.id, "premium_1m", region="ams")
+        payment = await repo.create_cryptobot_payment(user.id, 499, "inv-premium", payload, "premium_1m")
+
+    monkeypatch.setattr(
+        tasks,
+        "get_invoices_by_status",
+        AsyncMock(return_value=[{"invoice_id": "inv-premium", "payload": payload}]),
+    )
+    monkeypatch.setattr(tasks, "_remnawave_configured", lambda: True)
+    activate_panel_subscription = AsyncMock(
+        return_value=SimpleNamespace(
+            id=700,
+            subscription_url="https://sub.example/api/sub/premium",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+    )
+    assign_subscription_to_node = AsyncMock(return_value=SimpleNamespace(region="ams"))
+    monkeypatch.setattr(tasks, "activate_panel_subscription", activate_panel_subscription)
+    monkeypatch.setattr(tasks, "assign_subscription_to_node", assign_subscription_to_node)
+    monkeypatch.setattr(tasks, "generate_qr_png_bytes", AsyncMock(return_value=b"png"))
+
+    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_payment(payment.id)
+
+    assert refreshed.status == "completed"
+    activate_panel_subscription.assert_awaited_once()
+    assign_subscription_to_node.assert_awaited_once()
+    assign_kwargs = assign_subscription_to_node.await_args.kwargs
+    assert assign_kwargs["subscription_id"] == 700
+    assert assign_kwargs["region"] == "ams"
+    assert assign_kwargs["provision_request"].country_code == "NL"
+    assert "Premium-локация: Нидерланды, Амстердам" in fake_bot.send_message.await_args.kwargs["text"]
+
+
+@pytest.mark.integration
+async def test_poll_cryptobot_payments_retries_when_panel_provisioning_fails(
+    fake_bot,
+    session_pool,
+    monkeypatch,
+):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=515)
+        payload = create_invoice_payload(user.id, "standard_1m")
+        payment = await repo.create_cryptobot_payment(user.id, 199, "inv-panel-fails", payload, "standard_1m")
+
+    monkeypatch.setattr(
+        tasks,
+        "get_invoices_by_status",
+        AsyncMock(return_value=[{"invoice_id": "inv-panel-fails", "payload": payload}]),
+    )
+    monkeypatch.setattr(tasks, "_remnawave_configured", lambda: True)
+    activate_panel_subscription = AsyncMock(side_effect=RuntimeError("panel down"))
+    ensure_user_peer = AsyncMock()
+    monkeypatch.setattr(tasks, "activate_panel_subscription", activate_panel_subscription)
+    monkeypatch.setattr(tasks, "ensure_user_peer", ensure_user_peer)
+
+    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_payment(payment.id)
+
+    assert refreshed.status == "pending"
+    activate_panel_subscription.assert_awaited_once()
+    ensure_user_peer.assert_not_awaited()
+    fake_bot.send_message.assert_not_awaited()
+    fake_bot.send_photo.assert_not_awaited()
+
+
+class FakePanelClient:
+    def __init__(self, users: dict[str, PanelUser] | None = None, missing: set[str] | None = None):
+        self.users = users or {}
+        self.missing = missing or set()
+
+    async def get_user(self, username: str) -> PanelUser:
+        if username in self.missing:
+            raise RemnawaveNotFoundError("missing")
+        return self.users[username]
+
+
+class FakePanelGateway:
+    async def get_user(self, username: str) -> PanelAccount:
+        return PanelAccount(
+            username=username,
+            short_uuid=username,
+            subscription_url=f"https://marzban.example/sub/{username}",
+            status="active",
+            expire_at=1783036800,
+            traffic_limit_bytes=10 * 1024**3,
+            used_traffic_bytes=3 * 1024**3,
+            lifetime_used_traffic_bytes=3 * 1024**3,
+            device_limit=None,
+            provider="marzban",
+        )
+
+
+def _panel_user(
+    username: str,
+    used: int,
+    *,
+    limit: int | None = 10 * 1024**3,
+    status: str = "ACTIVE",
+) -> PanelUser:
+    return PanelUser(
+        uuid=f"uuid-{username}",
+        username=username,
+        short_uuid=f"short-{username}",
+        subscription_url=f"https://sub.example/api/sub/{username}",
+        status=status,
+        expire_at="2026-07-03T00:00:00Z",
+        traffic_limit_bytes=limit,
+        traffic_limit_strategy="NO_RESET",
+        hwid_device_limit=3,
+        usage=PanelUsage(used_traffic_bytes=used, lifetime_used_traffic_bytes=used),
+    )
+
+
+@pytest.mark.integration
+async def test_traffic_sync_updates_panel_subscription_usage(fake_bot, session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=506)
+        subscription = await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_1m",
+            tier="standard",
+            panel_username="tg_506",
+            sub_token="old",
+            subscription_url="https://sub.example/old",
+            traffic_limit_bytes=10 * 1024**3,
+            traffic_used_bytes=0,
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            is_active=True,
+        )
+
+    synced = await tasks.traffic_sync(
+        fake_bot,
+        session_pool,
+        panel_client=FakePanelClient({"tg_506": _panel_user("tg_506", used=2 * 1024**3)}),
+    )
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+
+    assert synced == 1
+    assert refreshed.is_active is True
+    assert refreshed.status == "active"
+    assert refreshed.traffic_used_bytes == 2 * 1024**3
+    assert refreshed.device_limit == 3
+    assert refreshed.sub_token == "short-tg_506"
+    assert refreshed.subscription_url == "https://sub.example/api/sub/tg_506"
+    fake_bot.send_message.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_traffic_sync_accepts_generic_panel_gateway(fake_bot, session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=509)
+        subscription = await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_1m",
+            tier="standard",
+            panel_username="mz_509",
+            traffic_limit_bytes=10 * 1024**3,
+            traffic_used_bytes=0,
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            is_active=True,
+        )
+
+    synced = await tasks.traffic_sync(fake_bot, session_pool, panel_gateway=FakePanelGateway())
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+
+    assert synced == 1
+    assert refreshed.is_active is True
+    assert refreshed.status == "active"
+    assert refreshed.traffic_used_bytes == 3 * 1024**3
+    assert refreshed.device_limit is None
+    assert refreshed.sub_token == "mz_509"
+    assert refreshed.subscription_url == "https://marzban.example/sub/mz_509"
+    fake_bot.send_message.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_traffic_sync_deactivates_when_traffic_limit_is_reached(fake_bot, session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=507)
+        subscription = await repo.create_subscription(
+            user_id=user.id,
+            plan="trial",
+            tier="trial",
+            panel_username="tg_507",
+            traffic_limit_bytes=10 * 1024**3,
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            is_active=True,
+        )
+
+    await tasks.traffic_sync(
+        fake_bot,
+        session_pool,
+        panel_client=FakePanelClient({"tg_507": _panel_user("tg_507", used=10 * 1024**3)}),
+    )
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+
+    assert refreshed.is_active is False
+    assert refreshed.status == "limited"
+    fake_bot.send_message.assert_awaited_once()
+
+
+@pytest.mark.integration
+async def test_traffic_sync_deactivates_missing_panel_user(fake_bot, session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=508)
+        subscription = await repo.create_subscription(
+            user_id=user.id,
+            plan="trial",
+            tier="trial",
+            panel_username="tg_508",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            is_active=True,
+        )
+
+    synced = await tasks.traffic_sync(fake_bot, session_pool, panel_client=FakePanelClient(missing={"tg_508"}))
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+
+    assert synced == 1
+    assert refreshed.is_active is False
+    assert refreshed.status == "not_found"
+    fake_bot.send_message.assert_awaited_once()
 
 
 @pytest.mark.integration
@@ -224,6 +546,82 @@ async def test_deactivate_expired_subscriptions_catches_remove_peer_errors(fake_
     async with session_pool() as session:
         refreshed = await Repository(session).get_subscription(subscription.id)
         assert refreshed.is_active is False
+
+
+@pytest.mark.integration
+async def test_deactivate_expired_subscriptions_releases_premium_nodes(fake_bot, session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=702)
+        node = await repo.create_node(
+            tier="premium",
+            capacity=2,
+            region="ams",
+            provider="manual",
+            ip_address="203.0.113.70",
+            panel_node_id="panel-premium",
+            current_users=1,
+        )
+        subscription = await repo.create_subscription(
+            user_id=user.id,
+            plan="premium_1m",
+            tier="premium",
+            node_ids=["panel-premium"],
+            started_at=datetime.now(timezone.utc) - timedelta(days=31),
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+            is_active=True,
+        )
+
+    await tasks.deactivate_expired_subscriptions(fake_bot, session_pool)
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        refreshed_node = await repo.get_node(node.id)
+        refreshed_subscription = await repo.get_subscription(subscription.id)
+
+    assert refreshed_node.current_users == 0
+    assert refreshed_subscription.node_ids == []
+    assert refreshed_subscription.is_active is False
+    fake_bot.send_message.assert_awaited_once()
+
+
+@pytest.mark.integration
+async def test_autoscale_check_noops_without_configured_regions(session_pool, monkeypatch):
+    autoscale_premium_pool = AsyncMock()
+    monkeypatch.setattr(tasks, "AUTOSCALE_PREMIUM_REGIONS", "", raising=False)
+    monkeypatch.setattr(tasks.settings, "AUTOSCALE_PREMIUM_REGIONS", "")
+    monkeypatch.setattr(tasks, "autoscale_premium_pool", autoscale_premium_pool)
+
+    result = await tasks.autoscale_check(session_pool)
+
+    assert result.checked_regions == 0
+    assert result.provisioned_count == 0
+    autoscale_premium_pool.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_autoscale_check_delegates_with_explicit_regions(session_pool, monkeypatch):
+    expected = tasks.AutoscalePoolResult(checked_regions=1, provisioned_node_ids=[10])
+    autoscale_premium_pool = AsyncMock(return_value=expected)
+    monkeypatch.setattr(tasks, "autoscale_premium_pool", autoscale_premium_pool)
+
+    result = await tasks.autoscale_check(
+        session_pool,
+        regions=["ams"],
+        min_free_slots=2,
+        min_active_nodes=1,
+        max_provisions_per_region=1,
+        decommission_empty=False,
+    )
+
+    assert result is expected
+    autoscale_premium_pool.assert_awaited_once()
+    kwargs = autoscale_premium_pool.await_args.kwargs
+    assert kwargs["regions"] == ["ams"]
+    assert kwargs["min_free_slots"] == 2
+    assert kwargs["min_active_nodes"] == 1
+    assert kwargs["max_provisions_per_region"] == 1
+    assert kwargs["decommission_empty"] is False
 
 
 @pytest.mark.unit
