@@ -27,6 +27,7 @@ from services.panel_gateway import (
 )
 from services.payment import parse_invoice_payload_details
 from services.qrcode import generate_qr_png_bytes
+from services.referral import reward_referrer_for_payment
 from services.subscription import activate_panel_subscription, activate_subscription
 from services.tariffs import resolve_premium_region, resolve_tariff
 from services.wireguard import WireGuardError, ensure_user_peer, remove_peer
@@ -443,6 +444,21 @@ async def poll_cryptobot_payments(
                     claimed_user_id,
                 )
                 continue
+
+            try:
+                await reward_referrer_for_payment(
+                    session,
+                    paid_user_id=claimed_user_id,
+                    plan_code=plan,
+                    payment_reference=f"cryptobot:{external_invoice_id}",
+                )
+            except Exception:
+                # Referral reward is best-effort; never block access delivery.
+                logger.exception(
+                    "Failed to credit referral reward external_invoice_id=%s user_id=%s",
+                    external_invoice_id,
+                    claimed_user_id,
+                )
 
             try:
                 if access_kind == "subscription":

@@ -1,12 +1,22 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from database.models import Node, Payment, Plan, Subscription, User, WireguardKey
+from database.models import (
+    Node,
+    Payment,
+    Plan,
+    PromoCode,
+    PromoRedemption,
+    Subscription,
+    User,
+    WalletTransaction,
+    WireguardKey,
+)
 
 
 def _now() -> datetime:
@@ -569,3 +579,213 @@ class Repository:
         await self.session.delete(payment)
         await self.session.commit()
         return True
+
+    # ---- Wallet ledger -----------------------------------------------------
+
+    async def get_balance(self, user_id: int) -> int | None:
+        result = await self.session.execute(select(User.balance).where(User.id == user_id))
+        return result.scalar_one_or_none()
+
+    async def credit_balance(
+        self,
+        user_id: int,
+        amount: int,
+        kind: str,
+        reference: str | None = None,
+        description: str | None = None,
+    ) -> WalletTransaction | None:
+        if amount <= 0:
+            raise ValueError("credit amount must be positive")
+        result = await self.session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(balance=User.balance + amount)
+            .returning(User.balance)
+        )
+        new_balance = result.scalar_one_or_none()
+        if new_balance is None:
+            # No row matched (unknown user); the UPDATE changed nothing, so there
+            # is nothing to roll back. Avoid session.rollback() here because it
+            # would expire the caller's loaded ORM objects.
+            return None
+        transaction = WalletTransaction(
+            user_id=user_id,
+            amount=amount,
+            balance_after=new_balance,
+            kind=kind,
+            reference=reference,
+            description=description,
+        )
+        self.session.add(transaction)
+        return await self._commit_refresh(transaction)
+
+    async def debit_balance(
+        self,
+        user_id: int,
+        amount: int,
+        kind: str,
+        reference: str | None = None,
+        description: str | None = None,
+    ) -> WalletTransaction | None:
+        if amount <= 0:
+            raise ValueError("debit amount must be positive")
+        result = await self.session.execute(
+            update(User)
+            .where(User.id == user_id, User.balance >= amount)
+            .values(balance=User.balance - amount)
+            .returning(User.balance)
+        )
+        new_balance = result.scalar_one_or_none()
+        if new_balance is None:
+            # No row matched (unknown user or insufficient balance); nothing was
+            # changed, so skip rollback to keep the caller's identity map intact.
+            return None
+        transaction = WalletTransaction(
+            user_id=user_id,
+            amount=-amount,
+            balance_after=new_balance,
+            kind=kind,
+            reference=reference,
+            description=description,
+        )
+        self.session.add(transaction)
+        return await self._commit_refresh(transaction)
+
+    async def find_wallet_transaction(
+        self,
+        user_id: int,
+        kind: str,
+        reference: str,
+    ) -> WalletTransaction | None:
+        result = await self.session.execute(
+            select(WalletTransaction).where(
+                WalletTransaction.user_id == user_id,
+                WalletTransaction.kind == kind,
+                WalletTransaction.reference == reference,
+            )
+        )
+        return result.scalars().first()
+
+    async def list_wallet_transactions(
+        self,
+        user_id: int,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[WalletTransaction]:
+        result = await self.session.execute(
+            select(WalletTransaction)
+            .where(WalletTransaction.user_id == user_id)
+            .order_by(WalletTransaction.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def sum_wallet_amount(self, user_id: int, kind: str | None = None) -> int:
+        query = select(func.coalesce(func.sum(WalletTransaction.amount), 0)).where(
+            WalletTransaction.user_id == user_id
+        )
+        if kind is not None:
+            query = query.where(WalletTransaction.kind == kind)
+        result = await self.session.execute(query)
+        return int(result.scalar_one())
+
+    # ---- Referrals ---------------------------------------------------------
+
+    async def get_user_by_ref_code(self, ref_code: str) -> User | None:
+        result = await self.session.execute(select(User).where(User.ref_code == ref_code))
+        return result.scalar_one_or_none()
+
+    async def count_referrals(self, user_id: int) -> int:
+        result = await self.session.execute(
+            select(func.count()).select_from(User).where(User.referrer_id == user_id)
+        )
+        return int(result.scalar_one())
+
+    async def list_referrals(self, user_id: int, limit: int = 100, offset: int = 0) -> list[User]:
+        result = await self.session.execute(
+            select(User)
+            .where(User.referrer_id == user_id)
+            .order_by(User.id)
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    # ---- Promo codes -------------------------------------------------------
+
+    async def create_promo_code(
+        self,
+        code: str,
+        kind: str,
+        value: int,
+        min_amount_kopecks: int | None = None,
+        max_uses: int | None = None,
+        per_user_limit: int = 1,
+        expires_at: datetime | None = None,
+        is_active: bool = True,
+        description: str | None = None,
+    ) -> PromoCode:
+        promo = PromoCode(
+            code=code,
+            kind=kind,
+            value=value,
+            min_amount_kopecks=min_amount_kopecks,
+            max_uses=max_uses,
+            per_user_limit=per_user_limit,
+            is_active=is_active,
+            description=description,
+            expires_at=expires_at,
+        )
+        self.session.add(promo)
+        return await self._commit_refresh(promo)
+
+    async def get_promo_code(self, code: str) -> PromoCode | None:
+        return await self.session.get(PromoCode, code)
+
+    async def count_user_redemptions(self, code: str, user_id: int) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(PromoRedemption)
+            .where(PromoRedemption.code == code, PromoRedemption.user_id == user_id)
+        )
+        return int(result.scalar_one())
+
+    async def claim_promo_use(self, code: str) -> int | None:
+        """Atomically bump ``used_count`` while respecting ``max_uses``.
+
+        Returns the new ``used_count`` or ``None`` when the promo is inactive
+        or already exhausted.
+        """
+        result = await self.session.execute(
+            update(PromoCode)
+            .where(
+                PromoCode.code == code,
+                PromoCode.is_active.is_(True),
+                or_(PromoCode.max_uses.is_(None), PromoCode.used_count < PromoCode.max_uses),
+            )
+            .values(used_count=PromoCode.used_count + 1)
+            .returning(PromoCode.used_count)
+        )
+        used_count = result.scalar_one_or_none()
+        if used_count is None:
+            # Promo inactive or exhausted: 0 rows changed, no rollback needed.
+            return None
+        await self.session.commit()
+        return int(used_count)
+
+    async def create_promo_redemption(
+        self,
+        code: str,
+        user_id: int,
+        applied_amount: int = 0,
+        reference: str | None = None,
+    ) -> PromoRedemption:
+        redemption = PromoRedemption(
+            code=code,
+            user_id=user_id,
+            applied_amount=applied_amount,
+            reference=reference,
+        )
+        self.session.add(redemption)
+        return await self._commit_refresh(redemption)

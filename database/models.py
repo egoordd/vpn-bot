@@ -55,6 +55,10 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    wallet_transactions: Mapped[list["WalletTransaction"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     referrer: Mapped["User | None"] = relationship(
         remote_side=[id],
         back_populates="referrals",
@@ -184,3 +188,73 @@ class Payment(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="payments")
+
+
+class WalletTransaction(Base):
+    """Append-only ledger of balance changes (kopecks, RUB minor units).
+
+    Rows are never mutated after creation: every credit/debit appends a new
+    entry carrying the signed ``amount`` and the resulting ``balance_after``.
+    """
+
+    __tablename__ = "wallet_transactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    reference: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="wallet_transactions")
+
+
+class PromoCode(Base):
+    __tablename__ = "promo_codes"
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    value: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_amount_kopecks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    per_user_limit: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    used_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", index=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    redemptions: Mapped[list["PromoRedemption"]] = relationship(
+        back_populates="promo",
+        cascade="all, delete-orphan",
+    )
+
+
+class PromoRedemption(Base):
+    __tablename__ = "promo_redemptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(ForeignKey("promo_codes.code", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    applied_amount: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    promo: Mapped[PromoCode] = relationship(back_populates="redemptions")

@@ -137,6 +137,39 @@ async def test_poll_cryptobot_payments_happy_path(fake_bot, session_pool, monkey
 
 
 @pytest.mark.integration
+async def test_poll_cryptobot_payments_credits_referrer(fake_bot, session_pool, monkeypatch):
+    from services import wallet
+    from services.referral import attach_referrer
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        referrer = await repo.create_user(telegram_id=600)
+        referee = await repo.create_user(telegram_id=601)
+        await attach_referrer(session, user_id=referee.id, ref_code=referrer.ref_code)
+        payload = create_invoice_payload(referee.id, "standard_1m")
+        await repo.create_cryptobot_payment(referee.id, 199, "inv-ref", payload, "standard_1m")
+
+    monkeypatch.setattr(
+        tasks,
+        "get_invoices_by_status",
+        AsyncMock(return_value=[{"invoice_id": "inv-ref", "payload": payload}]),
+    )
+    monkeypatch.setattr(tasks, "ensure_user_peer", AsyncMock(return_value=(None, "client-config")))
+    monkeypatch.setattr(tasks, "generate_qr_png_bytes", AsyncMock(return_value=b"png"))
+
+    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
+
+    async with session_pool() as session:
+        # standard_1m is 149 RUB -> 20% referral reward = 2980 kopecks
+        assert await wallet.get_balance(session, referrer.id) == 2980
+
+    # Polling the same paid invoice again must not double-credit the referrer.
+    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
+    async with session_pool() as session:
+        assert await wallet.get_balance(session, referrer.id) == 2980
+
+
+@pytest.mark.integration
 async def test_poll_cryptobot_payments_retries_when_legacy_provisioning_fails(
     fake_bot,
     session_pool,
