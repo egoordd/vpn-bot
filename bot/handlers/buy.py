@@ -1,5 +1,4 @@
 import logging
-from decimal import Decimal, ROUND_HALF_UP
 
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
@@ -7,16 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.handlers.start import LANDING_TEXT, _menu_state
 from bot.keyboards.main_menu import landing_keyboard, premium_location_keyboard
-from database.repository import Repository
+from services.billing_api import build_payment_intent, crypto_minor_units, register_cryptobot_payment
 from services.cryptobot import CryptoBotError, create_invoice
-from services.payment import PLANS, create_invoice_payload, normalize_payment_plan_code
+from services.payment import PLANS, normalize_payment_plan_code
 from services.tariffs import resolve_premium_region, resolve_tariff
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 def _crypto_minor_units(amount: str) -> int:
-    return int((Decimal(amount) * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return crypto_minor_units(amount)
 
 
 def _payment_keyboard(pay_url: str, amount: str) -> InlineKeyboardMarkup:
@@ -57,31 +56,24 @@ async def _create_payment_invoice(
     plan: str,
     region: str | None = None,
 ) -> None:
-    plan_data = PLANS[plan]
-    tariff = resolve_tariff(plan)
-    region_option = resolve_premium_region(region) if region else None
-
     async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.get_or_create_user(
+        intent = await build_payment_intent(
+            session,
             telegram_id=callback.from_user.id,
             username=callback.from_user.username,
+            plan=plan,
+            region=region,
         )
-        payload = create_invoice_payload(user_id=user.id, plan=plan, region=region)
-        amount = str(plan_data["crypto_amount"])
-        description = str(plan_data["description"])
-        if region_option is not None:
-            description = f"{description}: {region_option.title}"
 
         try:
             invoice = await create_invoice(
-                amount=amount,
-                payload=payload,
-                description=description,
-                asset="USDT",
+                amount=intent.amount,
+                payload=intent.payload,
+                description=intent.description,
+                asset=intent.asset,
             )
         except CryptoBotError:
-            logger.exception("Failed to create CryptoBot invoice for user_id=%s plan=%s", user.id, plan)
+            logger.exception("Failed to create CryptoBot invoice for user_id=%s plan=%s", intent.user_id, plan)
             await callback.answer("Не удалось создать счет. Попробуйте позже.", show_alert=True)
             return
 
@@ -92,33 +84,31 @@ async def _create_payment_invoice(
             await callback.answer("CryptoBot вернул некорректный счет. Напишите в поддержку.", show_alert=True)
             return
 
-        await repo.create_cryptobot_payment(
-            user_id=user.id,
-            amount=_crypto_minor_units(amount),
+        await register_cryptobot_payment(
+            session,
+            intent=intent,
             external_invoice_id=str(external_invoice_id),
-            invoice_payload=payload,
-            plan=plan,
         )
 
-    rub_amount = int(plan_data["rub_amount"])
-    title = str(plan_data["title"])
+    rub_amount = intent.plan.price_rub
+    title = intent.plan.title
     lines = [
         f"💳 Оплата тарифа: {title} — {rub_amount}₽",
     ]
-    if region_option is not None:
-        lines.append(f"Локация: {region_option.title}")
+    if intent.region is not None:
+        lines.append(f"Локация: {intent.region.title}")
     lines.append("")
     lines.append("Нажми кнопку ниже, выбери валюту (USDT/TON/BTC) и оплати.")
-    if tariff.tier == "premium":
+    if intent.plan.tier == "premium":
         lines.append("После оплаты закрепим premium-ноду. Если свободной нет, подготовка займёт около 2 минут.")
     else:
         lines.append("Ссылка-подписка придёт автоматически в течение минуты после оплаты.")
     text = "\n".join(lines)
 
     if callback.message:
-        await callback.message.answer(text, reply_markup=_payment_keyboard(str(pay_url), amount))
+        await callback.message.answer(text, reply_markup=_payment_keyboard(str(pay_url), intent.amount))
     else:
-        await bot.send_message(callback.from_user.id, text, reply_markup=_payment_keyboard(str(pay_url), amount))
+        await bot.send_message(callback.from_user.id, text, reply_markup=_payment_keyboard(str(pay_url), intent.amount))
     await callback.answer()
 
 

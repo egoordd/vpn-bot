@@ -108,23 +108,24 @@ Live gate на уровне API пройден:
 
 Server-side Happ JSON e2e пройден: `GET /sub/{token}/v2ray-json` по HTTPS снаружи возвращает `200 application/json` с доверенным сертификатом, Happ User-Agent на обычном `/sub/{token}` тоже получает JSON, `xray run -test` проходит, а запуск первого JSON-профиля как локального Xray-клиента даёт браузинг через SOCKS (`api.ipify.org` возвращает `144.172.101.217`, `gstatic/generate_204` возвращает `204 No Content`).
 
-После ручного Happ/iOS теста 2026-06-08 видно, что HTTPS/JSON импорт уже работает: nginx зафиксировал `Happ/4.10.2/ios` и `200 OK`, Marzban отметил `online_at`, трафик пользователя вырос. Но браузинга на телефоне нет. Текущая рабочая гипотеза: стандартный Marzban `v2ray-json` отдаёт массив отдельных профилей, где первым идёт VLESS Reality, а этот путь уже много раз не проходил iOS/LTE e2e. Для проверки опубликован отдельный SS-only JSON-объект:
+После ручной диагностики Happ/iOS стало ясно, что проблема была не в QR, HTTPS, JSON или клиенте. Нерабочие VLESS Reality варианты использовали чужой `serverName` (`www.microsoft.com`) при подключении к нашему IP; мобильный оператор коррелировал `SNI` и IP и душил поток. Серверный smoke этого не ловил.
+
+Рабочий VLESS Reality зафиксирован так:
 
 ```text
-https://144.172.101.217.sslip.io:8443/profiles/<token>/happ-ss-only.json
+address/serverName = 144.172.101.217.sslip.io
+dest               = 144.172.101.217:8443
+port               = 443
+security           = reality
+flow               = xtls-rprx-vision
+fingerprint        = firefox
+shortId            = 3684c6d01d7363a4
+publicKey          = XfIFLXO4LUizIpiNXay1p8HL_ou5thasFS5bPusNziw
 ```
 
-Он проходит `xray run -test` и server-side SOCKS smoke, при этом полностью исключает Reality из теста.
+`dest` указывает на nginx HTTPS с Let's Encrypt сертификатом для `144.172.101.217.sslip.io`, то есть Reality прикрывается реальным TLS-сервисом этой же ноды. Этот вариант импортирован на реальном iPhone по LTE и даёт фактический браузинг. Бэкап рабочего состояния лежит на сервере в `/root/working-reality-backup/`.
 
-После возврата к целевому VLESS тестовый пользователь переведён на `flow=xtls-rprx-vision`; Marzban пересоздал VLESS UUID и SS password, поэтому все старые QR до этого изменения неактуальны. Для Happ опубликован отдельный VLESS-only JSON:
-
-```text
-https://144.172.101.217.sslip.io:8443/profiles/<new-token>/happ-vless-vision-domain.json
-```
-
-Он не содержит Shadowsocks, не содержит массив профилей, использует `address=144.172.101.217.sslip.io`, Reality `serverName=www.microsoft.com`, `flow=xtls-rprx-vision`, проходит `xray run -test` и server-side SOCKS smoke.
-
-Остаётся обязательный ручной e2e: импортировать QR/ссылку в Happ/Hiddify на iOS LTE и проверить реальный браузинг.
+Phase 0 для текущего single-server Marzban path закрыт. Для новых нод нельзя возвращаться к чужому SNI; нужно повторять own-domain/self-steal схему из `docs/WORKING_VPN_CONFIG.md` и `scripts/reality_smoketest.sh`.
 
 ## Happ JSON QR
 
@@ -144,6 +145,6 @@ https://144.172.101.217.sslip.io:8443/sub/<token>/v2ray-json
 2. Настроить хотя бы один inbound VLESS Reality на `443/tcp`.
 3. Создать тестового пользователя через панель и убедиться, что Marzban отдаёт subscription URL.
 4. Импортировать subscription URL в Happ/Hiddify на iOS LTE.
-5. Если Reality не даёт браузинг, поднять Hysteria2 рядом и собрать multiprotocol JSON через `scripts/build_client_profile.py`.
+5. Проверить реальный браузинг на iOS LTE без ручного редактирования профиля.
 
-Phase 0 считается закрытой только после реального браузинга без ручного редактирования профиля на телефоне.
+Phase 0 считается закрытой только после реального браузинга на телефоне. Для текущего VPS `144.172.101.217` этот gate пройден.

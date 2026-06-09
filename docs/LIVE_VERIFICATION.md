@@ -1,6 +1,6 @@
 # Live Verification Gate
 
-Этот документ фиксирует обязательный стоп-кран перед Фазой 3. Текущая Фаза 1/2 покрыта pytest и моками, но не считается боевой, пока не пройдены проверки ниже на живой Remnawave, живой ноде и реальном Vultr API.
+Этот документ фиксирует обязательный стоп-кран перед Фазой 3. Текущая Фаза 1/2 покрыта pytest и моками, но не считается боевой, пока не пройдены проверки ниже на живой панели, живой ноде и реальном мобильном клиенте. Для Remnawave/Vultr часть ниже остаётся контрактным gate; текущий рабочий Phase 0 path проверен через Marzban на месячном VPS.
 
 ## 1. Remnawave API contract
 
@@ -114,6 +114,11 @@ Acceptance:
 
 Текущий месячный VPS: `144.172.101.217`, Ubuntu 24.04.3, Marzban `0.8.4`.
 
+- **Accepted 2026-06-08:** реальный iPhone по LTE импортирует выданный VLESS Reality профиль и получает фактический браузинг без ручного редактирования.
+- Корень прошлых провалов: мобильный оператор делал `SNI`↔`IP` корреляцию. Конфиги с `serverName=www.microsoft.com` на нашем IP проходили server-side smoke, но душились на мобильной сети.
+- Рабочий боевой принцип: own-domain/self-steal Reality. `address` и Reality `serverName` равны домену ноды, который резолвится в её IP; `dest` ведёт на HTTPS-сервис этой же ноды с доверенным сертификатом; `fingerprint=firefox`; `flow=xtls-rprx-vision`.
+- Текущий рабочий профиль: `address=144.172.101.217.sslip.io`, `serverName=144.172.101.217.sslip.io`, `dest=144.172.101.217:8443`, `port=443`, `shortId=3684c6d01d7363a4`, `publicKey=XfIFLXO4LUizIpiNXay1p8HL_ou5thasFS5bPusNziw`.
+- Серверный бэкап рабочего состояния: `/root/working-reality-backup/`.
 - Marzban API/dashboard доступен через Nginx `80/tcp`, backend слушает только `127.0.0.1:8000`.
 - Клиентские подписки доступны по HTTPS на `8443/tcp`: `https://144.172.101.217.sslip.io:8443`, сертификат Let's Encrypt доверенный.
 - Xray слушает `443/tcp` для `VLESS Reality 443` и `1080/tcp,udp` для `Shadowsocks TCP`.
@@ -123,13 +128,10 @@ Acceptance:
 - JSON содержит DNS `queryStrategy=UseIPv4`, локальные inbounds `127.0.0.1:10808` socks и `127.0.0.1:10809` http, не содержит удалённый Xray-параметр `allowInsecure`.
 - `xray run -test` проходит на первом VLESS Reality JSON-профиле.
 - Server-side Xray client smoke через этот JSON проходит: запрос через socks `127.0.0.1:10808` возвращает внешний IP `144.172.101.217`, а `http://www.gstatic.com/generate_204` возвращает `204 No Content`.
-- После iOS/Happ теста 2026-06-08 подписка скачалась (`Happ/4.10.2/ios`, `200 OK`), пользователь стал `online_at=2026-06-08T00:05:19`, traffic counter вырос, но браузинга на телефоне нет. Это исключает проблему QR/HTTPS/импорта и указывает на runtime/outbound path.
-- Marzban `v2ray-json` отдаёт массив из двух отдельных конфигов, где первым идёт `VLESS Reality 443`, а вторым `Shadowsocks TCP`. С учётом предыдущих iOS/LTE failures для Reality это главный подозреваемый: Happ может запускать/выбирать первый Reality профиль, а не fallback.
-- Для изоляции создан отдельный HTTPS JSON-объект только с Shadowsocks: `/profiles/<token>/happ-ss-only.json`. Он не массив, не содержит VLESS/Reality, проходит `xray run -test`, server-side Xray client smoke через него возвращает `api.ipify.org=144.172.101.217` и `gstatic/generate_204=204`.
-- После замечания, что целевой продукт должен быть именно VLESS, тестовый пользователь переведён на `flow=xtls-rprx-vision`. Marzban пересоздал VLESS UUID, поэтому старые QR стали неактуальны.
-- Создан отдельный HTTPS JSON-объект только с VLESS/Vision: `/profiles/<new-token>/happ-vless-vision-domain.json`. Отличия от стандартной Marzban-подписки: один JSON-объект вместо массива, только VLESS outbound, `flow=xtls-rprx-vision`, `address=144.172.101.217.sslip.io`, Reality `serverName=www.microsoft.com`. Профиль проходит `xray run -test` и server-side Xray client smoke (`api.ipify.org=144.172.101.217`, `gstatic/generate_204=204`).
+- До фикса были опубликованы SS-only и VLESS-only JSON-профили для изоляции. Они полезны как история диагностики, но не являются целевым продуктом.
+- После фикса Marzban Host и Reality inbound подписка отдаёт корректный VLESS: `address=144.172.101.217.sslip.io`, `serverName=144.172.101.217.sslip.io`, `fingerprint=firefox`, `flow=xtls-rprx-vision`.
 
-Остаётся решающий gate: импорт QR/URL на реальном iOS LTE в Happ/Hiddify и фактический браузинг без ручного редактирования профиля.
+Итог: Phase 0 для текущего single-server Marzban path закрыт. Дальше нельзя возвращать чужой SNI на наш IP; новые ноды должны повторять own-domain/self-steal Reality из `docs/WORKING_VPN_CONFIG.md` и `scripts/reality_smoketest.sh`.
 
 ## Phase 0 live notes, 2026-06-04
 

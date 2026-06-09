@@ -131,23 +131,26 @@ set +a
 
 ## Текущая single-server Phase 0
 
-Текущая smoke-инфраструктура использует один сервер:
+Актуальная single-server smoke-инфраструктура использует месячный VPS:
 
 ```text
-VPS_PUBLIC_IP=62.60.156.158
-REMNAWAVE_NODE_PANEL_UUID=af74d563-a107-4cf0-b4f0-08cad62761d1
-REMNAWAVE_HOST_UUID=a48ae2f3-4bfb-4e36-ab58-5bcb96cd3f35
-REMNAWAVE_DEFAULT_INTERNAL_SQUAD_UUIDS=ce01f98f-1e32-447c-80d7-ab968176ebb1
-REMNAWAVE_NODE_CONFIG_PROFILE_UUID=00000000-0000-0000-0000-000000000000
-REMNAWAVE_NODE_INBOUND_UUIDS=c18c6a77-bfc9-411a-b70a-8f2c4a6fab3e
-REMNAWAVE_NODE_PORT=2222
-REMNAWAVE_HOST_PORT=1234
+VPS_PUBLIC_IP=144.172.101.217
+NODE_DOMAIN=144.172.101.217.sslip.io
+PANEL_PROVIDER=marzban
+MARZBAN_API_URL=https://144.172.101.217.sslip.io:8443
+VLESS_REALITY_PORT=443/tcp
+REALITY_DEST=144.172.101.217:8443
+REALITY_SERVER_NAME=144.172.101.217.sslip.io
+REALITY_FINGERPRINT=firefox
+REALITY_FLOW=xtls-rprx-vision
 AUTOSCALE_PREMIUM_REGIONS=
 ```
 
-Дополнительно для smoke был добавлен VLESS Reality inbound на `443/tcp` и Host на тот же публичный IP. Xray client smoke подтвердил, что серверный Reality профиль работает с `flow=xtls-rprx-vision`, но реальный iOS/LTE e2e в Happ/Hiddify не прошёл: Xray видит TLS ClientHello и закрывает соединение с `failed to read client hello`.
+Текущий рабочий baseline — Marzban `0.8.4` + VLESS Reality на `443/tcp` + nginx HTTPS на `8443/tcp` с Let's Encrypt сертификатом для `144.172.101.217.sslip.io`. Реальный iPhone по LTE импортировал профиль и получил браузинг без ручного редактирования.
 
-По скриншотам рабочего стороннего VPN от 2026-06-05 есть отдельный профиль `JSON США | Hysteria` и несколько auto/anti-DPI JSON-профилей. Поэтому Phase 0 должен проверить Hysteria2 как ранний fallback:
+Главный вывод диагностики: чужой SNI вроде `www.microsoft.com` на нашем IP проходит server-side smoke, но может душиться мобильным оператором из-за SNI↔IP корреляции. Для новых нод используем own-domain/self-steal Reality: `address == serverName == домен ноды`, а `dest` ведёт на HTTPS этой же ноды с валидным сертификатом.
+
+Hysteria2 остаётся fallback-протоколом, если конкретная сеть режет TCP Reality:
 
 ```text
 HYSTERIA2_PORT=8443/udp для текущего Aeza smoke; 443/udp только если провайдер пропускает этот порт
@@ -155,7 +158,7 @@ HYSTERIA2_AUTH=password
 HYSTERIA2_TLS=production domain certificate или self-signed + insecure для smoke
 ```
 
-UDP-порт можно использовать параллельно с Remnawave/Xray на том же TCP-порту, но текущая Aeza-проверка показала, что `8443/udp` доходит, а `443/udp` выглядит отфильтрованным до VPS.
+UDP-порт можно использовать параллельно с Xray на том же TCP-порту. Для продукта по умолчанию оставляем VLESS Reality, потому что он уже прошёл реальный iOS/LTE gate.
 
 Для smoke подготовлен скрипт:
 
@@ -165,12 +168,12 @@ bash scripts/hysteria2_smoketest.sh
 
 Он поднимает Hysteria2, печатает `hysteria2://` link и генерирует Happ-compatible JSON в `/opt/hysteria2-smoke/happ-hysteria.json` с тем же каркасом, что у рабочего профиля: socks/http inbounds, `protocol=hysteria`, `version=2`, `alpn=["h3"]`, `fingerprint=chrome`, `congestion=bbr`.
 
-Чтобы приложение считало эту ноду доступной premium-capacity, зарегистрировать ее в БД:
+Чтобы приложение считало single-server ноду доступной premium-capacity, зарегистрировать ее в БД:
 
 ```bash
 .venv/bin/python scripts/register_static_node.py \
-  --ip 62.60.156.158 \
-  --panel-node-id af74d563-a107-4cf0-b4f0-08cad62761d1 \
+  --ip 144.172.101.217 \
+  --panel-node-id manual-marzban-144-172-101-217 \
   --region ams \
   --capacity 50
 ```
@@ -180,8 +183,8 @@ bash scripts/hysteria2_smoketest.sh
 - Панель открывается по HTTPS.
 - Первый super-admin создан.
 - API token работает.
-- Первая Remnawave Node connected/active.
+- Первая нода connected/active в выбранной панели.
 - Тестовый user в панели создаётся и удаляется через probe.
 - Subscription URL импортируется в клиент.
-- На мобильном операторе есть браузинг через хотя бы один боевой протокол: VLESS/Reality, Hysteria2 или другой подтверждённый fallback.
+- На мобильном операторе есть браузинг через VLESS Reality в own-domain/self-steal режиме или другой подтверждённый fallback.
 - Наш бот может создать trial через живую панель.
