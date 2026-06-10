@@ -1,0 +1,76 @@
+/*
+ * UnLock design tokens.
+ * Direction: dark "stealth / secure tunnel" — disciplined contrast, one living
+ * signal accent (mint-green = connection alive), violet for premium, semantic
+ * amber/red for state. Not a default dark template.
+ */
+:root {
+  /* --- Surfaces (deep blue-violet, never pure black) --- */
+  --bg: oklch(15% 0.02 270);
+  --bg-elev: oklch(18.5% 0.025 270);
+  --surface: oklch(22% 0.03 270);
+  --surface-2: oklch(26% 0.035 270);
+  --surface-3: oklch(30% 0.04 270);
+
+  /* --- Text --- */
+  --text: oklch(96% 0.008 270);
+  --text-muted: oklch(74% 0.018 270);
+  --text-dim: oklch(58% 0.02 270);
+
+  /* --- Signal accents --- */
+  --accent: oklch(82% 0.16 168); /* connection alive */
+  --accent-strong: oklch(74% 0.18 168);
+  --accent-ink: oklch(20% 0.05 168); /* text on accent fills */
+  --premium: oklch(74% 0.15 295);
+  --premium-strong: oklch(66% 0.17 295);
+
+  /* --- Semantic state --- */
+  --ok: oklch(80% 0.16 158);
+  --warn: oklch(82% 0.15 80);
+  --danger: oklch(68% 0.19 25);
+
+  /* --- Lines & glows --- */
+  --border: oklch(100% 0 0 / 0.09);
+  --border-strong: oklch(100% 0 0 / 0.16);
+  --glow-accent: oklch(82% 0.16 168 / 0.35);
+  --glow-premium: oklch(74% 0.15 295 / 0.32);
+
+  /* --- Type scale (fluid) --- */
+  --text-xs: clamp(0.75rem, 0.72rem + 0.15vw, 0.8125rem);
+  --text-sm: clamp(0.875rem, 0.84rem + 0.18vw, 0.9375rem);
+  --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.0625rem);
+  --text-lg: clamp(1.125rem, 1.04rem + 0.4vw, 1.25rem);
+  --text-xl: clamp(1.375rem, 1.2rem + 0.8vw, 1.75rem);
+  --text-2xl: clamp(1.75rem, 1.45rem + 1.4vw, 2.5rem);
+  --text-3xl: clamp(2.25rem, 1.7rem + 2.6vw, 3.75rem);
+  --text-hero: clamp(2.75rem, 1.6rem + 5.4vw, 6rem);
+
+  /* --- Rhythm --- */
+  --space-section: clamp(4.5rem, 3rem + 6vw, 9rem);
+  --gutter: clamp(1.25rem, 0.8rem + 2vw, 2.5rem);
+  --max-content: 1200px;
+  --max-prose: 62ch;
+
+  /* --- Radii --- */
+  --radius-sm: 0.5rem;
+  --radius: 0.875rem;
+  --radius-lg: 1.375rem;
+  --radius-xl: 2rem;
+  --radius-pill: 999px;
+
+  /* --- Elevation --- */
+  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.4);
+  --shadow: 0 12px 30px -12px oklch(0% 0 0 / 0.55);
+  --shadow-lg: 0 30px 70px -28px oklch(0% 0 0 / 0.7);
+
+  /* --- Motion --- */
+  --duration-fast: 150ms;
+  --duration: 280ms;
+  --duration-slow: 600ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* --- Z --- */
+  --z-nav: 50;
+  --z-overlay: 80;
+}

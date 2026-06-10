@@ -1,0 +1,59 @@
+.pill {
+  --pill-fg: var(--text-muted);
+  --pill-bg: oklch(100% 0 0 / 0.05);
+  --pill-border: var(--border);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--pill-border);
+  background: var(--pill-bg);
+  color: var(--pill-fg);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.pill--accent {
+  --pill-fg: var(--accent);
+  --pill-bg: oklch(82% 0.16 168 / 0.1);
+  --pill-border: oklch(82% 0.16 168 / 0.3);
+}
+.pill--premium {
+  --pill-fg: var(--premium);
+  --pill-bg: oklch(74% 0.15 295 / 0.12);
+  --pill-border: oklch(74% 0.15 295 / 0.32);
+}
+.pill--warn {
+  --pill-fg: var(--warn);
+  --pill-bg: oklch(82% 0.15 80 / 0.12);
+  --pill-border: oklch(82% 0.15 80 / 0.3);
+}
+.pill--danger {
+  --pill-fg: var(--danger);
+  --pill-bg: oklch(68% 0.19 25 / 0.12);
+  --pill-border: oklch(68% 0.19 25 / 0.32);
+}
+
+.pill__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 0 currentColor;
+  animation: pill-pulse 2.4s var(--ease-out-expo) infinite;
+}
+
+@keyframes pill-pulse {
+  0% {
+    box-shadow: 0 0 0 0 oklch(82% 0.16 168 / 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 0.5rem oklch(82% 0.16 168 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 oklch(82% 0.16 168 / 0);
+  }
+}

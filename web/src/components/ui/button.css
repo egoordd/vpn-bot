@@ -1,0 +1,67 @@
+.btn {
+  --btn-bg: var(--surface-2);
+  --btn-fg: var(--text);
+  --btn-border: var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55em;
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border-radius: var(--radius-pill);
+  font-weight: 560;
+  font-size: var(--text-sm);
+  line-height: 1;
+  padding: 0.75rem 1.25rem;
+  white-space: nowrap;
+  transition:
+    transform var(--duration-fast) var(--ease-out-expo),
+    background-color var(--duration) var(--ease-out-expo),
+    border-color var(--duration) var(--ease-out-expo),
+    box-shadow var(--duration) var(--ease-out-expo);
+  will-change: transform;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn--lg {
+  font-size: var(--text-base);
+  padding: 0.95rem 1.65rem;
+}
+
+.btn--primary {
+  --btn-bg: var(--accent);
+  --btn-fg: var(--accent-ink);
+  --btn-border: transparent;
+  box-shadow: 0 10px 30px -12px var(--glow-accent);
+}
+.btn--primary:hover {
+  --btn-bg: var(--accent-strong);
+  box-shadow: 0 16px 40px -14px var(--glow-accent);
+}
+
+.btn--premium {
+  --btn-bg: var(--premium);
+  --btn-fg: oklch(18% 0.04 295);
+  --btn-border: transparent;
+  box-shadow: 0 10px 30px -12px var(--glow-premium);
+}
+.btn--premium:hover {
+  --btn-bg: var(--premium-strong);
+}
+
+.btn--ghost {
+  --btn-bg: transparent;
+  --btn-fg: var(--text);
+  --btn-border: var(--border-strong);
+}
+.btn--ghost:hover {
+  --btn-bg: oklch(100% 0 0 / 0.05);
+  --btn-border: var(--accent);
+}

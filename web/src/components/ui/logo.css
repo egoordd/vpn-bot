@@ -1,0 +1,28 @@
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-lg);
+  letter-spacing: -0.02em;
+}
+
+.logo__mark {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.7rem;
+  color: var(--accent);
+  background: oklch(82% 0.16 168 / 0.12);
+  border: 1px solid oklch(82% 0.16 168 / 0.28);
+  transition: box-shadow var(--duration) var(--ease-out-expo);
+}
+.logo:hover .logo__mark {
+  box-shadow: 0 0 24px -6px var(--glow-accent);
+}
+
+.logo__accent {
+  color: var(--accent);
+}

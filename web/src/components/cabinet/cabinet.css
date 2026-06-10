@@ -1,0 +1,86 @@
+.cab {
+  position: relative;
+  z-index: 1;
+  padding-block: 2.5rem var(--space-section);
+}
+
+.cab__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 4.5rem;
+}
+.cab__back {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  transition: color var(--duration-fast) var(--ease-out-expo);
+}
+.cab__back:hover {
+  color: var(--accent);
+}
+
+.cab__demo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+  padding: 0.85rem 1.1rem;
+  border: 1px dashed oklch(82% 0.15 80 / 0.4);
+  border-radius: var(--radius);
+  background: oklch(82% 0.15 80 / 0.07);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.cab__header {
+  margin-bottom: 2rem;
+}
+.cab__greeting {
+  font-size: var(--text-2xl);
+}
+.cab__sub {
+  margin-top: 0.5rem;
+  color: var(--text-muted);
+}
+
+.cab__grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 1.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.card__title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.card--span2 {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 880px) {
+  .cab__grid {
+    grid-template-columns: 1.4fr 1fr;
+  }
+}

@@ -1,0 +1,91 @@
+.sub__empty {
+  color: var(--text-muted);
+  max-width: 48ch;
+  margin-bottom: 1.5rem;
+}
+.sub__cta {
+  align-self: flex-start;
+}
+
+.sub__top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: space-between;
+  padding-bottom: 1.5rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sub__plan {
+  font-size: var(--text-xl);
+}
+.sub__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.7rem;
+}
+.sub__devices {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.sub__expiry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  text-align: right;
+}
+.sub__expiry-label {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+.sub__expiry-date {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.sub__expiry-days {
+  font-size: var(--text-xs);
+  color: var(--accent);
+}
+.sub__expiry-days.is-soon {
+  color: var(--warn);
+}
+
+.sub__traffic-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin-bottom: 0.6rem;
+}
+.sub__traffic-pct {
+  color: var(--text-dim);
+}
+
+.sub__bar {
+  height: 0.6rem;
+  border-radius: var(--radius-pill);
+  background: oklch(100% 0 0 / 0.06);
+  overflow: hidden;
+}
+.sub__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  transition: width var(--duration-slow) var(--ease-out-expo);
+}
+.sub__bar-fill.is-high {
+  background: linear-gradient(90deg, var(--warn), var(--danger));
+}
+
+.sub__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+}

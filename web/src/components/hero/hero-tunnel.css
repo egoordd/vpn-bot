@@ -1,0 +1,89 @@
+.tunnel {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+  mask-image: radial-gradient(120% 90% at 75% 30%, #000 35%, transparent 78%);
+}
+
+.tunnel__grid {
+  position: absolute;
+  inset: -2px;
+  background-image:
+    linear-gradient(oklch(100% 0 0 / 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(100% 0 0 / 0.04) 1px, transparent 1px);
+  background-size: 3.5rem 3.5rem;
+  opacity: 0.5;
+}
+
+.tunnel__rings {
+  position: absolute;
+  top: 28%;
+  right: 8%;
+  width: min(46rem, 90vw);
+  aspect-ratio: 1;
+  transform: translate(35%, -35%);
+}
+
+.tunnel__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid oklch(82% 0.16 168 / 0.18);
+  transform: scale(calc(0.18 + var(--i) * 0.17));
+  opacity: calc(0.85 - var(--i) * 0.12);
+  animation: ring-breathe 7s var(--ease-out-expo) infinite;
+  animation-delay: calc(var(--i) * -0.9s);
+}
+.tunnel__ring:nth-child(even) {
+  border-color: oklch(74% 0.15 295 / 0.18);
+}
+
+@keyframes ring-breathe {
+  0%,
+  100% {
+    opacity: calc(0.7 - var(--i) * 0.1);
+  }
+  50% {
+    opacity: calc(0.95 - var(--i) * 0.12);
+    transform: scale(calc(0.2 + var(--i) * 0.18));
+  }
+}
+
+.tunnel__packet {
+  position: absolute;
+  top: 28%;
+  right: 8%;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 18px 3px var(--glow-accent);
+  transform: translate(35%, -35%);
+  animation: packet-travel 4.5s var(--ease-out-expo) infinite;
+}
+
+@keyframes packet-travel {
+  0% {
+    transform: translate(420%, 120%) scale(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(35%, -35%) scale(1);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tunnel__ring,
+  .tunnel__packet {
+    animation: none;
+  }
+}
