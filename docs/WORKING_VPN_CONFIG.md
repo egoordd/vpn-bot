@@ -45,6 +45,21 @@ vless://<uuid>@144.172.101.217.sslip.io:443?type=tcp&security=reality&pbk=XfIFLX
 ## Запасной протокол
 На сервере также поднят **Hysteria2** (`udp/443`, self-signed, пароль в `/etc/hysteria/config.yaml`) — server-side проверен; держим как fallback, если Reality где-то не пройдёт. QR: `~/Desktop/hysteria_qr.png`.
 
+## Egress-политика ноды (анти-abuse) — применено 2026-06-10
+Юзерский трафик выходит с IP ноды, поэтому исходящие сервисные порты заблокированы,
+чтобы ноду не использовали как плацдарм (брутфорс/спам → abuse-жалобы → бан VPS,
+блэклисты IP):
+
+- **Xray** (`/var/lib/marzban/xray_config.json`, routing → BLOCK/blackhole):
+  - `port: 22,25,3389,5432` (tcp+udp) — SSH-брутфорс, спам, RDP, Postgres;
+  - `ip: geoip:private` — из туннеля нельзя достучаться до localhost/LAN/панели.
+- **Hysteria2** (`/etc/hysteria/config.yaml`, `acl.inline`): те же порты + private CIDR.
+
+Проверено через туннель: HTTPS работает (ya.ru 302), `:25`/`:22` блокируются.
+Бэкапы конфигов: `*.bak-YYYYMMDD-HHMMSS` рядом с оригиналами.
+**Правило для новых нод:** этот egress-блок обязателен при провижининге (внести в
+cloud-init/autoscaler setup при live-подключении Vultr).
+
 ## Связанные
 - `PROJECT_CONTEXT.md`, `IMPLEMENTATION_PLAN.md`
 - `docs/examples/saveworking_nl_reality.json` / `saveworking_us_hysteria.json` — рабочие референсы SaveVPN, по которым чинили.
