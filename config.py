@@ -41,6 +41,8 @@ class Settings(BaseSettings):
 
     PANEL_PROVIDER: str = "remnawave"
 
+    BILLING_API_TOKEN: SecretStr = SecretStr("")
+
     REMNAWAVE_API_URL: str = ""
     REMNAWAVE_API_TOKEN: SecretStr = SecretStr("")
     REMNAWAVE_USERNAME_PREFIX: str = "tg"

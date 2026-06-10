@@ -63,8 +63,32 @@
 `expires_at`, `min_amount_kopecks`. Списание использования атомарно
 (`claim_promo_use`: `UPDATE … WHERE used_count<max_uses RETURNING`).
 
+## HTTP-транспорт (`services/http_api.py`)
+
+FastAPI поверх фасада — единственный потребитель сейчас Next.js-сайт
+(`web/src/lib/billing/client.ts`). Ответы — в camelCase-контракте
+`web/src/lib/billing/types.ts`. Запуск:
+
+```bash
+uvicorn services.http_api:app --port 8001
+```
+
+Сайт подключается через `web/.env.local`: `BILLING_API_URL=http://127.0.0.1:8001`.
+
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/health` | liveness |
+| GET | `/plans?tier=` | каталог тарифов (camelCase) |
+| GET | `/regions` | premium-локации |
+| GET | `/account/{user_id}` | композитный кабинет (`AccountOverview`), 404 если юзера нет |
+| POST | `/promo/preview` | `{userId, code, amountKopecks}` → `DiscountResult`; promo-ошибки → 400/404/409 c кодом в `detail` |
+
+Авторизация: если в `.env` задан `BILLING_API_TOKEN`, все ручки требуют
+`Authorization: Bearer <token>` (сайт шлёт его из `BILLING_API_TOKEN` в
+`web/.env.local`). Пустой токен = открытый дев-режим.
+
 ## Следующие шаги (нужно участие/секреты)
 
-1. HTTP-транспорт (FastAPI/ASGI) поверх этих функций — контракт для сайта (33).
+1. Аутентификация кабинета (magic-link через бота / Telegram Login) — сейчас сайт смотрит demo `userId=1`.
 2. Промокод/скидка и оплата балансом в самом buy-флоу бота + UX кабинета.
 3. Пополнение баланса (USDT→RUB FX) и карточный PSP (34).
