@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     )
 
     BOT_TOKEN: SecretStr
+    # Optional proxy for Telegram API access (e.g. socks5://127.0.0.1:1086)
+    # for networks where api.telegram.org is throttled or blocked.
+    BOT_PROXY: str = ""
     DATABASE_URL: str
     REDIS_URL: str
 

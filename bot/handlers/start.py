@@ -14,7 +14,11 @@ from services.subscription import activate_panel_subscription
 router = Router()
 logger = logging.getLogger(__name__)
 
-BANNER_PATH = "assets/banner.png"
+BANNER_PATH = "assets/banner.jpg"
+
+# Telegram file_id of the banner after the first upload; reused so the static
+# asset is uploaded at most once per process instead of on every /start.
+_banner_file_id: str | None = None
 
 LANDING_TEXT = (
     "<b>UnLock</b>\n"
@@ -75,4 +79,8 @@ async def start_handler(message: Message, session_pool: async_sessionmaker[Async
         telegram_id=message.from_user.id,
         username=message.from_user.username,
     )
-    await message.answer_photo(FSInputFile(BANNER_PATH), caption=text, reply_markup=keyboard)
+    global _banner_file_id
+    photo = _banner_file_id if _banner_file_id else FSInputFile(BANNER_PATH)
+    sent = await message.answer_photo(photo, caption=text, reply_markup=keyboard)
+    if _banner_file_id is None and sent.photo:
+        _banner_file_id = sent.photo[-1].file_id

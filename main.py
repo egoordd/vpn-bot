@@ -3,6 +3,7 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -47,8 +48,12 @@ async def main() -> None:
     except Exception as exc:
         logger.warning("Failed to re-sync WireGuard peers on startup: %s", exc)
 
+    bot_session = AiohttpSession(proxy=settings.BOT_PROXY) if settings.BOT_PROXY else None
+    if bot_session is not None:
+        logger.info("Telegram API via proxy: %s", settings.BOT_PROXY)
     bot = Bot(
         token=settings.bot_token,
+        session=bot_session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     storage = RedisStorage.from_url(settings.REDIS_URL)
