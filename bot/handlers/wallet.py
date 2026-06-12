@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_wallet_keyboard, topup_keyboard, wallet_keyboard
+from bot.texts import bq, format_msk
 from config import settings
 from database.repository import Repository
 from services import billing_api, promo, wallet
@@ -65,23 +66,20 @@ async def _bot_username(bot: Bot) -> str:
 
 
 def _wallet_text(overview: billing_api.AccountOverview) -> str:
-    lines = [
-        "<b>💰 Кошелёк</b>",
-        f"Баланс: <b>{overview.balance_display}</b>",
+    sections = [
+        "💰 <b>Кошелёк</b>\n\n" + bq(f"💳 Баланс: <b>{overview.balance_display}</b>"),
     ]
     if overview.wallet.entries:
-        lines.append("")
-        lines.append("Последние операции:")
+        entry_lines = []
         for entry in overview.wallet.entries[:5]:
             sign = "+" if entry.amount_kopecks >= 0 else "−"
             label = _KIND_LABELS.get(entry.kind, entry.kind)
-            lines.append(f"{sign}{format_rub(abs(entry.amount_kopecks))} — {label}")
+            entry_lines.append(f"{sign}{format_rub(abs(entry.amount_kopecks))} — {label}")
+        sections.append("📜 <b>Последние операции:</b>\n" + bq(*entry_lines))
     else:
-        lines.append("")
-        lines.append("Операций пока нет. Пополни баланс или активируй промокод.")
-    lines.append("")
-    lines.append("Балансом можно оплачивать тарифы в один тап.")
-    return "\n".join(lines)
+        sections.append("📜 Операций пока нет. Пополни баланс или активируй промокод.")
+    sections.append("⚡️ Балансом можно оплачивать тарифы в один тап.")
+    return "\n\n".join(sections)
 
 
 @router.callback_query(F.data == "wallet")
@@ -175,9 +173,13 @@ async def topup_handler(
         )
 
     text = (
-        f"➕ Пополнение на <b>{format_rub(amount_kopecks)}</b>\n"
-        f"К оплате: {amount_usdt} USDT (курс {settings.RUB_PER_USDT}₽/USDT)\n\n"
-        "Баланс зачислится автоматически в течение минуты после оплаты."
+        "➕ <b>Пополнение баланса</b>\n\n"
+        + bq(
+            f"💰 Сумма: {format_rub(amount_kopecks)}",
+            f"💵 К оплате: {amount_usdt} USDT",
+            f"📈 Курс: {settings.RUB_PER_USDT}₽/USDT",
+        )
+        + "\n\nБаланс зачислится автоматически в течение минуты после оплаты."
     )
     if callback.message:
         await callback.message.answer(text, reply_markup=_topup_payment_keyboard(str(pay_url), amount_usdt))
@@ -262,11 +264,13 @@ async def referral_handler(
     username = await _bot_username(bot)
     link = build_referral_link(username, stats.ref_code or f"tg{callback.from_user.id}")
     text = (
-        "<b>👥 Реферальная программа</b>\n\n"
+        "👥 <b>Реферальная программа</b>\n\n"
         f"Зови друзей и получай <b>{stats.reward_percent}%</b> с каждой их оплаты на баланс.\n\n"
-        f"Твоя ссылка:\n<code>{link}</code>\n\n"
-        f"Приглашено: <b>{stats.referrals_count}</b>\n"
-        f"Заработано: <b>{format_rub(stats.total_earned_kopecks)}</b>"
+        f"🔗 <b>Твоя ссылка:</b>\n<code>{link}</code>\n\n"
+        + bq(
+            f"👤 Приглашено: {stats.referrals_count}",
+            f"💰 Заработано: {format_rub(stats.total_earned_kopecks)}",
+        )
     )
     await _edit_current_message(callback, text, back_to_wallet_keyboard())
     await callback.answer()
@@ -350,9 +354,13 @@ async def pay_with_balance_handler(
         balance = await wallet.get_balance(session, user.id)
 
     text = (
-        f"✅ Тариф <b>{tariff.title}</b> оплачен с баланса ({format_rub(price_kopecks)}).\n"
-        f"Подписка активна до {subscription.expires_at:%d.%m.%Y %H:%M} UTC.\n"
-        f"Остаток баланса: {format_rub(balance)}"
+        "✅ <b>Тариф оплачен с баланса</b>\n\n"
+        + bq(
+            f"💎 Тариф: {tariff.title}",
+            f"💰 Списано: {format_rub(price_kopecks)}",
+            f"💳 Остаток: {format_rub(balance)}",
+        )
+        + f"\n\n📅 <b>Подписка активна до:</b> {format_msk(subscription.expires_at)}"
     )
     if callback.message:
         await callback.message.answer(text, reply_markup=_pay_success_keyboard())

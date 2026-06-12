@@ -24,7 +24,11 @@ async def test_instructions_handler_edits_caption_for_photo_message():
 async def test_support_handler_edits_text(monkeypatch):
     monkeypatch.setattr(support.settings, "SUPPORT_USERNAME", "helpdesk")
     message = SimpleNamespace(photo=None, edit_caption=AsyncMock(), edit_text=AsyncMock())
-    callback = SimpleNamespace(message=message, answer=AsyncMock())
+    callback = SimpleNamespace(
+        message=message,
+        answer=AsyncMock(),
+        from_user=SimpleNamespace(id=700, username="sup"),
+    )
 
     await support.support_handler(callback)
 
@@ -45,7 +49,7 @@ async def test_subscription_handler_no_subscription(session_pool):
     await subscription.subscription_handler(callback, session_pool)
 
     message.edit_text.assert_awaited_once()
-    assert "\u043d\u0435\u0442 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438" in message.edit_text.await_args.args[0]
+    assert "не активна" in message.edit_text.await_args.args[0]
     callback.answer.assert_awaited_once()
 
 
@@ -105,7 +109,7 @@ async def test_subscription_handler_panel_subscription_shows_limits_and_link(ses
     await subscription.subscription_handler(callback, session_pool)
 
     text = message.edit_text.await_args.args[0]
-    assert "1.0 \u0413\u0411 / 10.0 \u0413\u0411" in text
+    assert "1 / 10 ГБ" in text
     assert "https://sub.example/api/sub/short" in text
 
 

@@ -1,6 +1,5 @@
 import html
 import logging
-from datetime import datetime, timedelta, timezone
 
 from aiogram import Router
 from aiogram.filters import CommandStart
@@ -8,6 +7,7 @@ from aiogram.types import FSInputFile, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import active_subscription_keyboard, landing_keyboard
+from bot.texts import aware as _aware, bq, format_gb as _format_gb, format_msk as _format_msk
 from database.models import Subscription, User
 from database.repository import Repository
 from services.money import format_rub
@@ -25,41 +25,13 @@ BANNER_PATH = "assets/banner.jpg"
 # asset is uploaded at most once per process instead of on every /start.
 _banner_file_id: str | None = None
 
-_MONTHS_RU = (
-    "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
-)
-
-_GB = 1024 ** 3
-
-
-def _aware(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
-def _format_msk(value: datetime) -> str:
-    msk = _aware(value) + timedelta(hours=3)
-    return f"{msk.day:02d} {_MONTHS_RU[msk.month - 1]} {msk.year} года, {msk:%H:%M} (МСК)"
-
-
-def _format_gb(value_bytes: int | None) -> str:
-    if value_bytes is None:
-        return "∞"
-    gb = value_bytes / _GB
-    return f"{gb:.1f}".rstrip("0").rstrip(".") or "0"
-
 
 def _profile_block(user: User, display_name: str | None) -> str:
     name = html.escape(display_name or user.username or "—")
-    return (
-        "👤 <b>Профиль:</b>\n"
-        "<blockquote>"
-        f"📝 Имя: {name}\n"
-        f"🆔 ID: <code>{user.telegram_id}</code>\n"
-        f"💰 Баланс: {format_rub(user.balance)}"
-        "</blockquote>"
+    return "👤 <b>Профиль:</b>\n" + bq(
+        f"📝 Имя: {name}",
+        f"🆔 ID: <code>{user.telegram_id}</code>",
+        f"💰 Баланс: {format_rub(user.balance)}",
     )
 
 
@@ -91,11 +63,11 @@ def _menu_text(user: User, subscription: Subscription | None, display_name: str 
     devices = subscription.device_limit if subscription.device_limit is not None else "∞"
     sections.append(
         "📦 <b>Информация о тарифе:</b>\n"
-        "<blockquote>"
-        f"💎 Тариф: {html.escape(_tariff_title(subscription.plan))}\n"
-        f"📊 Трафик: {used} / {limit} ГБ\n"
-        f"📱 Устройств: до {devices}"
-        "</blockquote>"
+        + bq(
+            f"💎 Тариф: {html.escape(_tariff_title(subscription.plan))}",
+            f"📊 Трафик: {used} / {limit} ГБ",
+            f"📱 Устройств: до {devices}",
+        )
     )
     sections.append(f"📅 <b>Срок действия:</b> {_format_msk(subscription.expires_at)}")
     return "\n\n".join(sections)

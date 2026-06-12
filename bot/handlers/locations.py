@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
+from bot.texts import bq
 from database.models import Node, Subscription
 from database.repository import Repository
 from services.autoscaler import AutoscalerError, ProvisionNodeRequest, move_subscription_to_region
@@ -87,20 +88,27 @@ async def locations_handler(
             current_region = None
 
     if subscription is None:
-        text = "Локации доступны после покупки Premium-подписки."
+        text = (
+            "🌍 <b>Локации</b>\n\n"
+            + bq("🔒 Доступно на Premium-тарифе")
+            + "\n\nКупи Premium — и выбирай регион подключения."
+        )
         keyboard = back_to_menu_keyboard()
     elif subscription.tier != "premium":
         text = (
-            "Выбор локации доступен на Premium.\n\n"
-            "На текущем тарифе подключение идёт через общие локации из ссылки-подписки."
+            "🌍 <b>Локации</b>\n\n"
+            + bq(
+                "🔒 Выбор локации доступен на Premium",
+                "🌐 Сейчас: общие локации из ссылки-подписки",
+            )
         )
         keyboard = back_to_menu_keyboard()
     else:
         text = (
-            "🌍 Premium-локации\n\n"
-            f"Текущая локация: {_region_title(current_region)}\n\n"
-            "Можно выбрать другой регион. Если свободной ноды там нет, сервер будет подготовлен автоматически "
-            "примерно за 2 минуты."
+            "🌍 <b>Premium-локации</b>\n\n"
+            + bq(f"📍 Текущая локация: {_region_title(current_region)}")
+            + "\n\nВыбери другой регион. Если свободной ноды там нет, "
+            "сервер подготовится автоматически (~2 минуты)."
         )
         keyboard = _locations_keyboard(current_region)
 
@@ -138,7 +146,9 @@ async def set_location_handler(
 
         await _edit_text(
             callback,
-            f"Готовлю локацию: {region.title}\n\nОбычно это занимает около 2 минут.",
+            "⏳ <b>Готовлю локацию</b>\n\n"
+            + bq(f"📍 Регион: {region.title}")
+            + "\n\nОбычно это занимает около 2 минут.",
             back_to_menu_keyboard(),
         )
         await callback.answer("Готовлю локацию")
@@ -168,8 +178,8 @@ async def set_location_handler(
             return
 
     text = (
-        "🌍 Локация обновлена\n\n"
-        f"Текущая локация: {_region_title(node.region)}\n\n"
-        "Ссылка-подписка осталась прежней; клиент подтянет обновление автоматически."
+        "✅ <b>Локация обновлена</b>\n\n"
+        + bq(f"📍 Текущая локация: {_region_title(node.region)}")
+        + "\n\nСсылка-подписка осталась прежней; клиент подтянет обновление автоматически."
     )
     await _edit_text(callback, text, _locations_keyboard(node.region))

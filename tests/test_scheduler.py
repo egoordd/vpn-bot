@@ -276,7 +276,7 @@ async def test_poll_cryptobot_payments_panel_premium_assigns_selected_region(fak
     assert assign_kwargs["subscription_id"] == 700
     assert assign_kwargs["region"] == "ams"
     assert assign_kwargs["provision_request"].country_code == "NL"
-    assert "Premium-локация: Нидерланды, Амстердам" in fake_bot.send_message.await_args.kwargs["text"]
+    assert "Нидерланды, Амстердам" in fake_bot.send_message.await_args.kwargs["text"]
 
 
 @pytest.mark.integration

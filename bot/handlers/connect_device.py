@@ -6,6 +6,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
+from bot.texts import bq
 from database.repository import Repository
 from services.deeplinks import AppImportGuide, build_app_import_guides
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
@@ -46,23 +47,26 @@ def _app_instruction_keyboard() -> InlineKeyboardMarkup:
 def _subscription_access_text(subscription_url: str) -> str:
     escaped_url = html.escape(subscription_url)
     return (
-        "<b>Подключение устройства</b>\n\n"
-        "Ссылка-подписка:\n"
+        "📱 <b>Подключение устройства</b>\n\n"
+        "🔗 <b>Ссылка-подписка:</b>\n"
         f"<code>{escaped_url}</code>\n\n"
-        "Выберите приложение ниже. Если быстрый импорт не сработает, "
-        "скопируйте ссылку или отсканируйте QR-код."
+        + bq(
+            "1️⃣ Выбери приложение ниже",
+            "2️⃣ Импортируй ссылку (или отсканируй QR)",
+            "3️⃣ Включи туннель — готово",
+        )
     )
 
 
 def _app_instruction_text(guide: AppImportGuide, subscription_url: str) -> str:
     escaped_url = html.escape(subscription_url)
-    lines = [f"<b>{html.escape(guide.title)}</b>", ""]
+    lines = [f"📲 <b>{html.escape(guide.title)}</b>", ""]
     if guide.deeplink:
-        lines.extend(["Быстрый импорт:", f"<code>{html.escape(guide.deeplink)}</code>", ""])
+        lines.extend(["⚡️ <b>Быстрый импорт:</b>", f"<code>{html.escape(guide.deeplink)}</code>", ""])
+    steps = [f"{index}. {html.escape(step)}" for index, step in enumerate(guide.steps, start=1)]
     lines.append("Если быстрый импорт не открыл приложение:")
-    for index, step in enumerate(guide.steps, start=1):
-        lines.append(f"{index}. {html.escape(step)}")
-    lines.extend(["", "Ссылка-подписка:", f"<code>{escaped_url}</code>"])
+    lines.append(bq(*steps))
+    lines.extend(["", "🔗 <b>Ссылка-подписка:</b>", f"<code>{escaped_url}</code>"])
     return "\n".join(lines)
 
 

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.handlers.start import _menu_state
 from bot.keyboards.main_menu import premium_location_keyboard, tier_plans_keyboard, tier_select_keyboard
+from bot.texts import bq
 from database.repository import Repository
 from services.billing_api import build_payment_intent, crypto_minor_units, register_cryptobot_payment
 from services.cryptobot import CryptoBotError, create_invoice
@@ -53,11 +54,13 @@ async def _edit_current_message(callback: CallbackQuery, text: str, reply_markup
 def _premium_location_text(plan: str) -> str:
     plan_data = PLANS[plan]
     return (
-        f"🌍 {plan_data['title']}\n"
-        f"Стоимость: {plan_data['rub_amount']}₽\n\n"
-        "Выбери локацию premium-ноды. "
-        "Если в выбранном регионе нет свободного места, мы поднимем сервер автоматически; "
-        "обычно подготовка занимает около 2 минут после оплаты."
+        "🌍 <b>Выбор локации</b>\n\n"
+        + bq(
+            f"💎 Тариф: {plan_data['title']}",
+            f"💵 Стоимость: {plan_data['rub_amount']}₽",
+        )
+        + "\n\nВыбери локацию premium-ноды. Если в регионе нет свободного места, "
+        "сервер поднимется автоматически (~2 минуты после оплаты)."
     )
 
 
@@ -111,20 +114,23 @@ async def _create_payment_invoice(
             else None
         )
 
-    rub_amount = intent.plan.price_rub
-    title = intent.plan.title
-    lines = [
-        f"💳 Оплата тарифа: {title} — {rub_amount}₽",
+    card_lines = [
+        f"💎 Тариф: {intent.plan.title}",
+        f"💵 Стоимость: {intent.plan.price_rub}₽ ({intent.amount} USDT)",
     ]
     if intent.region is not None:
-        lines.append(f"Локация: {intent.region.title}")
-    lines.append("")
-    lines.append("Нажми кнопку ниже, выбери валюту (USDT/TON/BTC) и оплати.")
-    if intent.plan.tier == "premium":
-        lines.append("После оплаты закрепим premium-ноду. Если свободной нет, подготовка займёт около 2 минут.")
-    else:
-        lines.append("Ссылка-подписка придёт автоматически в течение минуты после оплаты.")
-    text = "\n".join(lines)
+        card_lines.append(f"🌍 Локация: {intent.region.title}")
+    tail = (
+        "После оплаты закрепим premium-ноду. Если свободной нет, подготовка займёт около 2 минут."
+        if intent.plan.tier == "premium"
+        else "Ссылка-подписка придёт автоматически в течение минуты после оплаты."
+    )
+    text = (
+        "💳 <b>Оплата тарифа</b>\n\n"
+        + bq(*card_lines)
+        + "\n\nНажми кнопку ниже, выбери валюту (USDT/TON/BTC) и оплати.\n"
+        + tail
+    )
 
     keyboard = _payment_keyboard(
         str(pay_url),

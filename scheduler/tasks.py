@@ -7,6 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
+from bot.texts import bq, format_msk
 from config import settings
 from database.repository import Repository
 from services.autoscaler import (
@@ -50,8 +51,9 @@ async def check_expiring_subscriptions(
                 await bot.send_message(
                     chat_id=subscription.user.telegram_id,
                     text=(
-                        "Ваша VPN-подписка закончится в течение 3 дней.\n"
-                        "Чтобы не потерять доступ, продлите подписку в разделе «Купить VPN»."
+                        "⏰ <b>Подписка скоро закончится</b>\n\n"
+                        + bq("📅 Осталось: меньше 3 дней")
+                        + "\n\nЧтобы не потерять доступ, продли подписку — кнопка «🔄 Продлить» в меню."
                     ),
                 )
                 await repo.mark_subscription_reminded(subscription.id)
@@ -84,7 +86,10 @@ async def deactivate_expired_subscriptions(
             try:
                 await bot.send_message(
                     chat_id=subscription.user.telegram_id,
-                    text="Ваша VPN-подписка истекла. Доступ отключен.",
+                    text=(
+                            "⛔️ <b>Подписка истекла</b>\n\n"
+                            "Доступ отключён. Продлить можно в меню — ссылка-подписка останется прежней."
+                        ),
                 )
             except Exception:
                 logger.exception("Failed to notify expired subscription user_id=%s", subscription.user_id)
@@ -118,7 +123,10 @@ async def traffic_sync(
                 try:
                     await bot.send_message(
                         chat_id=subscription.user.telegram_id,
-                        text="VPN-подписка не найдена в панели. Напишите в поддержку.",
+                        text=(
+                            "⚠️ <b>Проблема с подпиской</b>\n\n"
+                            "Подписка не найдена в панели. Напиши в поддержку — разберёмся."
+                        ),
                     )
                 except Exception:
                     logger.exception("Failed to notify missing panel user subscription_id=%s", subscription.id)
@@ -159,7 +167,11 @@ async def traffic_sync(
                 try:
                     await bot.send_message(
                         chat_id=subscription.user.telegram_id,
-                        text="VPN-подписка остановлена: закончился трафик или доступ отключён в панели.",
+                        text=(
+                            "⛔️ <b>Подписка остановлена</b>\n\n"
+                            + bq("📊 Причина: закончился трафик или доступ отключён")
+                            + "\n\nПродли тариф или напиши в поддержку."
+                        ),
                     )
                 except Exception:
                     logger.exception("Failed to notify limited subscription_id=%s", subscription.id)
@@ -278,21 +290,23 @@ def _subscription_access_text(
     *,
     premium_region_title: str | None = None,
 ) -> str:
-    premium_text = ""
+    card_lines = [f"📅 Активна до: {format_msk(expires_at)}"]
     if premium_region_title:
-        premium_text = (
-            f"Premium-локация: {premium_region_title}\n"
-            "Если сервер только поднят, клиент может увидеть обновление подписки в течение ~2 минут.\n\n"
-        )
+        card_lines.append(f"🌍 Локация: {premium_region_title}")
+    note = (
+        "\n\n⏳ Если сервер только поднят, клиент увидит обновление в течение ~2 минут."
+        if premium_region_title
+        else ""
+    )
     return (
-        "✅ Оплата получена!\n"
-        f"Подписка активна до {_aware(expires_at):%d.%m.%Y %H:%M} UTC\n\n"
-        f"{premium_text}"
-        "Ссылка-подписка:\n"
-        f"{subscription_url}\n\n"
-        "Добавьте эту ссылку в Hiddify, V2RayTun, Streisand или sing-box. "
-        "QR-код для импорта — следующим сообщением.\n\n"
-        f"Проблемы? {settings.support_contact}"
+        "🎉 <b>Оплата получена!</b>\n\n"
+        + bq(*card_lines)
+        + "\n\n🔗 <b>Ссылка-подписка:</b>\n"
+        f"<code>{subscription_url}</code>\n\n"
+        "Добавь ссылку в Happ, Hiddify, V2RayTun или Streisand. "
+        "QR-код — следующим сообщением."
+        + note
+        + f"\n\nПроблемы? {settings.support_contact}"
     )
 
 
