@@ -130,3 +130,36 @@ async def test_buy_plan_handler_uses_bot_when_no_message(session_pool, fake_bot,
 def test_crypto_minor_units_rounds_half_up():
     assert buy._crypto_minor_units("1.995") == 200
     assert buy._crypto_minor_units("1.994") == 199
+
+
+@pytest.mark.integration
+async def test_buy_tier_handler_shows_tier_plans():
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock(), edit_caption=AsyncMock())
+    callback = SimpleNamespace(
+        data="buy_tier:premium",
+        from_user=SimpleNamespace(id=915, username="tier"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.buy_tier_handler(callback)
+
+    message.edit_text.assert_awaited_once()
+    text = message.edit_text.await_args.args[0]
+    assert "Premium" in text
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    assert keyboard.inline_keyboard[0][0].callback_data == "buy:premium_1m"
+
+
+@pytest.mark.integration
+async def test_buy_tier_handler_rejects_unknown_tier():
+    callback = SimpleNamespace(
+        data="buy_tier:gold",
+        from_user=SimpleNamespace(id=916, username="tier"),
+        message=SimpleNamespace(photo=None, edit_text=AsyncMock(), edit_caption=AsyncMock()),
+        answer=AsyncMock(),
+    )
+
+    await buy.buy_tier_handler(callback)
+
+    assert callback.answer.await_args.kwargs["show_alert"] is True

@@ -1,5 +1,6 @@
+import html
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Router
 from aiogram.filters import CommandStart
@@ -7,10 +8,13 @@ from aiogram.types import FSInputFile, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import active_subscription_keyboard, landing_keyboard
+from database.models import Subscription, User
 from database.repository import Repository
+from services.money import format_rub
 from services.panel_gateway import PanelGatewayError, is_panel_configured
 from services.referral import ReferralError, attach_referrer, parse_referral_start_payload
 from services.subscription import activate_panel_subscription
+from services.tariffs import resolve_tariff
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -21,11 +25,12 @@ BANNER_PATH = "assets/banner.jpg"
 # asset is uploaded at most once per process instead of on every /start.
 _banner_file_id: str | None = None
 
-LANDING_TEXT = (
-    "<b>UnLock</b>\n"
-    "Быстрый VPN за копейки\n\n"
-    "Выбери тариф, оплати через CryptoBot и получи ссылку-подписку автоматически."
+_MONTHS_RU = (
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
 )
+
+_GB = 1024 ** 3
 
 
 def _aware(value: datetime) -> datetime:
@@ -34,12 +39,66 @@ def _aware(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def _active_text(expires_at: datetime) -> str:
+def _format_msk(value: datetime) -> str:
+    msk = _aware(value) + timedelta(hours=3)
+    return f"{msk.day:02d} {_MONTHS_RU[msk.month - 1]} {msk.year} года, {msk:%H:%M} (МСК)"
+
+
+def _format_gb(value_bytes: int | None) -> str:
+    if value_bytes is None:
+        return "∞"
+    gb = value_bytes / _GB
+    return f"{gb:.1f}".rstrip("0").rstrip(".") or "0"
+
+
+def _profile_block(user: User, display_name: str | None) -> str:
+    name = html.escape(display_name or user.username or "—")
     return (
-        "<b>UnLock</b>\n"
-        f"✅ Подписка активна до {_aware(expires_at):%d.%m.%Y %H:%M} UTC\n\n"
-        "Можно подключить устройство или продлить доступ."
+        "👤 <b>Профиль:</b>\n"
+        "<blockquote>"
+        f"📝 Имя: {name}\n"
+        f"🆔 ID: <code>{user.telegram_id}</code>\n"
+        f"💰 Баланс: {format_rub(user.balance)}"
+        "</blockquote>"
     )
+
+
+def _tariff_title(plan_code: str) -> str:
+    try:
+        return resolve_tariff(plan_code).title
+    except ValueError:
+        return plan_code
+
+
+def _menu_text(user: User, subscription: Subscription | None, display_name: str | None) -> str:
+    sections = [_profile_block(user, display_name)]
+
+    if subscription is None:
+        sections.append(
+            "🔑 <b>Подписка:</b> не активна\n\n"
+            "Выбери тариф ниже — ссылка-подписка придёт автоматически после оплаты."
+        )
+        return "\n\n".join(sections)
+
+    if subscription.subscription_url:
+        sections.append(
+            "🔑 <b>Ваша подписка:</b>\n"
+            f"<code>{html.escape(subscription.subscription_url)}</code>"
+        )
+
+    used = _format_gb(subscription.traffic_used_bytes or 0)
+    limit = _format_gb(subscription.traffic_limit_bytes)
+    devices = subscription.device_limit if subscription.device_limit is not None else "∞"
+    sections.append(
+        "📦 <b>Информация о тарифе:</b>\n"
+        "<blockquote>"
+        f"💎 Тариф: {html.escape(_tariff_title(subscription.plan))}\n"
+        f"📊 Трафик: {used} / {limit} ГБ\n"
+        f"📱 Устройств: до {devices}"
+        "</blockquote>"
+    )
+    sections.append(f"📅 <b>Срок действия:</b> {_format_msk(subscription.expires_at)}")
+    return "\n\n".join(sections)
 
 
 def _remnawave_configured() -> bool:
@@ -51,6 +110,7 @@ async def _menu_state(
     telegram_id: int,
     username: str | None,
     panel_client: object | None = None,
+    display_name: str | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     async with session_pool() as session:
         repo = Repository(session)
@@ -68,9 +128,11 @@ async def _menu_state(
             except PanelGatewayError:
                 logger.exception("Failed to auto-activate trial for user_id=%s", user.id)
 
+        text = _menu_text(user, subscription, display_name)
+
     if subscription is None:
-        return LANDING_TEXT, landing_keyboard()
-    return _active_text(subscription.expires_at), active_subscription_keyboard()
+        return text, landing_keyboard()
+    return text, active_subscription_keyboard()
 
 
 async def _attach_referrer_from_start(
@@ -101,6 +163,7 @@ async def start_handler(message: Message, session_pool: async_sessionmaker[Async
         session_pool=session_pool,
         telegram_id=message.from_user.id,
         username=message.from_user.username,
+        display_name=getattr(message.from_user, "full_name", None),
     )
     global _banner_file_id
     photo = _banner_file_id if _banner_file_id else FSInputFile(BANNER_PATH)

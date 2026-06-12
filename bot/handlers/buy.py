@@ -4,8 +4,8 @@ from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from bot.handlers.start import LANDING_TEXT, _menu_state
-from bot.keyboards.main_menu import landing_keyboard, premium_location_keyboard
+from bot.handlers.start import _menu_state
+from bot.keyboards.main_menu import premium_location_keyboard, tier_plans_keyboard, tier_select_keyboard
 from database.repository import Repository
 from services.billing_api import build_payment_intent, crypto_minor_units, register_cryptobot_payment
 from services.cryptobot import CryptoBotError, create_invoice
@@ -139,9 +139,52 @@ async def _create_payment_invoice(
     await callback.answer()
 
 
+BUY_MENU_TEXT = (
+    "🛒 <b>Выбор тарифа</b>\n\n"
+    "<blockquote>"
+    "🚀 <b>Обычный</b> — общий пул серверов, лучшая цена.\n"
+    "💎 <b>Premium</b> — меньше соседей на ноде, выбор локации, выше скорость."
+    "</blockquote>\n\n"
+    "Выбери вариант — дальше покажу сроки и цены."
+)
+
+TIER_TEXTS = {
+    "standard": (
+        "🚀 <b>Обычный тариф</b>\n\n"
+        "<blockquote>"
+        "🌐 Общий пул серверов\n"
+        "📊 До 150 ГБ трафика в месяц\n"
+        "📱 До 3–5 устройств"
+        "</blockquote>\n\n"
+        "Выбери срок:"
+    ),
+    "premium": (
+        "💎 <b>Premium тариф</b>\n\n"
+        "<blockquote>"
+        "🌍 Выбор локации (Амстердам, Франкфурт, Варшава)\n"
+        "⚡️ Меньше соседей — стабильнее скорость\n"
+        "📊 До 300 ГБ трафика в месяц\n"
+        "📱 До 5–8 устройств"
+        "</blockquote>\n\n"
+        "Выбери срок:"
+    ),
+}
+
+
 @router.callback_query(F.data == "buy_menu")
 async def buy_menu_handler(callback: CallbackQuery) -> None:
-    await _edit_current_message(callback, LANDING_TEXT, landing_keyboard())
+    await _edit_current_message(callback, BUY_MENU_TEXT, tier_select_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("buy_tier:"))
+async def buy_tier_handler(callback: CallbackQuery) -> None:
+    tier = callback.data.split(":", maxsplit=1)[1] if callback.data else ""
+    text = TIER_TEXTS.get(tier)
+    if text is None:
+        await callback.answer("Неизвестный тариф.", show_alert=True)
+        return
+    await _edit_current_message(callback, text, tier_plans_keyboard(tier))
     await callback.answer()
 
 
@@ -151,6 +194,7 @@ async def main_menu_handler(callback: CallbackQuery, session_pool: async_session
         session_pool=session_pool,
         telegram_id=callback.from_user.id,
         username=callback.from_user.username,
+        display_name=getattr(callback.from_user, "full_name", None),
     )
     await _edit_current_message(callback, text, keyboard)
     await callback.answer()

@@ -59,7 +59,8 @@ async def test_menu_state_returns_active_subscription_menu(session_pool):
 
     text, keyboard = await start._menu_state(session_pool, 921, "active")
 
-    assert "\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u043d\u0430" in text
+    assert "Срок действия" in text
+    assert "Профиль" in text
     assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"
 
 
@@ -67,7 +68,8 @@ async def test_menu_state_returns_active_subscription_menu(session_pool):
 async def test_menu_state_auto_activates_trial_when_panel_client_is_available(session_pool):
     text, keyboard = await start._menu_state(session_pool, 922, "trial", panel_client=FakePanelClient())
 
-    assert "\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u043d\u0430" in text
+    assert "Ваша подписка" in text
+    assert "Срок действия" in text
     assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"
     async with session_pool() as session:
         repo = Repository(session)
@@ -78,11 +80,14 @@ async def test_menu_state_auto_activates_trial_when_panel_client_is_available(se
 
 
 @pytest.mark.unit
-def test_start_aware_and_active_text():
+def test_start_aware_and_msk_formatting():
     naive = datetime(2026, 1, 1, 12, 0, 0)
 
     assert start._aware(naive).tzinfo == timezone.utc
-    assert "01.01.2026 12:00 UTC" in start._active_text(naive)
+    assert start._format_msk(naive) == "01 января 2026 года, 15:00 (МСК)"
+    assert start._format_gb(None) == "∞"
+    assert start._format_gb(10 * 1024 ** 3) == "10"
+    assert start._format_gb(int(1.5 * 1024 ** 3)) == "1.5"
 
 
 @pytest.mark.integration
