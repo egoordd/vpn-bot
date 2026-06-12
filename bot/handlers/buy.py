@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.handlers.start import LANDING_TEXT, _menu_state
 from bot.keyboards.main_menu import landing_keyboard, premium_location_keyboard
+from database.repository import Repository
 from services.billing_api import build_payment_intent, crypto_minor_units, register_cryptobot_payment
 from services.cryptobot import CryptoBotError, create_invoice
 from services.payment import PLANS, normalize_payment_plan_code
@@ -18,13 +19,25 @@ def _crypto_minor_units(amount: str) -> int:
     return crypto_minor_units(amount)
 
 
-def _payment_keyboard(pay_url: str, amount: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"🔓 Оплатить — {amount} USDT", url=pay_url)],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="main_menu")],
-        ]
-    )
+def _payment_keyboard(
+    pay_url: str,
+    amount: str,
+    *,
+    balance_plan: str | None = None,
+    balance_price_kopecks: int = 0,
+) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text=f"🔓 Оплатить — {amount} USDT", url=pay_url)]]
+    if balance_plan is not None:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"💰 Оплатить с баланса — {balance_price_kopecks // 100}₽",
+                    callback_data=f"paybal:{balance_plan}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def _edit_current_message(callback: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup) -> None:
@@ -90,6 +103,14 @@ async def _create_payment_invoice(
             external_invoice_id=str(external_invoice_id),
         )
 
+        price_kopecks = intent.plan.price_rub * 100
+        balance = await Repository(session).get_balance(intent.user_id) or 0
+        balance_plan = (
+            intent.plan.code
+            if intent.plan.tier == "standard" and balance >= price_kopecks
+            else None
+        )
+
     rub_amount = intent.plan.price_rub
     title = intent.plan.title
     lines = [
@@ -105,10 +126,16 @@ async def _create_payment_invoice(
         lines.append("Ссылка-подписка придёт автоматически в течение минуты после оплаты.")
     text = "\n".join(lines)
 
+    keyboard = _payment_keyboard(
+        str(pay_url),
+        intent.amount,
+        balance_plan=balance_plan,
+        balance_price_kopecks=price_kopecks,
+    )
     if callback.message:
-        await callback.message.answer(text, reply_markup=_payment_keyboard(str(pay_url), intent.amount))
+        await callback.message.answer(text, reply_markup=keyboard)
     else:
-        await bot.send_message(callback.from_user.id, text, reply_markup=_payment_keyboard(str(pay_url), intent.amount))
+        await bot.send_message(callback.from_user.id, text, reply_markup=keyboard)
     await callback.answer()
 
 

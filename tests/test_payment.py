@@ -2,6 +2,7 @@ import re
 
 import pytest
 
+from services import payment
 from services.payment import (
     PLANS,
     create_invoice_payload,
@@ -88,3 +89,52 @@ def test_legacy_payment_plan_aliases_normalize():
 def test_parse_invoice_payload_invalid(payload):
     with pytest.raises(ValueError):
         parse_invoice_payload(payload)
+
+
+def test_create_topup_payload_format_and_parse_roundtrip():
+    payload = payment.create_topup_payload(42, 15000)
+
+    parts = payload.split(":")
+    assert parts[0] == "unlock_topup"
+    assert parts[1] == "42"
+    assert parts[2] == "15000"
+    assert len(parts[3]) == 32
+
+    parsed = payment.parse_topup_payload(payload)
+    assert parsed == payment.ParsedTopupPayload(user_id=42, amount_kopecks=15000)
+
+
+def test_create_topup_payload_rejects_out_of_range():
+    with pytest.raises(ValueError):
+        payment.create_topup_payload(1, payment.MIN_TOPUP_KOPECKS - 1)
+    with pytest.raises(ValueError):
+        payment.create_topup_payload(1, payment.MAX_TOPUP_KOPECKS + 1)
+
+
+def test_parse_topup_payload_returns_none_for_plan_payloads():
+    plan_payload = payment.create_invoice_payload(user_id=1, plan="standard_1m")
+    assert payment.parse_topup_payload(plan_payload) is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "unlock_topup:1:100",
+        "unlock_topup:abc:100:deadbeef",
+        "unlock_topup:1:zero:deadbeef",
+        "unlock_topup:1:-5:deadbeef",
+    ],
+)
+def test_parse_topup_payload_invalid(payload):
+    with pytest.raises(ValueError):
+        payment.parse_topup_payload(payload)
+
+
+def test_usdt_amount_for_kopecks_rounds_up():
+    from decimal import Decimal
+
+    assert payment.usdt_amount_for_kopecks(15000, Decimal("90")) == "1.67"
+    assert payment.usdt_amount_for_kopecks(30000, Decimal("90")) == "3.34"
+    assert payment.usdt_amount_for_kopecks(9000, Decimal("90")) == "1.00"
+    with pytest.raises(ValueError):
+        payment.usdt_amount_for_kopecks(15000, Decimal("0"))

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from bot.keyboards.main_menu import active_subscription_keyboard, landing_keyboard
 from database.repository import Repository
 from services.panel_gateway import PanelGatewayError, is_panel_configured
+from services.referral import ReferralError, attach_referrer, parse_referral_start_payload
 from services.subscription import activate_panel_subscription
 
 router = Router()
@@ -72,8 +73,30 @@ async def _menu_state(
     return _active_text(subscription.expires_at), active_subscription_keyboard()
 
 
+async def _attach_referrer_from_start(
+    session_pool: async_sessionmaker[AsyncSession],
+    message: Message,
+) -> None:
+    parts = (getattr(message, "text", None) or "").split(maxsplit=1)
+    ref_code = parse_referral_start_payload(parts[1] if len(parts) > 1 else None)
+    if ref_code is None:
+        return
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+        )
+        try:
+            await attach_referrer(session, user_id=user.id, ref_code=ref_code)
+        except ReferralError:
+            # Self-referral, unknown code or referrer already set — ignore quietly.
+            return
+
+
 @router.message(CommandStart())
 async def start_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    await _attach_referrer_from_start(session_pool, message)
     text, keyboard = await _menu_state(
         session_pool=session_pool,
         telegram_id=message.from_user.id,

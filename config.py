@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     CRYPTOBOT_TOKEN: str = ""
     CRYPTOBOT_API_URL: str = "https://pay.crypt.bot/api"
     CRYPTOBOT_POLL_INTERVAL: int = 30
+    # Manual RUB/USDT rate used to price wallet top-up invoices.
+    # TODO: replace with a rate feed before card payments launch.
+    RUB_PER_USDT: str = "90"
 
     PANEL_PROVIDER: str = "remnawave"
 
@@ -164,6 +167,15 @@ class Settings(BaseSettings):
     @property
     def autoscale_premium_regions_list(self) -> list[str]:
         return [item.strip().lower() for item in self.AUTOSCALE_PREMIUM_REGIONS.split(",") if item.strip()]
+
+    @property
+    def rub_per_usdt(self) -> "Decimal":
+        from decimal import Decimal
+
+        value = Decimal(self.RUB_PER_USDT)
+        if value <= 0:
+            raise ValueError("RUB_PER_USDT must be positive")
+        return value
 
 
 @lru_cache

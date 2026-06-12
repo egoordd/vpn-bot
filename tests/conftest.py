@@ -10,6 +10,19 @@ os.environ.setdefault("WG_SERVER_ENDPOINT", "127.0.0.1:51821")
 os.environ.setdefault("WG_CLIENT_ADDRESS_POOL", "10.9.0.0/24")
 os.environ.setdefault("WG_ALLOWED_IPS", "0.0.0.0/0")
 
+# Force-neutralize live credentials so the suite never talks to real services,
+# even when a developer .env with real panel/payment secrets is present
+# (env vars take precedence over the .env file in pydantic-settings).
+os.environ["PANEL_PROVIDER"] = "remnawave"
+os.environ["REMNAWAVE_API_URL"] = ""
+os.environ["REMNAWAVE_API_TOKEN"] = ""
+os.environ["MARZBAN_API_URL"] = ""
+os.environ["MARZBAN_ACCESS_TOKEN"] = ""
+os.environ["MARZBAN_USERNAME"] = ""
+os.environ["MARZBAN_PASSWORD"] = ""
+os.environ["CRYPTOBOT_TOKEN"] = ""
+os.environ["VULTR_API_TOKEN"] = ""
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from types import SimpleNamespace

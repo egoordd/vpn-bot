@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from decimal import ROUND_UP, Decimal
 
 from services.tariffs import TARIFFS, Tariff, resolve_premium_region, resolve_tariff
 
@@ -102,3 +103,55 @@ def parse_invoice_payload_details(payload: str) -> ParsedInvoicePayload:
 def parse_invoice_payload(payload: str) -> tuple[int, str]:
     details = parse_invoice_payload_details(payload)
     return details.user_id, details.plan
+
+
+# ---- Wallet top-up invoices -------------------------------------------------
+
+_TOPUP_PREFIX = "unlock_topup"
+
+# Wallet top-up amounts offered in the bot UI (kopecks).
+TOPUP_PRESETS_KOPECKS = (15000, 30000, 60000)
+
+MIN_TOPUP_KOPECKS = 5000
+MAX_TOPUP_KOPECKS = 1_000_000
+
+
+@dataclass(frozen=True)
+class ParsedTopupPayload:
+    user_id: int
+    amount_kopecks: int
+
+
+def create_topup_payload(user_id: int, amount_kopecks: int) -> str:
+    if not MIN_TOPUP_KOPECKS <= amount_kopecks <= MAX_TOPUP_KOPECKS:
+        raise ValueError("Top-up amount out of range")
+    return f"{_TOPUP_PREFIX}:{user_id}:{amount_kopecks}:{uuid.uuid4().hex}"
+
+
+def parse_topup_payload(payload: str) -> ParsedTopupPayload | None:
+    """Return parsed top-up payload, or ``None`` when payload is not a top-up."""
+    parts = payload.split(":")
+    if parts[0] != _TOPUP_PREFIX:
+        return None
+    if len(parts) != 4:
+        raise ValueError("Invalid top-up payload")
+    try:
+        user_id = int(parts[1])
+        amount_kopecks = int(parts[2])
+    except ValueError as exc:
+        raise ValueError("Invalid top-up payload") from exc
+    if amount_kopecks <= 0:
+        raise ValueError("Invalid top-up amount")
+    return ParsedTopupPayload(user_id=user_id, amount_kopecks=amount_kopecks)
+
+
+def usdt_amount_for_kopecks(amount_kopecks: int, rate_rub_per_usdt: Decimal) -> str:
+    """Convert a rouble top-up (kopecks) to a USDT invoice amount string.
+
+    Rounds up to 2 decimals so the credited roubles are always fully covered.
+    """
+    if rate_rub_per_usdt <= 0:
+        raise ValueError("RUB_PER_USDT rate must be positive")
+    rub = Decimal(amount_kopecks) / Decimal(100)
+    usdt = (rub / rate_rub_per_usdt).quantize(Decimal("0.01"), rounding=ROUND_UP)
+    return str(usdt)

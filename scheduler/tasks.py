@@ -25,7 +25,9 @@ from services.panel_gateway import (
     get_panel_gateway,
     is_panel_configured,
 )
-from services.payment import parse_invoice_payload_details
+from services import wallet
+from services.money import format_rub
+from services.payment import ParsedTopupPayload, parse_invoice_payload_details, parse_topup_payload
 from services.qrcode import generate_qr_png_bytes
 from services.referral import reward_referrer_for_payment
 from services.subscription import activate_panel_subscription, activate_subscription
@@ -319,6 +321,75 @@ async def _send_subscription_bundle(
     )
 
 
+async def _credit_topup_payment(
+    *,
+    bot: Bot,
+    session: AsyncSession,
+    repo: Repository,
+    external_invoice_id: str,
+    payment_user_id: int,
+    topup: ParsedTopupPayload,
+) -> None:
+    if topup.user_id != payment_user_id:
+        logger.error(
+            "Top-up payment user mismatch external_invoice_id=%s payload_user_id=%s payment_user_id=%s",
+            external_invoice_id,
+            topup.user_id,
+            payment_user_id,
+        )
+        return
+
+    claimed = await repo.claim_pending_cryptobot_payment(external_invoice_id)
+    if claimed is None:
+        return
+
+    try:
+        entry = await wallet.deposit(
+            session,
+            topup.user_id,
+            topup.amount_kopecks,
+            kind=wallet.KIND_DEPOSIT,
+            reference=f"cryptobot:{external_invoice_id}",
+            description="Пополнение баланса через CryptoBot",
+        )
+    except Exception:
+        logger.exception(
+            "Failed to credit top-up external_invoice_id=%s user_id=%s",
+            external_invoice_id,
+            topup.user_id,
+        )
+        try:
+            await session.rollback()
+            await repo.update_payment_status(claimed.id, "pending")
+        except Exception:
+            logger.exception(
+                "Failed to release top-up payment for retry external_invoice_id=%s",
+                external_invoice_id,
+            )
+        return
+
+    await repo.complete_payment_by_external_id(external_invoice_id)
+
+    user = await repo.get_user(topup.user_id)
+    if user is None:
+        return
+    try:
+        await bot.send_message(
+            chat_id=user.telegram_id,
+            text=(
+                f"💰 Баланс пополнен на {format_rub(topup.amount_kopecks)}.\n"
+                f"Текущий баланс: {format_rub(entry.balance_after_kopecks)}"
+            ),
+            reply_markup=back_to_menu_keyboard(),
+        )
+    except Exception:
+        logger.exception(
+            "Failed to notify user about top-up user_id=%s external_invoice_id=%s",
+            topup.user_id,
+            external_invoice_id,
+        )
+
+
 async def poll_cryptobot_payments(
     bot: Bot,
     session_pool: async_sessionmaker[AsyncSession],
@@ -344,6 +415,27 @@ async def poll_cryptobot_payments(
                 continue
 
             payload = str(invoice.get("payload") or payment.invoice_payload or "")
+
+            try:
+                topup = parse_topup_payload(payload)
+            except ValueError:
+                logger.exception(
+                    "Invalid top-up payload for external_invoice_id=%s payload=%s",
+                    external_invoice_id,
+                    payload,
+                )
+                continue
+            if topup is not None:
+                await _credit_topup_payment(
+                    bot=bot,
+                    session=session,
+                    repo=repo,
+                    external_invoice_id=str(external_invoice_id),
+                    payment_user_id=payment.user_id,
+                    topup=topup,
+                )
+                continue
+
             try:
                 payload_details = parse_invoice_payload_details(payload)
                 payload_user_id, plan = payload_details.user_id, payload_details.plan
@@ -517,17 +609,20 @@ def setup_scheduler(bot: Bot, session_pool: async_sessionmaker[AsyncSession]) ->
         coalesce=True,
         next_run_time=datetime.now(timezone.utc),
     )
-    scheduler.add_job(
-        poll_cryptobot_payments,
-        trigger="interval",
-        seconds=settings.CRYPTOBOT_POLL_INTERVAL,
-        args=[bot, session_pool],
-        id="poll_cryptobot_payments",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-        next_run_time=datetime.now(timezone.utc),
-    )
+    if settings.CRYPTOBOT_TOKEN.strip():
+        scheduler.add_job(
+            poll_cryptobot_payments,
+            trigger="interval",
+            seconds=settings.CRYPTOBOT_POLL_INTERVAL,
+            args=[bot, session_pool],
+            id="poll_cryptobot_payments",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            next_run_time=datetime.now(timezone.utc),
+        )
+    else:
+        logger.warning("CRYPTOBOT_TOKEN is empty: payment polling disabled")
     if settings.autoscale_premium_regions_list:
         scheduler.add_job(
             autoscale_check,

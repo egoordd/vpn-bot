@@ -664,3 +664,69 @@ def test_access_text_and_aware_helpers():
 
     assert aware.tzinfo == timezone.utc
     assert "01.01.2026 12:00 UTC" in tasks._access_text(naive)
+
+
+@pytest.mark.integration
+async def test_poll_cryptobot_payments_credits_topup(fake_bot, session_pool, monkeypatch):
+    from services import wallet as wallet_service
+    from services.payment import create_topup_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=880, username="topupper")
+        payload = create_topup_payload(user.id, 15000)
+        await repo.create_cryptobot_payment(
+            user_id=user.id,
+            amount=167,
+            external_invoice_id="top-ext-1",
+            invoice_payload=payload,
+            plan="topup",
+        )
+
+    monkeypatch.setattr(
+        tasks,
+        "get_invoices_by_status",
+        AsyncMock(return_value=[{"invoice_id": "top-ext-1", "payload": payload}]),
+    )
+
+    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        balance = await repo.get_balance(user.id)
+        payment = await repo.get_payment_by_external_id("top-ext-1")
+    assert balance == 15000
+    assert payment.status == "completed"
+    fake_bot.send_message.assert_awaited_once()
+    text = fake_bot.send_message.await_args.kwargs["text"]
+    assert "150₽" in text
+
+
+@pytest.mark.integration
+async def test_poll_cryptobot_payments_topup_is_idempotent(fake_bot, session_pool, monkeypatch):
+    from services.payment import create_topup_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=881, username="topupper2")
+        payload = create_topup_payload(user.id, 30000)
+        await repo.create_cryptobot_payment(
+            user_id=user.id,
+            amount=334,
+            external_invoice_id="top-ext-2",
+            invoice_payload=payload,
+            plan="topup",
+        )
+
+    monkeypatch.setattr(
+        tasks,
+        "get_invoices_by_status",
+        AsyncMock(return_value=[{"invoice_id": "top-ext-2", "payload": payload}]),
+    )
+
+    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
+    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
+
+    async with session_pool() as session:
+        balance = await Repository(session).get_balance(user.id)
+    assert balance == 30000

@@ -83,3 +83,38 @@ def test_start_aware_and_active_text():
 
     assert start._aware(naive).tzinfo == timezone.utc
     assert "01.01.2026 12:00 UTC" in start._active_text(naive)
+
+
+@pytest.mark.integration
+async def test_start_handler_attaches_referrer_from_deep_link(session_pool):
+    async with session_pool() as session:
+        referrer = await Repository(session).create_user(telegram_id=921, username="ref")
+
+    message = SimpleNamespace(
+        text=f"/start ref_{referrer.ref_code}",
+        from_user=SimpleNamespace(id=922, username="referee"),
+        answer_photo=AsyncMock(),
+    )
+
+    await start.start_handler(message, session_pool)
+
+    async with session_pool() as session:
+        referee = await Repository(session).get_user_by_telegram_id(922)
+    assert referee is not None
+    assert referee.referrer_id == referrer.id
+
+
+@pytest.mark.integration
+async def test_start_handler_ignores_bad_ref_code(session_pool):
+    message = SimpleNamespace(
+        text="/start ref_nonexistent",
+        from_user=SimpleNamespace(id=923, username="referee2"),
+        answer_photo=AsyncMock(),
+    )
+
+    await start.start_handler(message, session_pool)
+
+    async with session_pool() as session:
+        referee = await Repository(session).get_user_by_telegram_id(923)
+    assert referee is not None
+    assert referee.referrer_id is None
