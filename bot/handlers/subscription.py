@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
+from bot.navigation import show_screen
 from bot.texts import bq, format_gb, format_msk
 from database.repository import Repository
 from services.subscription import get_subscription_info
@@ -29,7 +30,7 @@ async def subscription_handler(
         text = (
             "🔑 <b>Моя подписка</b>\n\n"
             + bq("⚡️ Статус: ❌ не активна")
-            + "\n\nВыбери тариф в меню — ссылка-подписка придёт автоматически."
+            + "\n\nВыберите тариф в меню — ссылка-подписка придёт автоматически."
         )
     else:
         status = "✅ активна" if info["is_active"] else "❌ неактивна"
@@ -54,6 +55,5 @@ async def subscription_handler(
             sections.append(f"📅 <b>Действует до:</b> {format_msk(info['expires_at'])}")
         text = "\n\n".join(sections)
 
-    if callback.message:
-        await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard())
+    await show_screen(callback, text, back_to_menu_keyboard())
     await callback.answer()

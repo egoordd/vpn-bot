@@ -9,13 +9,21 @@ from database.repository import Repository
 
 
 @pytest.mark.unit
-async def test_instructions_handler_edits_caption_for_photo_message():
-    message = SimpleNamespace(photo=[object()], edit_caption=AsyncMock(), edit_text=AsyncMock())
+async def test_instructions_handler_replaces_photo_message():
+    # On a photo message, navigation deletes it and sends a fresh text screen,
+    # so a QR/banner never stays stuck behind a text caption.
+    message = SimpleNamespace(
+        photo=[object()],
+        delete=AsyncMock(),
+        answer=AsyncMock(),
+        edit_text=AsyncMock(),
+    )
     callback = SimpleNamespace(message=message, answer=AsyncMock())
 
     await instructions.instructions_handler(callback)
 
-    message.edit_caption.assert_awaited_once()
+    message.delete.assert_awaited_once()
+    message.answer.assert_awaited_once()
     message.edit_text.assert_not_awaited()
     callback.answer.assert_awaited_once()
 

@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
+from bot.navigation import show_screen
 from bot.texts import bq
 from database.models import Node, Subscription
 from database.repository import Repository
@@ -62,12 +63,7 @@ def _locations_keyboard(current_region: str | None = None) -> InlineKeyboardMark
 
 
 async def _edit_text(callback: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup) -> None:
-    if not callback.message:
-        return
-    if getattr(callback.message, "photo", None):
-        await callback.message.edit_caption(caption=text, reply_markup=reply_markup)
-    else:
-        await callback.message.edit_text(text, reply_markup=reply_markup)
+    await show_screen(callback, text, reply_markup)
 
 
 @router.callback_query(F.data == "locations")
@@ -107,8 +103,8 @@ async def locations_handler(
         text = (
             "🌍 <b>Premium-локации</b>\n\n"
             + bq(f"📍 Текущая локация: {_region_title(current_region)}")
-            + "\n\nВыбери другой регион. Если свободной ноды там нет, "
-            "сервер подготовится автоматически (~2 минуты)."
+            + "\n\nВыберите другой регион. Если свободной ноды там нет, "
+            "сервер будет подготовлен автоматически (~2 минуты)."
         )
         keyboard = _locations_keyboard(current_region)
 

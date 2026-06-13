@@ -23,11 +23,12 @@ def test_landing_keyboard_offers_tier_choice():
 
 
 @pytest.mark.unit
-def test_tier_buttons_show_min_monthly_price():
+def test_tier_buttons_show_real_minimum_price():
     keyboard = landing_keyboard().inline_keyboard
-    # standard_12m: 1199 / 12 mo = 99, premium_12m: 2999 / 12 mo = 249
-    assert "99\u20bd/\u043c\u0435\u0441" in keyboard[0][0].text
-    assert "249\u20bd/\u043c\u0435\u0441" in keyboard[1][0].text
+    # Cheapest actual entry price (not a per-month figure you can't pay alone):
+    # standard min = standard_1m 149, premium min = premium_1m 399.
+    assert "\u043e\u0442 149\u20bd" in keyboard[0][0].text
+    assert "\u043e\u0442 399\u20bd" in keyboard[1][0].text
 
 
 @pytest.mark.unit

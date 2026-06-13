@@ -201,3 +201,53 @@ async def test_pay_with_balance_premium_rejected(session_pool):
 
     assert callback.answer.await_args.kwargs["show_alert"] is True
     assert "Premium" in callback.answer.await_args.args[0]
+
+
+@pytest.mark.integration
+async def test_topup_custom_sets_state_and_prompts(session_pool):
+    from bot.handlers.wallet import TopupInput
+
+    callback = _callback("topup_custom", telegram_id=962)
+    state = SimpleNamespace(set_state=AsyncMock(), clear=AsyncMock())
+
+    await wallet_handlers.topup_custom_handler(callback, state)
+
+    state.set_state.assert_awaited_once_with(TopupInput.amount)
+    callback.message.edit_text.assert_awaited_once()
+
+
+@pytest.mark.integration
+async def test_topup_amount_message_creates_invoice(session_pool, fake_bot, monkeypatch):
+    create_invoice = AsyncMock(return_value={"invoice_id": "cust-1", "pay_url": "https://pay.example/c"})
+    monkeypatch.setattr(wallet_handlers, "create_invoice", create_invoice)
+    message = SimpleNamespace(
+        text="250",
+        from_user=SimpleNamespace(id=963, username="custom"),
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+
+    await wallet_handlers.topup_amount_message_handler(message, state, fake_bot, session_pool)
+
+    state.clear.assert_awaited_once()
+    create_invoice.assert_awaited_once()
+    message.answer.assert_awaited_once()
+    async with session_pool() as session:
+        user = await Repository(session).get_user_by_telegram_id(963)
+        payment = await Repository(session).get_payment_by_external_id("cust-1")
+    assert payment is not None
+    assert payment.invoice_payload.startswith("unlock_topup:")
+
+
+@pytest.mark.integration
+async def test_topup_amount_message_rejects_bad_input(session_pool, fake_bot):
+    state = SimpleNamespace(clear=AsyncMock())
+    for raw in ("abc", "10", "999999"):
+        message = SimpleNamespace(
+            text=raw,
+            from_user=SimpleNamespace(id=964, username="custom"),
+            answer=AsyncMock(),
+        )
+        await wallet_handlers.topup_amount_message_handler(message, state, fake_bot, session_pool)
+        message.answer.assert_awaited_once()
+    state.clear.assert_not_awaited()

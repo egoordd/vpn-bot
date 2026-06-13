@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.handlers.start import _menu_state
 from bot.keyboards.main_menu import premium_location_keyboard, tier_plans_keyboard, tier_select_keyboard
+from bot.navigation import show_screen
 from bot.texts import bq
 from database.repository import Repository
 from services.billing_api import build_payment_intent, crypto_minor_units, register_cryptobot_payment
@@ -42,13 +43,7 @@ def _payment_keyboard(
 
 
 async def _edit_current_message(callback: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup) -> None:
-    if not callback.message:
-        return
-
-    if getattr(callback.message, "photo", None):
-        await callback.message.edit_caption(caption=text, reply_markup=reply_markup)
-    else:
-        await callback.message.edit_text(text, reply_markup=reply_markup)
+    await show_screen(callback, text, reply_markup)
 
 
 def _premium_location_text(plan: str) -> str:
@@ -59,8 +54,8 @@ def _premium_location_text(plan: str) -> str:
             f"💎 Тариф: {plan_data['title']}",
             f"💵 Стоимость: {plan_data['rub_amount']}₽",
         )
-        + "\n\nВыбери локацию premium-ноды. Если в регионе нет свободного места, "
-        "сервер поднимется автоматически (~2 минуты после оплаты)."
+        + "\n\nВыберите локацию premium-ноды. Если в регионе нет свободного места, "
+        "сервер будет поднят автоматически (~2 минуты после оплаты)."
     )
 
 
@@ -121,14 +116,14 @@ async def _create_payment_invoice(
     if intent.region is not None:
         card_lines.append(f"🌍 Локация: {intent.region.title}")
     tail = (
-        "После оплаты закрепим premium-ноду. Если свободной нет, подготовка займёт около 2 минут."
+        "После оплаты premium-нода закрепляется автоматически. Если свободной нет, подготовка займёт около 2 минут."
         if intent.plan.tier == "premium"
         else "Ссылка-подписка придёт автоматически в течение минуты после оплаты."
     )
     text = (
         "💳 <b>Оплата тарифа</b>\n\n"
         + bq(*card_lines)
-        + "\n\nНажми кнопку ниже, выбери валюту (USDT/TON/BTC) и оплати.\n"
+        + "\n\nНажмите кнопку ниже, выберите валюту (USDT/TON/BTC) и оплатите.\n"
         + tail
     )
 
@@ -151,7 +146,7 @@ BUY_MENU_TEXT = (
     "🚀 <b>Обычный</b> — общий пул серверов, лучшая цена.\n"
     "💎 <b>Premium</b> — меньше соседей на ноде, выбор локации, выше скорость."
     "</blockquote>\n\n"
-    "Выбери вариант — дальше покажу сроки и цены."
+    "Выберите вариант — ниже появятся сроки и цены."
 )
 
 TIER_TEXTS = {
@@ -162,7 +157,7 @@ TIER_TEXTS = {
         "📊 До 150 ГБ трафика в месяц\n"
         "📱 До 3–5 устройств"
         "</blockquote>\n\n"
-        "Выбери срок:"
+        "Выберите срок:"
     ),
     "premium": (
         "💎 <b>Premium тариф</b>\n\n"
@@ -172,7 +167,7 @@ TIER_TEXTS = {
         "📊 До 300 ГБ трафика в месяц\n"
         "📱 До 5–8 устройств"
         "</blockquote>\n\n"
-        "Выбери срок:"
+        "Выберите срок:"
     ),
 }
 

@@ -53,7 +53,7 @@ async def check_expiring_subscriptions(
                     text=(
                         "⏰ <b>Подписка скоро закончится</b>\n\n"
                         + bq("📅 Осталось: меньше 3 дней")
-                        + "\n\nЧтобы не потерять доступ, продли подписку — кнопка «🔄 Продлить» в меню."
+                        + "\n\nЧтобы не потерять доступ, продлите подписку — кнопка «🔄 Продлить» в меню."
                     ),
                 )
                 await repo.mark_subscription_reminded(subscription.id)
@@ -88,7 +88,7 @@ async def deactivate_expired_subscriptions(
                     chat_id=subscription.user.telegram_id,
                     text=(
                             "⛔️ <b>Подписка истекла</b>\n\n"
-                            "Доступ отключён. Продлить можно в меню — ссылка-подписка останется прежней."
+                            "Доступ отключён. Продление доступно в меню — ссылка-подписка останется прежней."
                         ),
                 )
             except Exception:
@@ -125,7 +125,7 @@ async def traffic_sync(
                         chat_id=subscription.user.telegram_id,
                         text=(
                             "⚠️ <b>Проблема с подпиской</b>\n\n"
-                            "Подписка не найдена в панели. Напиши в поддержку — разберёмся."
+                            "Подписка не найдена в панели. Обратитесь в поддержку."
                         ),
                     )
                 except Exception:
@@ -170,7 +170,7 @@ async def traffic_sync(
                         text=(
                             "⛔️ <b>Подписка остановлена</b>\n\n"
                             + bq("📊 Причина: закончился трафик или доступ отключён")
-                            + "\n\nПродли тариф или напиши в поддержку."
+                            + "\n\nПродлите тариф или обратитесь в поддержку."
                         ),
                     )
                 except Exception:
@@ -303,7 +303,7 @@ def _subscription_access_text(
         + bq(*card_lines)
         + "\n\n🔗 <b>Ссылка-подписка:</b>\n"
         f"<code>{subscription_url}</code>\n\n"
-        "Добавь ссылку в Happ, Hiddify, V2RayTun или Streisand. "
+        "Добавьте ссылку в Happ, Hiddify, V2RayTun или Streisand. "
         "QR-код — следующим сообщением."
         + note
         + f"\n\nПроблемы? {settings.support_contact}"

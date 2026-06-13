@@ -1,5 +1,6 @@
 import logging
 import uuid
+from typing import Awaitable, Callable
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
@@ -8,6 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_wallet_keyboard, topup_keyboard, wallet_keyboard
+from bot.navigation import show_screen
 from bot.texts import bq, format_msk
 from config import settings
 from database.repository import Repository
@@ -46,13 +48,12 @@ class PromoInput(StatesGroup):
     code = State()
 
 
+class TopupInput(StatesGroup):
+    amount = State()
+
+
 async def _edit_current_message(callback: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup) -> None:
-    if not callback.message:
-        return
-    if getattr(callback.message, "photo", None):
-        await callback.message.edit_caption(caption=text, reply_markup=reply_markup)
-    else:
-        await callback.message.edit_text(text, reply_markup=reply_markup)
+    await show_screen(callback, text, reply_markup)
 
 
 async def _bot_username(bot: Bot) -> str:
@@ -77,7 +78,7 @@ def _wallet_text(overview: billing_api.AccountOverview) -> str:
             entry_lines.append(f"{sign}{format_rub(abs(entry.amount_kopecks))} — {label}")
         sections.append("📜 <b>Последние операции:</b>\n" + bq(*entry_lines))
     else:
-        sections.append("📜 Операций пока нет. Пополни баланс или активируй промокод.")
+        sections.append("📜 Операций пока нет. Пополните баланс или активируйте промокод.")
     sections.append("⚡️ Балансом можно оплачивать тарифы в один тап.")
     return "\n\n".join(sections)
 
@@ -102,14 +103,69 @@ async def wallet_handler(
 
 
 @router.callback_query(F.data == "topup_menu")
-async def topup_menu_handler(callback: CallbackQuery) -> None:
+async def topup_menu_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     text = (
-        "<b>➕ Пополнение баланса</b>\n\n"
-        "Выбери сумму. Счёт выставляется в USDT через CryptoBot, "
-        "баланс зачисляется в рублях автоматически после оплаты."
+        "➕ <b>Пополнение баланса</b>\n\n"
+        + bq(
+            "💵 Счёт выставляется в USDT через CryptoBot",
+            "💰 Баланс зачисляется в рублях автоматически",
+        )
+        + "\n\nВыберите сумму или укажите свою."
     )
     await _edit_current_message(callback, text, topup_keyboard(TOPUP_PRESETS_KOPECKS))
     await callback.answer()
+
+
+@router.callback_query(F.data == "topup_custom")
+async def topup_custom_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(TopupInput.amount)
+    text = (
+        "✏️ <b>Своя сумма</b>\n\n"
+        + bq(
+            f"📉 Минимум: {MIN_TOPUP_KOPECKS // 100}₽",
+            f"📈 Максимум: {MAX_TOPUP_KOPECKS // 100}₽",
+        )
+        + "\n\nОтправьте сумму в рублях одним сообщением (например, <code>250</code>)."
+    )
+    await _edit_current_message(callback, text, back_to_wallet_keyboard())
+    await callback.answer()
+
+
+@router.message(TopupInput.amount)
+async def topup_amount_message_handler(
+    message: Message,
+    state: FSMContext,
+    bot: Bot,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    raw = (message.text or "").strip().replace("₽", "").replace(",", ".").replace(" ", "")
+    try:
+        rubles = float(raw)
+    except ValueError:
+        await message.answer(
+            "Нужно число в рублях, например <code>250</code>.",
+            reply_markup=back_to_wallet_keyboard(),
+        )
+        return
+
+    amount_kopecks = int(round(rubles * 100))
+    if not MIN_TOPUP_KOPECKS <= amount_kopecks <= MAX_TOPUP_KOPECKS:
+        await message.answer(
+            f"Сумма должна быть от {MIN_TOPUP_KOPECKS // 100}₽ до {MAX_TOPUP_KOPECKS // 100}₽.",
+            reply_markup=back_to_wallet_keyboard(),
+        )
+        return
+
+    await state.clear()
+    await _create_topup_invoice(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+        amount_kopecks=amount_kopecks,
+        session_pool=session_pool,
+        send=message.answer,
+        on_error=lambda text: message.answer(text, reply_markup=back_to_wallet_keyboard()),
+    )
 
 
 def _topup_payment_keyboard(pay_url: str, amount_usdt: str) -> InlineKeyboardMarkup:
@@ -121,27 +177,18 @@ def _topup_payment_keyboard(pay_url: str, amount_usdt: str) -> InlineKeyboardMar
     )
 
 
-@router.callback_query(F.data.startswith("topup:"))
-async def topup_handler(
-    callback: CallbackQuery,
-    bot: Bot,
+async def _create_topup_invoice(
+    *,
+    telegram_id: int,
+    username: str | None,
+    amount_kopecks: int,
     session_pool: async_sessionmaker[AsyncSession],
+    send: Callable[..., Awaitable[object]],
+    on_error: Callable[[str], Awaitable[object]],
 ) -> None:
-    try:
-        amount_kopecks = int(callback.data.split(":", 1)[1])
-    except (IndexError, ValueError):
-        await callback.answer("Некорректная сумма.", show_alert=True)
-        return
-    if not MIN_TOPUP_KOPECKS <= amount_kopecks <= MAX_TOPUP_KOPECKS:
-        await callback.answer("Сумма вне допустимого диапазона.", show_alert=True)
-        return
-
     async with session_pool() as session:
         repo = Repository(session)
-        user = await repo.get_or_create_user(
-            telegram_id=callback.from_user.id,
-            username=callback.from_user.username,
-        )
+        user = await repo.get_or_create_user(telegram_id=telegram_id, username=username)
         payload = create_topup_payload(user.id, amount_kopecks)
         amount_usdt = usdt_amount_for_kopecks(amount_kopecks, settings.rub_per_usdt)
 
@@ -154,14 +201,14 @@ async def topup_handler(
             )
         except CryptoBotError:
             logger.exception("Failed to create top-up invoice for user_id=%s", user.id)
-            await callback.answer("Не удалось создать счет. Попробуйте позже.", show_alert=True)
+            await on_error("Не удалось создать счёт. Попробуйте позже.")
             return
 
         pay_url = invoice.get("pay_url") or invoice.get("bot_invoice_url")
         external_invoice_id = invoice.get("invoice_id")
         if not pay_url or external_invoice_id is None:
             logger.error("CryptoBot returned malformed top-up invoice: %s", invoice)
-            await callback.answer("CryptoBot вернул некорректный счет. Напишите в поддержку.", show_alert=True)
+            await on_error("CryptoBot вернул некорректный счёт. Обратитесь в поддержку.")
             return
 
         await repo.create_cryptobot_payment(
@@ -181,10 +228,41 @@ async def topup_handler(
         )
         + "\n\nБаланс зачислится автоматически в течение минуты после оплаты."
     )
-    if callback.message:
-        await callback.message.answer(text, reply_markup=_topup_payment_keyboard(str(pay_url), amount_usdt))
-    else:
-        await bot.send_message(callback.from_user.id, text, reply_markup=_topup_payment_keyboard(str(pay_url), amount_usdt))
+    await send(text, reply_markup=_topup_payment_keyboard(str(pay_url), amount_usdt))
+
+
+@router.callback_query(F.data.startswith("topup:"))
+async def topup_handler(
+    callback: CallbackQuery,
+    bot: Bot,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    try:
+        amount_kopecks = int(callback.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректная сумма.", show_alert=True)
+        return
+    if not MIN_TOPUP_KOPECKS <= amount_kopecks <= MAX_TOPUP_KOPECKS:
+        await callback.answer("Сумма вне допустимого диапазона.", show_alert=True)
+        return
+
+    async def _send(text: str, *, reply_markup: InlineKeyboardMarkup) -> None:
+        if callback.message:
+            await callback.message.answer(text, reply_markup=reply_markup)
+        else:
+            await bot.send_message(callback.from_user.id, text, reply_markup=reply_markup)
+
+    async def _error(text: str) -> None:
+        await callback.answer(text, show_alert=True)
+
+    await _create_topup_invoice(
+        telegram_id=callback.from_user.id,
+        username=callback.from_user.username,
+        amount_kopecks=amount_kopecks,
+        session_pool=session_pool,
+        send=_send,
+        on_error=_error,
+    )
     await callback.answer()
 
 
@@ -192,8 +270,8 @@ async def topup_handler(
 async def promo_enter_handler(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PromoInput.code)
     text = (
-        "<b>🎟 Промокод</b>\n\n"
-        "Отправь промокод сообщением — бонус зачислится на баланс."
+        "🎟 <b>Промокод</b>\n\n"
+        "Отправьте промокод одним сообщением — бонус зачислится на баланс."
     )
     await _edit_current_message(callback, text, back_to_wallet_keyboard())
     await callback.answer()
@@ -223,7 +301,7 @@ async def promo_code_message_handler(
 ) -> None:
     code = (message.text or "").strip()
     if not code:
-        await message.answer("Отправь промокод текстом или вернись в кошелёк.", reply_markup=back_to_wallet_keyboard())
+        await message.answer("Отправьте промокод текстом или вернитесь в кошелёк.", reply_markup=back_to_wallet_keyboard())
         return
 
     async with session_pool() as session:
@@ -265,7 +343,7 @@ async def referral_handler(
     link = build_referral_link(username, stats.ref_code or f"tg{callback.from_user.id}")
     text = (
         "👥 <b>Реферальная программа</b>\n\n"
-        f"Зови друзей и получай <b>{stats.reward_percent}%</b> с каждой их оплаты на баланс.\n\n"
+        f"Приглашайте друзей и получайте <b>{stats.reward_percent}%</b> с каждой их оплаты на баланс.\n\n"
         f"🔗 <b>Твоя ссылка:</b>\n<code>{link}</code>\n\n"
         + bq(
             f"👤 Приглашено: {stats.referrals_count}",

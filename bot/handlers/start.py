@@ -48,7 +48,7 @@ def _menu_text(user: User, subscription: Subscription | None, display_name: str 
     if subscription is None:
         sections.append(
             "🔑 <b>Подписка:</b> не активна\n\n"
-            "Выбери тариф ниже — ссылка-подписка придёт автоматически после оплаты."
+            "Выберите тариф ниже — ссылка-подписка придёт автоматически после оплаты."
         )
         return "\n\n".join(sections)
 

@@ -2,6 +2,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
+from bot.navigation import show_screen
 from bot.texts import bq
 
 router = Router()
@@ -28,9 +29,5 @@ INSTRUCTIONS_TEXT = (
 
 @router.callback_query(F.data == "instructions")
 async def instructions_handler(callback: CallbackQuery) -> None:
-    if callback.message:
-        if callback.message.photo:
-            await callback.message.edit_caption(caption=INSTRUCTIONS_TEXT, reply_markup=back_to_menu_keyboard())
-        else:
-            await callback.message.edit_text(INSTRUCTIONS_TEXT, reply_markup=back_to_menu_keyboard())
+    await show_screen(callback, INSTRUCTIONS_TEXT, back_to_menu_keyboard())
     await callback.answer()

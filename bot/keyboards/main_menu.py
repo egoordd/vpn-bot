@@ -7,26 +7,27 @@ from services.tariffs import PREMIUM_REGIONS
 DURATION_EMOJI = {30: "🚀", 90: "💎", 180: "👑", 365: "🏆"}
 
 
-def _min_price_per_month(tier: str) -> int:
-    prices = [
-        int(plan["rub_amount"]) // max(1, round(int(plan["days"]) / 30))
+def _min_price(tier: str) -> int:
+    """Cheapest actual plan price for a tier (the real entry cost, not a
+    per-month figure that the user can never pay in one go)."""
+    return min(
+        int(plan["rub_amount"])
         for code, plan in PLANS.items()
         if code.startswith(tier)
-    ]
-    return min(prices)
+    )
 
 
 def _tier_buttons() -> list[list[InlineKeyboardButton]]:
     return [
         [
             InlineKeyboardButton(
-                text=f"🚀 Обычный — от {_min_price_per_month('standard')}₽/мес",
+                text=f"🚀 Обычный — от {_min_price('standard')}₽",
                 callback_data="buy_tier:standard",
             )
         ],
         [
             InlineKeyboardButton(
-                text=f"💎 Premium — от {_min_price_per_month('premium')}₽/мес",
+                text=f"💎 Premium — от {_min_price('premium')}₽",
                 callback_data="buy_tier:premium",
             )
         ],
@@ -142,6 +143,7 @@ def topup_keyboard(presets_kopecks: tuple[int, ...]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             *preset_rows,
+            [InlineKeyboardButton(text="✏️ Своя сумма", callback_data="topup_custom")],
             [InlineKeyboardButton(text="◀️ Назад", callback_data="wallet")],
         ]
     )
