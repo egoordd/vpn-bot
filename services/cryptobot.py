@@ -11,6 +11,11 @@ class CryptoBotError(RuntimeError):
     pass
 
 
+def is_configured() -> bool:
+    """Whether CryptoBot crypto payments are available (token present)."""
+    return bool(settings.CRYPTOBOT_TOKEN.strip())
+
+
 async def _request(method: str, endpoint: str, **params: Any) -> Any:
     token = settings.CRYPTOBOT_TOKEN.strip()
     if not token:
