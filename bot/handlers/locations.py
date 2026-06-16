@@ -7,9 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from bot.keyboards.main_menu import back_to_menu_keyboard
 from bot.navigation import show_screen
 from bot.texts import bq
-from database.models import Node, Subscription
+from config import settings
+from database.models import Subscription
 from database.repository import Repository
-from services.autoscaler import AutoscalerError, ProvisionNodeRequest, move_subscription_to_region
+from services.subscription import StaticRegionError, switch_premium_region
 from services.tariffs import PREMIUM_REGIONS, resolve_premium_region
 
 logger = logging.getLogger(__name__)
@@ -18,46 +19,29 @@ router = Router()
 
 def _region_title(region_code: str | None) -> str:
     if not region_code:
-        return "ещё не назначена"
+        return "ещё не выбрана"
     try:
         return resolve_premium_region(region_code).title
     except ValueError:
         return region_code
 
 
-async def _node_by_ref(repo: Repository, node_ref: str) -> Node | None:
-    if node_ref.startswith("db:"):
-        try:
-            return await repo.get_node(int(node_ref.removeprefix("db:")))
-        except ValueError:
-            return None
-    node = await repo.get_node_by_panel_node_id(node_ref)
-    if node is not None:
-        return node
-    try:
-        return await repo.get_node(int(node_ref))
-    except ValueError:
-        return None
+def _is_static(region_code: str) -> bool:
+    return settings.marzban_inbounds_for_region(region_code) is not None
 
 
-async def _subscription_region(repo: Repository, subscription: Subscription) -> str | None:
-    for node_ref in subscription.node_ids or []:
-        node = await _node_by_ref(repo, str(node_ref))
-        if node is not None:
-            return node.region
-    return None
+def _premium_active(subscriptions: list[Subscription]) -> Subscription | None:
+    return next((s for s in subscriptions if s.tier == "premium"), None)
 
 
-def _locations_keyboard(current_region: str | None = None) -> InlineKeyboardMarkup:
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=f"{'✅ ' if code == current_region else '🌍 '}{region.title}",
-                callback_data=f"set_location:{code}",
-            )
-        ]
-        for code, region in PREMIUM_REGIONS.items()
-    ]
+def _locations_keyboard(current_region: str | None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for code, region in PREMIUM_REGIONS.items():
+        if _is_static(code):
+            mark = "✅ " if code == current_region else "🌍 "
+            rows.append([InlineKeyboardButton(text=f"{mark}{region.title}", callback_data=f"set_location:{code}")])
+        else:
+            rows.append([InlineKeyboardButton(text=f"🔜 {region.title} (скоро)", callback_data="location_soon")])
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -77,39 +61,30 @@ async def locations_handler(
             telegram_id=callback.from_user.id,
             username=callback.from_user.username,
         )
-        subscription = await repo.get_active_subscription(user.id)
-        if subscription is not None and subscription.tier == "premium":
-            current_region = await _subscription_region(repo, subscription)
-        else:
-            current_region = None
+        premium = _premium_active(await repo.list_active_subscriptions(user.id))
 
-    if subscription is None:
+    if premium is None:
         text = (
             "🌍 <b>Локации</b>\n\n"
             + bq("🔒 Доступно на Premium-тарифе")
-            + "\n\nКупи Premium — и выбирай регион подключения."
+            + "\n\nКупите Premium — и выбирайте регион подключения."
         )
-        keyboard = back_to_menu_keyboard()
-    elif subscription.tier != "premium":
-        text = (
-            "🌍 <b>Локации</b>\n\n"
-            + bq(
-                "🔒 Выбор локации доступен на Premium",
-                "🌐 Сейчас: общие локации из ссылки-подписки",
-            )
-        )
-        keyboard = back_to_menu_keyboard()
-    else:
-        text = (
-            "🌍 <b>Premium-локации</b>\n\n"
-            + bq(f"📍 Текущая локация: {_region_title(current_region)}")
-            + "\n\nВыберите другой регион. Если свободной ноды там нет, "
-            "сервер будет подготовлен автоматически (~2 минуты)."
-        )
-        keyboard = _locations_keyboard(current_region)
+        await _edit_text(callback, text, back_to_menu_keyboard())
+        await callback.answer()
+        return
 
-    await _edit_text(callback, text, keyboard)
+    text = (
+        "🌍 <b>Premium-локации</b>\n\n"
+        + bq(f"📍 Текущая локация: {_region_title(premium.region)}")
+        + "\n\nВыберите регион. Переключение бесплатно, ссылка-подписка остаётся прежней."
+    )
+    await _edit_text(callback, text, _locations_keyboard(premium.region))
     await callback.answer()
+
+
+@router.callback_query(F.data == "location_soon")
+async def location_soon_handler(callback: CallbackQuery) -> None:
+    await callback.answer("Эта локация скоро будет доступна.", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("set_location:"))
@@ -130,42 +105,21 @@ async def set_location_handler(
             telegram_id=callback.from_user.id,
             username=callback.from_user.username,
         )
-        subscription = await repo.get_active_subscription(user.id)
-        if subscription is None or subscription.tier != "premium":
+        premium = _premium_active(await repo.list_active_subscriptions(user.id))
+        if premium is None:
             await callback.answer("Смена локации доступна на Premium", show_alert=True)
             return
-
-        current_region = await _subscription_region(repo, subscription)
-        if current_region == region.code:
+        if premium.region == region.code:
             await callback.answer("Эта локация уже выбрана")
             return
 
-        await _edit_text(
-            callback,
-            "⏳ <b>Готовлю локацию</b>\n\n"
-            + bq(f"📍 Регион: {region.title}")
-            + "\n\nОбычно это занимает около 2 минут.",
-            back_to_menu_keyboard(),
-        )
-        await callback.answer("Готовлю локацию")
-
         try:
-            node = await move_subscription_to_region(
-                session=session,
-                subscription_id=subscription.id,
-                region=region.code,
-                provision_request=ProvisionNodeRequest(region=region.code, country_code=region.country_code),
-            )
-        except AutoscalerError:
-            logger.exception("Failed to move premium subscription_id=%s to region=%s", subscription.id, region.code)
-            await _edit_text(
-                callback,
-                "Не удалось сменить локацию. Попробуйте позже или напишите в поддержку.",
-                back_to_menu_keyboard(),
-            )
+            updated = await switch_premium_region(session, user.id, region.code)
+        except StaticRegionError:
+            await callback.answer("Эта локация скоро будет доступна.", show_alert=True)
             return
         except Exception:
-            logger.exception("Unexpected premium location switch failure subscription_id=%s", subscription.id)
+            logger.exception("Failed to switch premium subscription_id=%s to region=%s", premium.id, region.code)
             await _edit_text(
                 callback,
                 "Не удалось сменить локацию. Попробуйте позже или напишите в поддержку.",
@@ -175,7 +129,8 @@ async def set_location_handler(
 
     text = (
         "✅ <b>Локация обновлена</b>\n\n"
-        + bq(f"📍 Текущая локация: {_region_title(node.region)}")
-        + "\n\nСсылка-подписка осталась прежней; клиент подтянет обновление автоматически."
+        + bq(f"📍 Текущая локация: {_region_title(updated.region)}")
+        + "\n\nОбновите подписку в приложении (или переподключитесь) — трафик пойдёт через новый регион."
     )
-    await _edit_text(callback, text, _locations_keyboard(node.region))
+    await _edit_text(callback, text, _locations_keyboard(updated.region))
+    await callback.answer("Локация обновлена")

@@ -109,6 +109,7 @@ class Repository:
         status: str = "active",
         node_ids: list[str] | None = None,
         static_ip: str | None = None,
+        region: str | None = None,
     ) -> Subscription:
         subscription = Subscription(
             user_id=user_id,
@@ -120,6 +121,7 @@ class Repository:
             traffic_limit_bytes=traffic_limit_bytes,
             traffic_used_bytes=traffic_used_bytes,
             device_limit=device_limit,
+            region=region,
             status=status,
             node_ids=node_ids,
             static_ip=static_ip,

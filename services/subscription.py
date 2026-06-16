@@ -152,6 +152,7 @@ async def activate_panel_subscription(
         user_id=user_id,
         plan=tariff.code,
         tier=tariff.tier,
+        region=region if is_premium else None,
         panel_username=panel_user.username,
         sub_token=panel_user.short_uuid,
         subscription_url=panel_user.subscription_url,
@@ -163,6 +164,50 @@ async def activate_panel_subscription(
         expires_at=expires_at,
         is_active=True,
     )
+
+
+class StaticRegionError(RuntimeError):
+    """Raised when a premium region has no static panel node configured."""
+
+
+async def switch_premium_region(
+    session: AsyncSession,
+    user_id: int,
+    region: str,
+    panel_gateway: PanelGateway | None = None,
+) -> Subscription:
+    """Move an active premium subscription to another static region.
+
+    Re-points the premium panel user to the region's inbound (no extra charge,
+    same expiry) — works for static nodes without the autoscaler.
+    """
+    region_inbounds = settings.marzban_inbounds_for_region(region)
+    if region_inbounds is None:
+        raise StaticRegionError(f"No static node for region: {region}")
+
+    repo = Repository(session)
+    premium = next(
+        (s for s in await repo.list_active_subscriptions(user_id) if s.tier == "premium"),
+        None,
+    )
+    if premium is None or not premium.panel_username:
+        raise ValueError("No active premium subscription to switch")
+
+    gateway = panel_gateway or get_panel_gateway()
+    panel_user = await gateway.modify_user(
+        username=premium.panel_username,
+        expire_at=_aware(premium.expires_at),
+        traffic_limit_bytes=premium.traffic_limit_bytes,
+        device_limit=premium.device_limit,
+        status="active",
+        inbounds=region_inbounds,
+    )
+    updated = await repo.update_subscription(
+        premium.id,
+        region=region,
+        subscription_url=panel_user.subscription_url or premium.subscription_url,
+    )
+    return updated or premium
 
 
 async def check_subscription_active(session: AsyncSession, user_id: int) -> bool:

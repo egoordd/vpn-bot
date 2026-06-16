@@ -82,6 +82,7 @@ class Subscription(Base):
     status: Mapped[str] = mapped_column(String(32), default="active", server_default="active", index=True, nullable=False)
     node_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     static_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    region: Mapped[str | None] = mapped_column(String(32), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True, nullable=False)

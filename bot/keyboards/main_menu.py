@@ -101,7 +101,10 @@ def active_subscription_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📱 Подключить устройство", callback_data="connect_device")],
             [InlineKeyboardButton(text="🌍 Локации", callback_data="locations")],
-            [InlineKeyboardButton(text="🔄 Продлить", callback_data="buy_menu")],
+            [
+                InlineKeyboardButton(text="🛒 Купить тариф", callback_data="buy_menu"),
+                InlineKeyboardButton(text="🔄 Продлить", callback_data="buy_menu"),
+            ],
             [
                 InlineKeyboardButton(text="💰 Кошелёк", callback_data="wallet"),
                 InlineKeyboardButton(text="👥 Пригласить", callback_data="referral"),

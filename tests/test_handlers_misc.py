@@ -149,25 +149,21 @@ async def test_locations_handler_standard_subscription_prompts_premium(session_p
     callback.answer.assert_awaited_once()
 
 
+_AMS_INBOUNDS = '{"ams": {"vless": ["VLESS Reality AMS"]}}'
+
+
 @pytest.mark.integration
-async def test_locations_handler_shows_current_premium_region(session_pool):
+async def test_locations_handler_shows_current_premium_region(session_pool, monkeypatch):
+    monkeypatch.setattr(locations.settings, "MARZBAN_REGION_INBOUNDS", _AMS_INBOUNDS)
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=934)
-        node = await repo.create_node(
-            tier="premium",
-            capacity=2,
-            region="fra",
-            provider="manual",
-            ip_address="203.0.113.34",
-            panel_node_id="panel-fra",
-            current_users=1,
-        )
         await repo.create_subscription(
             user_id=user.id,
             plan="premium_1m",
             tier="premium",
-            node_ids=[node.panel_node_id],
+            region="ams",
+            panel_username="tg_934p",
             started_at=datetime.now(timezone.utc),
             expires_at=datetime.now(timezone.utc) + timedelta(days=30),
             is_active=True,
@@ -183,39 +179,37 @@ async def test_locations_handler_shows_current_premium_region(session_pool):
     await locations.locations_handler(callback, session_pool)
 
     text = message.edit_text.await_args.args[0]
-    assert "Германия, Франкфурт" in text
+    assert "Нидерланды, Амстердам" in text
     keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    assert keyboard.inline_keyboard[1][0].text.startswith("✅")
+    # ams is the current static region -> first button marked with ✅
+    assert keyboard.inline_keyboard[0][0].text.startswith("✅")
 
 
 @pytest.mark.integration
-async def test_set_location_handler_moves_premium_subscription_to_available_node(session_pool):
+async def test_set_location_handler_switches_static_region(session_pool, monkeypatch):
+    import services.subscription as subscription_module
+
+    monkeypatch.setattr(locations.settings, "MARZBAN_REGION_INBOUNDS", _AMS_INBOUNDS)
+    monkeypatch.setattr(subscription_module.settings, "MARZBAN_REGION_INBOUNDS", _AMS_INBOUNDS)
+
+    class FakeGateway:
+        provider = "fake"
+
+        async def modify_user(self, **kwargs):
+            assert kwargs["inbounds"] == {"vless": ["VLESS Reality AMS"]}
+            return SimpleNamespace(subscription_url="https://sub/ams", username="tg_935p", status="active")
+
+    monkeypatch.setattr(subscription_module, "get_panel_gateway", lambda: FakeGateway())
+
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=935)
-        old_node = await repo.create_node(
-            tier="premium",
-            capacity=2,
-            region="fra",
-            provider="manual",
-            ip_address="203.0.113.35",
-            panel_node_id="panel-fra",
-            current_users=1,
-        )
-        target_node = await repo.create_node(
-            tier="premium",
-            capacity=2,
-            region="ams",
-            provider="manual",
-            ip_address="203.0.113.36",
-            panel_node_id="panel-ams",
-            current_users=0,
-        )
         subscription_row = await repo.create_subscription(
             user_id=user.id,
             plan="premium_1m",
             tier="premium",
-            node_ids=[old_node.panel_node_id],
+            region=None,
+            panel_username="tg_935p",
             started_at=datetime.now(timezone.utc),
             expires_at=datetime.now(timezone.utc) + timedelta(days=30),
             is_active=True,
@@ -232,13 +226,8 @@ async def test_set_location_handler_moves_premium_subscription_to_available_node
     await locations.set_location_handler(callback, session_pool)
 
     async with session_pool() as session:
-        repo = Repository(session)
-        refreshed_subscription = await repo.get_subscription(subscription_row.id)
-        refreshed_old = await repo.get_node(old_node.id)
-        refreshed_target = await repo.get_node(target_node.id)
+        refreshed = await Repository(session).get_subscription(subscription_row.id)
 
-    assert refreshed_subscription.node_ids == ["panel-ams"]
-    assert refreshed_old.current_users == 0
-    assert refreshed_target.current_users == 1
+    assert refreshed.region == "ams"
+    assert refreshed.subscription_url == "https://sub/ams"
     assert "Локация обновлена" in message.edit_text.await_args.args[0]
-    callback.answer.assert_awaited_once()
