@@ -144,3 +144,76 @@ async def test_panel_user_handler_rejects_invalid_arg(session_pool, monkeypatch)
 
     message.answer.assert_awaited_once()
     assert "Использование" in message.answer.await_args.args[0]
+
+
+@pytest.mark.integration
+async def test_stats_handler_summarizes(session_pool, monkeypatch):
+    from bot.handlers import admin
+    from services import wallet
+
+    monkeypatch.setattr(admin.settings, "ADMIN_IDS", "777")
+    async with session_pool() as session:
+        repo = Repository(session)
+        u = await repo.create_user(telegram_id=1, username="a")
+        await wallet.deposit(session, u.id, 50000, kind=wallet.KIND_DEPOSIT)
+        await wallet.spend(session, u.id, 14900, reference="plan:standard_1m")
+
+    message = SimpleNamespace(from_user=SimpleNamespace(id=777, username="adm"), answer=AsyncMock())
+    await admin.stats_handler(message, session_pool)
+    text = message.answer.await_args.args[0]
+    assert "Статистика" in text
+    assert "Всего: 1" in text
+
+
+@pytest.mark.integration
+async def test_grant_credits_balance(session_pool, monkeypatch):
+    from bot.handlers import admin
+
+    monkeypatch.setattr(admin.settings, "ADMIN_IDS", "777")
+    async with session_pool() as session:
+        await Repository(session).create_user(telegram_id=555, username="t")
+
+    message = SimpleNamespace(
+        text="/grant 555 300",
+        from_user=SimpleNamespace(id=777, username="adm"),
+        answer=AsyncMock(),
+    )
+    await admin.grant_handler(message, session_pool)
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        u = await repo.get_user_by_telegram_id(555)
+        assert await repo.get_balance(u.id) == 30000
+
+
+@pytest.mark.integration
+async def test_gift_promo_creates_balance_promo(session_pool, monkeypatch):
+    from bot.handlers import admin
+
+    monkeypatch.setattr(admin.settings, "ADMIN_IDS", "777")
+    message = SimpleNamespace(
+        text="/gift_promo SUMMER 500 10",
+        from_user=SimpleNamespace(id=777, username="adm"),
+        answer=AsyncMock(),
+    )
+    await admin.gift_promo_handler(message, session_pool)
+
+    async with session_pool() as session:
+        promo = await Repository(session).get_promo_code("SUMMER")
+    assert promo is not None
+    assert promo.value == 50000
+    assert promo.max_uses == 10
+
+
+@pytest.mark.integration
+async def test_non_admin_rejected(session_pool, monkeypatch):
+    from bot.handlers import admin
+
+    monkeypatch.setattr(admin.settings, "ADMIN_IDS", "777")
+    message = SimpleNamespace(
+        text="/stats",
+        from_user=SimpleNamespace(id=111, username="x"),
+        answer=AsyncMock(),
+    )
+    await admin.stats_handler(message, session_pool)
+    assert "только администраторам" in message.answer.await_args.args[0]

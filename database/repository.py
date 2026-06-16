@@ -727,6 +727,38 @@ class Repository:
         result = await self.session.execute(query)
         return int(result.scalar_one())
 
+    # ---- Admin aggregates --------------------------------------------------
+
+    async def count_users(self) -> int:
+        result = await self.session.execute(select(func.count()).select_from(User))
+        return int(result.scalar_one())
+
+    async def count_users_since(self, since: datetime) -> int:
+        result = await self.session.execute(
+            select(func.count()).select_from(User).where(User.created_at >= since)
+        )
+        return int(result.scalar_one())
+
+    async def count_active_subscriptions_by_tier(self) -> dict[str, int]:
+        result = await self.session.execute(
+            select(Subscription.tier, func.count())
+            .where(Subscription.is_active.is_(True), Subscription.expires_at > _now())
+            .group_by(Subscription.tier)
+        )
+        return {str(tier): int(count) for tier, count in result.all()}
+
+    async def sum_all_user_balances(self) -> int:
+        result = await self.session.execute(select(func.coalesce(func.sum(User.balance), 0)))
+        return int(result.scalar_one())
+
+    async def sum_all_wallet_by_kind(self, kind: str) -> int:
+        result = await self.session.execute(
+            select(func.coalesce(func.sum(WalletTransaction.amount), 0)).where(
+                WalletTransaction.kind == kind
+            )
+        )
+        return int(result.scalar_one())
+
     # ---- Referrals ---------------------------------------------------------
 
     async def get_user_by_ref_code(self, ref_code: str) -> User | None:

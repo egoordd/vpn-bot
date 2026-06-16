@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from aiogram import Router
@@ -6,10 +7,14 @@ from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from bot.texts import bq, format_msk
 from config import settings
 from database.repository import Repository
 from scheduler.tasks import traffic_sync
+from services import wallet
+from services.money import format_rub
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
+from services.promo import PROMO_BALANCE_BONUS
 from services.qrcode import generate_qr_png_bytes
 from services.subscription import activate_subscription
 from services.wireguard import WireGuardError, ensure_user_peer
@@ -148,3 +153,140 @@ async def panel_user_handler(
         f"Sub URL: {panel_user.subscription_url}"
     )
     await message.answer(text)
+
+
+@router.message(Command("admin"))
+async def admin_help_handler(message: Message) -> None:
+    if await _reject_non_admin(message):
+        return
+    text = (
+        "🛠 <b>Админ-команды</b>\n"
+        + bq(
+            "/stats — сводка по проекту",
+            "/find &lt;tg_id&gt; — карточка пользователя",
+            "/grant &lt;tg_id&gt; &lt;₽&gt; — начислить на баланс",
+            "/gift_promo &lt;КОД&gt; &lt;₽&gt; [исп.] — промокод на баланс",
+            "/sync_traffic — синхронизировать трафик",
+            "/panel_user &lt;tg_id&gt; — юзер в панели",
+        )
+    )
+    await message.answer(text)
+
+
+@router.message(Command("stats"))
+async def stats_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    if await _reject_non_admin(message):
+        return
+    async with session_pool() as session:
+        repo = Repository(session)
+        total_users = await repo.count_users()
+        new_24h = await repo.count_users_since(datetime.now(timezone.utc) - timedelta(days=1))
+        new_7d = await repo.count_users_since(datetime.now(timezone.utc) - timedelta(days=7))
+        by_tier = await repo.count_active_subscriptions_by_tier()
+        balances = await repo.sum_all_user_balances()
+        spent = abs(await repo.sum_all_wallet_by_kind(wallet.KIND_SPEND))
+        deposited = await repo.sum_all_wallet_by_kind(wallet.KIND_DEPOSIT)
+
+    active_total = sum(by_tier.values())
+    tier_lines = ", ".join(f"{tier}: {count}" for tier, count in sorted(by_tier.items())) or "нет"
+    text = (
+        "📊 <b>Статистика</b>\n\n"
+        "👥 <b>Пользователи</b>\n"
+        + bq(
+            f"Всего: {total_users}",
+            f"Новых за 24ч: {new_24h}",
+            f"Новых за 7д: {new_7d}",
+        )
+        + "\n\n🔑 <b>Активные подписки</b>\n"
+        + bq(f"Всего: {active_total}", f"По тарифам: {tier_lines}")
+        + "\n\n💰 <b>Деньги</b>\n"
+        + bq(
+            f"На балансах: {format_rub(balances)}",
+            f"Потрачено на тарифы: {format_rub(spent)}",
+            f"Пополнено (CryptoBot): {format_rub(deposited)}",
+        )
+    )
+    await message.answer(text)
+
+
+@router.message(Command("find"))
+async def find_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    if await _reject_non_admin(message):
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip().lstrip("-").isdigit():
+        await message.answer("Использование: /find &lt;telegram_id&gt;")
+        return
+    telegram_id = int(parts[1].strip())
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(telegram_id)
+        if user is None:
+            await message.answer(f"Пользователь {telegram_id} не найден.")
+            return
+        balance = await repo.get_balance(user.id) or 0
+        subs = await repo.list_active_subscriptions(user.id)
+        referrals = await repo.count_referrals(user.id)
+
+    lines = [
+        f"🆔 ID: <code>{user.telegram_id}</code>",
+        f"👤 @{user.username}" if user.username else "👤 (без username)",
+        f"💰 Баланс: {format_rub(balance)}",
+        f"👥 Рефералов: {referrals}",
+    ]
+    sub_lines = [
+        f"{'💎 Premium' if s.tier == 'premium' else '🌐 ' + s.tier}: до {format_msk(s.expires_at)}"
+        for s in subs
+    ] or ["нет активных"]
+    text = "👤 <b>Пользователь</b>\n" + bq(*lines) + "\n\n🔑 <b>Подписки</b>\n" + bq(*sub_lines)
+    await message.answer(text)
+
+
+@router.message(Command("grant"))
+async def grant_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    if await _reject_non_admin(message):
+        return
+    parts = (message.text or "").split()
+    if len(parts) != 3 or not parts[1].lstrip("-").isdigit() or not parts[2].isdigit():
+        await message.answer("Использование: /grant &lt;telegram_id&gt; &lt;рубли&gt;")
+        return
+    telegram_id, rubles = int(parts[1]), int(parts[2])
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(telegram_id)
+        if user is None:
+            await message.answer(f"Пользователь {telegram_id} не найден.")
+            return
+        entry = await wallet.deposit(
+            session, user.id, rubles * 100,
+            kind=wallet.KIND_ADJUSTMENT, description="Начисление администратором",
+        )
+    await message.answer(
+        f"✅ Начислено {format_rub(rubles * 100)} пользователю {telegram_id}.\n"
+        f"Новый баланс: {format_rub(entry.balance_after_kopecks)}"
+    )
+
+
+@router.message(Command("gift_promo"))
+async def gift_promo_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    if await _reject_non_admin(message):
+        return
+    parts = (message.text or "").split()
+    if len(parts) < 3 or not parts[2].isdigit():
+        await message.answer("Использование: /gift_promo &lt;КОД&gt; &lt;рубли&gt; [макс_использований]")
+        return
+    code = parts[1].strip().upper()
+    rubles = int(parts[2])
+    max_uses = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None
+    async with session_pool() as session:
+        repo = Repository(session)
+        if await repo.get_promo_code(code) is not None:
+            await message.answer(f"Промокод {code} уже существует.")
+            return
+        await repo.create_promo_code(
+            code=code, kind=PROMO_BALANCE_BONUS, value=rubles * 100,
+            max_uses=max_uses, per_user_limit=1, is_active=True,
+            description=f"Промокод на {rubles}₽",
+        )
+    limit_txt = f"до {max_uses} активаций" if max_uses else "без лимита активаций"
+    await message.answer(f"✅ Промокод <code>{code}</code> на {format_rub(rubles * 100)} создан ({limit_txt}).")
