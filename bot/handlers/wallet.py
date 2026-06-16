@@ -3,12 +3,18 @@ import uuid
 from typing import Awaitable, Callable
 
 from aiogram import Bot, F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from bot.keyboards.main_menu import back_to_wallet_keyboard, topup_keyboard, wallet_keyboard
+from bot.keyboards.main_menu import (
+    back_to_menu_keyboard,
+    back_to_wallet_keyboard,
+    topup_keyboard,
+    wallet_keyboard,
+)
 from bot.navigation import show_screen
 from bot.texts import bq, format_msk
 from config import settings
@@ -325,33 +331,65 @@ async def promo_code_message_handler(
     )
 
 
+def _referral_text(stats, link: str) -> str:
+    return (
+        "👥 <b>Пригласить друга</b>\n\n"
+        f"Делитесь ссылкой и получайте <b>{stats.reward_percent}%</b> с каждой оплаты "
+        "приглашённого — деньги падают на ваш баланс.\n\n"
+        f"🔗 <b>Ваша ссылка:</b>\n<code>{link}</code>\n\n"
+        + bq(
+            f"👤 Приглашено: {stats.referrals_count}",
+            f"💰 Заработано: {format_rub(stats.total_earned_kopecks)}",
+        )
+    )
+
+
+async def _referral_payload(
+    session_pool: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    telegram_id: int,
+    username_tg: str | None,
+) -> str:
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(telegram_id=telegram_id, username=username_tg)
+        stats = await billing_api.get_referral_overview(session, user.id)
+    link = build_referral_link(await _bot_username(bot), stats.ref_code or f"tg{telegram_id}")
+    return _referral_text(stats, link)
+
+
 @router.callback_query(F.data == "referral")
 async def referral_handler(
     callback: CallbackQuery,
     bot: Bot,
     session_pool: async_sessionmaker[AsyncSession],
 ) -> None:
+    text = await _referral_payload(session_pool, bot, callback.from_user.id, callback.from_user.username)
+    await _edit_current_message(callback, text, back_to_menu_keyboard())
+    await callback.answer()
+
+
+@router.message(Command("invite"))
+async def invite_command(message: Message, bot: Bot, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    text = await _referral_payload(session_pool, bot, message.from_user.id, message.from_user.username)
+    await message.answer(text, reply_markup=back_to_menu_keyboard())
+
+
+@router.message(Command("wallet"))
+async def wallet_command(
+    message: Message,
+    state: FSMContext,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    await state.clear()
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.get_or_create_user(
-            telegram_id=callback.from_user.id,
-            username=callback.from_user.username,
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
         )
-        stats = await billing_api.get_referral_overview(session, user.id)
-
-    username = await _bot_username(bot)
-    link = build_referral_link(username, stats.ref_code or f"tg{callback.from_user.id}")
-    text = (
-        "👥 <b>Реферальная программа</b>\n\n"
-        f"Приглашайте друзей и получайте <b>{stats.reward_percent}%</b> с каждой их оплаты на баланс.\n\n"
-        f"🔗 <b>Твоя ссылка:</b>\n<code>{link}</code>\n\n"
-        + bq(
-            f"👤 Приглашено: {stats.referrals_count}",
-            f"💰 Заработано: {format_rub(stats.total_earned_kopecks)}",
-        )
-    )
-    await _edit_current_message(callback, text, back_to_wallet_keyboard())
-    await callback.answer()
+        overview = await billing_api.get_account_overview(session, user.id, wallet_history_limit=5)
+    await message.answer(_wallet_text(overview), reply_markup=wallet_keyboard())
 
 
 def _pay_success_keyboard() -> InlineKeyboardMarkup:

@@ -59,18 +59,20 @@ async def test_menu_state_returns_active_subscription_menu(session_pool):
 
     text, keyboard = await start._menu_state(session_pool, 921, "active")
 
-    assert "📅 До:" in text
     assert "Профиль" in text
-    assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"
+    assert "Активных подписок" in text
+    # Main menu: buy first, and "Мои подписки" present when a subscription is active
+    assert keyboard.inline_keyboard[0][0].callback_data == "buy_menu"
+    cbs = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    assert "my_subs" in cbs
 
 
 @pytest.mark.integration
 async def test_menu_state_auto_activates_trial_when_panel_client_is_available(session_pool):
     text, keyboard = await start._menu_state(session_pool, 922, "trial", panel_client=FakePanelClient())
 
-    assert "Ваша подписка" in text
-    assert "📅 До:" in text
-    assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"
+    assert "Активных подписок" in text
+    assert keyboard.inline_keyboard[0][0].callback_data == "buy_menu"
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.get_user_by_telegram_id(922)
@@ -123,3 +125,31 @@ async def test_start_handler_ignores_bad_ref_code(session_pool):
         referee = await Repository(session).get_user_by_telegram_id(923)
     assert referee is not None
     assert referee.referrer_id is None
+
+
+@pytest.mark.integration
+async def test_my_subs_handler_lists_cards(session_pool):
+    from datetime import datetime, timedelta, timezone
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=940, username="subs")
+        await repo.create_subscription(
+            user.id, "standard_1m", datetime.now(timezone.utc),
+            datetime.now(timezone.utc) + timedelta(days=10), True, tier="standard",
+        )
+
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data="my_subs",
+        from_user=SimpleNamespace(id=940, username="subs"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await start.my_subs_handler(callback, session_pool)
+
+    text = message.edit_text.await_args.args[0]
+    assert "Мои подписки" in text
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"

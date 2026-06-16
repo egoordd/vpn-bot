@@ -34,20 +34,24 @@ def _tier_buttons() -> list[list[InlineKeyboardButton]]:
     ]
 
 
-def landing_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            *_tier_buttons(),
+def main_menu_keyboard(has_subscription: bool = False) -> InlineKeyboardMarkup:
+    """Single compact main menu shown after /start. Wallet, invite and help live
+    in the quick-access command menu (/wallet, /invite, /help)."""
+    rows = [[InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_menu")]]
+    if has_subscription:
+        rows.append(
             [
-                InlineKeyboardButton(text="💰 Кошелёк", callback_data="wallet"),
-                InlineKeyboardButton(text="👥 Пригласить", callback_data="referral"),
-            ],
-            [
-                InlineKeyboardButton(text="❓ Поддержка", callback_data="support"),
-                InlineKeyboardButton(text="📖 Инструкция", callback_data="instructions"),
-            ],
+                InlineKeyboardButton(text="📋 Мои подписки", callback_data="my_subs"),
+                InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu"),
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
+            InlineKeyboardButton(text="❓ Помощь", callback_data="help"),
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def tier_select_keyboard() -> InlineKeyboardMarkup:
@@ -128,20 +132,13 @@ def premium_location_keyboard(plan: str) -> InlineKeyboardMarkup:
     )
 
 
-def active_subscription_keyboard() -> InlineKeyboardMarkup:
+def my_subs_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📱 Подключить устройство", callback_data="connect_device")],
             [InlineKeyboardButton(text="🌍 Локации", callback_data="locations")],
-            [
-                InlineKeyboardButton(text="🛒 Купить тариф", callback_data="buy_menu"),
-                InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu"),
-            ],
-            [
-                InlineKeyboardButton(text="💰 Кошелёк", callback_data="wallet"),
-                InlineKeyboardButton(text="👥 Пригласить", callback_data="referral"),
-            ],
-            [InlineKeyboardButton(text="❓ Поддержка", callback_data="support")],
+            [InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu")],
+            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
         ]
     )
 
@@ -159,7 +156,6 @@ def wallet_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="➕ Пополнить", callback_data="topup_menu")],
             [InlineKeyboardButton(text="🎟 Промокод", callback_data="promo_enter")],
-            [InlineKeyboardButton(text="👥 Пригласить друга", callback_data="referral")],
             [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
         ]
     )
@@ -192,5 +188,10 @@ def back_to_wallet_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def main_menu_keyboard() -> InlineKeyboardMarkup:
-    return landing_keyboard()
+def help_keyboard(support_contact: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Поддержка", url=f"https://t.me/{support_contact.lstrip('@')}")],
+            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
+        ]
+    )

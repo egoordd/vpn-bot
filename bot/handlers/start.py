@@ -1,12 +1,13 @@
 import html
 import logging
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import CommandStart
-from aiogram.types import FSInputFile, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from bot.keyboards.main_menu import active_subscription_keyboard, landing_keyboard
+from bot.keyboards.main_menu import main_menu_keyboard, my_subs_keyboard
+from bot.navigation import show_screen
 from bot.texts import aware as _aware, bq, format_gb as _format_gb, format_msk as _format_msk
 from database.models import Subscription, User
 from database.repository import Repository
@@ -66,26 +67,43 @@ def _subscription_card(subscription: Subscription) -> str:
 
 
 def _menu_text(user: User, subscriptions: list[Subscription], display_name: str | None) -> str:
+    """Short home screen: profile + one-line subscription status. Detailed
+    subscription cards live under «Мои подписки»."""
     sections = [_profile_block(user, display_name)]
-
     if not subscriptions:
         sections.append(
-            "🔑 <b>Подписка:</b> не активна\n\n"
-            "Выберите тариф ниже — ссылка-подписка придёт автоматически после оплаты."
-        )
-        return "\n\n".join(sections)
-
-    for subscription in subscriptions:
-        sections.append(_subscription_card(subscription))
-
-    if len(subscriptions) == 1 and subscriptions[0].subscription_url:
-        sections.append(
-            "🔑 <b>Ваша подписка:</b>\n"
-            f"<code>{html.escape(subscriptions[0].subscription_url)}</code>"
+            "🔑 Активной подписки нет.\n"
+            "Нажмите «🛒 Купить подписку» — ссылка придёт автоматически после оплаты."
         )
     else:
-        sections.append("🔗 Ссылки на подключение — в разделе «📱 Подключить устройство».")
+        nearest = min(subscriptions, key=lambda s: s.expires_at)
+        word = _plural_subs(len(subscriptions))
+        sections.append(
+            f"✅ Активных подписок: <b>{len(subscriptions)}</b> {word}\n"
+            f"📅 Ближайшее окончание: {_format_msk(nearest.expires_at)}\n\n"
+            "Подключение и детали — в «📋 Мои подписки»."
+        )
     return "\n\n".join(sections)
+
+
+def _plural_subs(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return "подписка"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return "подписки"
+    return "подписок"
+
+
+def _my_subs_text(subscriptions: list[Subscription]) -> str:
+    if not subscriptions:
+        return (
+            "📋 <b>Мои подписки</b>\n\n"
+            "Активных подписок нет. Оформите тариф через «🛒 Купить подписку»."
+        )
+    cards = [_subscription_card(s) for s in subscriptions]
+    return "📋 <b>Мои подписки</b>\n\n" + "\n\n".join(cards) + (
+        "\n\n📱 Нажмите «Подключить устройство», чтобы получить ссылку и QR."
+    )
 
 
 def _remnawave_configured() -> bool:
@@ -118,9 +136,7 @@ async def _menu_state(
 
         text = _menu_text(user, subscriptions, display_name)
 
-    if not subscriptions:
-        return text, landing_keyboard()
-    return text, active_subscription_keyboard()
+    return text, main_menu_keyboard(has_subscription=bool(subscriptions))
 
 
 async def _attach_referrer_from_start(
@@ -158,3 +174,28 @@ async def start_handler(message: Message, session_pool: async_sessionmaker[Async
     sent = await message.answer_photo(photo, caption=text, reply_markup=keyboard)
     if _banner_file_id is None and sent.photo:
         _banner_file_id = sent.photo[-1].file_id
+
+
+@router.callback_query(F.data == "profile")
+async def profile_handler(callback: CallbackQuery, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    text, keyboard = await _menu_state(
+        session_pool=session_pool,
+        telegram_id=callback.from_user.id,
+        username=callback.from_user.username,
+        display_name=getattr(callback.from_user, "full_name", None),
+    )
+    await show_screen(callback, text, keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "my_subs")
+async def my_subs_handler(callback: CallbackQuery, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+        )
+        subscriptions = await repo.list_active_subscriptions(user.id)
+    await show_screen(callback, _my_subs_text(subscriptions), my_subs_keyboard())
+    await callback.answer()

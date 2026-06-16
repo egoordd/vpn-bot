@@ -9,7 +9,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from bot.handlers import admin, buy, connect_device, instructions, locations, start, subscription, support, wallet
+from bot.handlers import admin, buy, connect_device, help, instructions, locations, start, subscription, support, wallet
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
 from config import settings
 from database.models import Base
@@ -67,6 +67,7 @@ async def main() -> None:
 
     dispatcher.include_router(start.router)
     dispatcher.include_router(admin.router)
+    dispatcher.include_router(help.router)
     dispatcher.include_router(buy.router)
     dispatcher.include_router(wallet.router)
     dispatcher.include_router(subscription.router)
@@ -84,6 +85,9 @@ async def main() -> None:
         await bot.set_my_commands(
             [
                 BotCommand(command="start", description="Главное меню"),
+                BotCommand(command="help", description="Помощь и поддержка"),
+                BotCommand(command="wallet", description="Кошелёк"),
+                BotCommand(command="invite", description="Пригласить друга"),
             ]
         )
         await dispatcher.start_polling(bot)

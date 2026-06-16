@@ -1,34 +1,42 @@
 import pytest
 
 from bot.keyboards.main_menu import (
-    active_subscription_keyboard,
+    _tier_buttons,
     back_to_menu_keyboard,
-    landing_keyboard,
     main_menu_keyboard,
-    premium_location_keyboard,
+    my_subs_keyboard,
     tier_plans_keyboard,
     tier_select_keyboard,
 )
 
 
 @pytest.mark.unit
-def test_landing_keyboard_offers_tier_choice():
-    keyboard = landing_keyboard().inline_keyboard
-    assert keyboard[0][0].callback_data == "buy_tier:standard"
-    assert keyboard[1][0].callback_data == "buy_tier:premium"
-    assert keyboard[2][0].callback_data == "wallet"
-    assert keyboard[2][1].callback_data == "referral"
-    assert keyboard[3][0].callback_data == "support"
-    assert main_menu_keyboard().inline_keyboard[0][0].callback_data == "buy_tier:standard"
+def test_main_menu_buy_first_then_subs_when_active():
+    no_sub = main_menu_keyboard(has_subscription=False).inline_keyboard
+    assert no_sub[0][0].callback_data == "buy_menu"
+    callbacks = [b.callback_data for row in no_sub for b in row]
+    assert "my_subs" not in callbacks  # no subs -> no "Мои подписки"
+    assert "profile" in callbacks and "help" in callbacks
+
+    active = main_menu_keyboard(has_subscription=True).inline_keyboard
+    assert active[0][0].callback_data == "buy_menu"
+    active_cbs = [b.callback_data for row in active for b in row]
+    assert "my_subs" in active_cbs and "renew_menu" in active_cbs
+
+
+@pytest.mark.unit
+def test_main_menu_has_no_clutter_buttons():
+    # wallet / invite / support moved to commands, not the main grid
+    cbs = [b.callback_data for row in main_menu_keyboard(True).inline_keyboard for b in row]
+    assert "wallet" not in cbs and "referral" not in cbs and "support" not in cbs
 
 
 @pytest.mark.unit
 def test_tier_buttons_show_standard_price_and_premium_soon():
-    keyboard = landing_keyboard().inline_keyboard
-    # Standard shows its cheapest real entry price; premium is paused ("\u0441\u043a\u043e\u0440\u043e").
-    assert "\u043e\u0442 149\u20bd" in keyboard[0][0].text
-    assert "\u0441\u043a\u043e\u0440\u043e" in keyboard[1][0].text.lower()
-    assert keyboard[1][0].callback_data == "buy_tier:premium"
+    buttons = _tier_buttons()
+    assert "от 149₽" in buttons[0][0].text
+    assert "скоро" in buttons[1][0].text.lower()
+    assert buttons[1][0].callback_data == "buy_tier:premium"
 
 
 @pytest.mark.unit
@@ -49,19 +57,9 @@ def test_tier_plans_keyboard_lists_only_tier_plans():
     ]
     assert standard[-1][0].callback_data == "buy_menu"
 
-    premium = tier_plans_keyboard("premium").inline_keyboard
-    assert [row[0].callback_data for row in premium[:-1]] == [
-        "buy:premium_1m",
-        "buy:premium_3m",
-        "buy:premium_6m",
-        "buy:premium_12m",
-    ]
-    assert "\u20bd" in premium[0][0].text
-
 
 @pytest.mark.unit
-def test_other_keyboards_keep_primary_actions():
-    assert active_subscription_keyboard().inline_keyboard[0][0].callback_data == "connect_device"
-    assert active_subscription_keyboard().inline_keyboard[1][0].callback_data == "locations"
+def test_my_subs_keyboard_offers_connect():
+    keyboard = my_subs_keyboard().inline_keyboard
+    assert keyboard[0][0].callback_data == "connect_device"
     assert back_to_menu_keyboard().inline_keyboard[0][0].callback_data == "main_menu"
-    assert premium_location_keyboard("premium_1m").inline_keyboard[0][0].callback_data == "buy_region:premium_1m:ams"

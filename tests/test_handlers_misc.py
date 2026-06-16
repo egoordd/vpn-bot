@@ -214,3 +214,18 @@ async def test_set_location_handler_switches_static_region(session_pool, monkeyp
     assert refreshed.region == "ams"
     assert refreshed.subscription_url == "https://sub/ams"
     assert "Локация обновлена" in message.edit_text.await_args.args[0]
+
+
+@pytest.mark.unit
+async def test_help_command_shows_connect_and_support():
+    from bot.handlers import help as help_handler
+
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=700, username="h"),
+        answer=AsyncMock(),
+    )
+    await help_handler.help_command(message)
+    text = message.answer.await_args.args[0]
+    assert "Как подключиться" in text
+    assert "Поддержка" in text
+    assert "700" in text
