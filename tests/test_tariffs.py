@@ -25,3 +25,15 @@ def test_premium_tariffs_and_regions_are_available():
     assert tariff.traffic_limit_bytes == 300 * BYTES_IN_GB
     assert set(PREMIUM_REGIONS) == {"ams", "fra", "waw"}
     assert resolve_premium_region("AMS").country_code == "NL"
+
+
+@pytest.mark.unit
+def test_country_flag_converts_iso_codes():
+    from services.tariffs import PREMIUM_REGIONS, country_flag
+
+    assert country_flag("NL") == "🇳🇱"
+    assert country_flag("de") == "🇩🇪"
+    assert country_flag("PL") == "🇵🇱"
+    assert country_flag("") == "🌍"
+    assert country_flag("XXX") == "🌍"
+    assert PREMIUM_REGIONS["ams"].flag == "🇳🇱"

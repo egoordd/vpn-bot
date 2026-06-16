@@ -21,7 +21,8 @@ def _region_title(region_code: str | None) -> str:
     if not region_code:
         return "ещё не выбрана"
     try:
-        return resolve_premium_region(region_code).title
+        region = resolve_premium_region(region_code)
+        return f"{region.flag} {region.title}"
     except ValueError:
         return region_code
 
@@ -38,10 +39,10 @@ def _locations_keyboard(current_region: str | None) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for code, region in PREMIUM_REGIONS.items():
         if _is_static(code):
-            mark = "✅ " if code == current_region else "🌍 "
+            mark = "✅ " if code == current_region else f"{region.flag} "
             rows.append([InlineKeyboardButton(text=f"{mark}{region.title}", callback_data=f"set_location:{code}")])
         else:
-            rows.append([InlineKeyboardButton(text=f"🔜 {region.title} (скоро)", callback_data="location_soon")])
+            rows.append([InlineKeyboardButton(text=f"🔜 {region.flag} {region.title} (скоро)", callback_data="location_soon")])
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

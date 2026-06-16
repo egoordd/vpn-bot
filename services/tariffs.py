@@ -26,6 +26,14 @@ class Tariff:
         return self.traffic_gb * BYTES_IN_GB
 
 
+def country_flag(country_code: str) -> str:
+    """ISO-3166 alpha-2 country code -> flag emoji (regional indicators)."""
+    code = (country_code or "").strip().upper()
+    if len(code) != 2 or not code.isalpha():
+        return "🌍"
+    return "".join(chr(0x1F1E6 + (ord(ch) - ord("A"))) for ch in code)
+
+
 @dataclass(frozen=True)
 class RegionOption:
     code: str
@@ -33,6 +41,10 @@ class RegionOption:
     city: str
     country_code: str
     is_on_demand: bool = False
+
+    @property
+    def flag(self) -> str:
+        return country_flag(self.country_code)
 
 
 TARIFFS: dict[str, Tariff] = {

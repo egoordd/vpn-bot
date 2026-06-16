@@ -14,7 +14,7 @@ from services.money import format_rub
 from services.panel_gateway import PanelGatewayError, is_panel_configured
 from services.referral import ReferralError, attach_referrer, parse_referral_start_payload
 from services.subscription import activate_panel_subscription
-from services.tariffs import resolve_tariff
+from services.tariffs import resolve_premium_region, resolve_tariff
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -46,13 +46,23 @@ def _subscription_card(subscription: Subscription) -> str:
     used = _format_gb(subscription.traffic_used_bytes or 0)
     limit = _format_gb(subscription.traffic_limit_bytes)
     devices = subscription.device_limit if subscription.device_limit is not None else "∞"
-    label = "💎 Premium" if subscription.tier == "premium" else "🌐 Обычный"
-    return f"📦 <b>{label}</b>\n" + bq(
+    lines = [
         f"💎 Тариф: {html.escape(_tariff_title(subscription.plan))}",
         f"📊 Трафик: {used} / {limit} ГБ",
         f"📱 Устройств: до {devices}",
-        f"📅 До: {_format_msk(subscription.expires_at)}",
-    )
+    ]
+    if subscription.tier == "premium":
+        label = "💎 Premium"
+        if subscription.region:
+            try:
+                region = resolve_premium_region(subscription.region)
+                lines.append(f"📍 Локация: {region.flag} {region.title}")
+            except ValueError:
+                pass
+    else:
+        label = "🌐 Обычный"
+    lines.append(f"📅 До: {_format_msk(subscription.expires_at)}")
+    return f"📦 <b>{label}</b>\n" + bq(*lines)
 
 
 def _menu_text(user: User, subscriptions: list[Subscription], display_name: str | None) -> str:

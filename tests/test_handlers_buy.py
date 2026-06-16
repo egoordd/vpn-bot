@@ -218,3 +218,69 @@ async def test_buy_tier_handler_rejects_unknown_tier():
     await buy.buy_tier_handler(callback)
 
     assert callback.answer.await_args.kwargs["show_alert"] is True
+
+
+@pytest.mark.integration
+async def test_renew_menu_lists_active_subscriptions(session_pool):
+    from datetime import datetime, timedelta, timezone
+
+    from database.repository import Repository
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=970, username="renew")
+        await repo.create_subscription(
+            user_id=user.id, plan="standard_1m", tier="standard",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=10), is_active=True,
+        )
+        await repo.create_subscription(
+            user_id=user.id, plan="premium_1m", tier="premium", region="ams",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=20), is_active=True,
+        )
+
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data="renew_menu",
+        from_user=SimpleNamespace(id=970, username="renew"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.renew_menu_handler(callback, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    assert sum(cb.startswith("renew_sub:") for cb in callbacks) == 2
+
+
+@pytest.mark.integration
+async def test_renew_sub_premium_keeps_region(session_pool):
+    from datetime import datetime, timedelta, timezone
+
+    from database.repository import Repository
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=971, username="renew")
+        sub = await repo.create_subscription(
+            user_id=user.id, plan="premium_1m", tier="premium", region="ams",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=20), is_active=True,
+        )
+
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data=f"renew_sub:{sub.id}",
+        from_user=SimpleNamespace(id=971, username="renew"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.renew_sub_handler(callback, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    # premium renewal durations keep the region and route to buy_region (checkout)
+    assert any(cb == "buy_region:premium_1m:ams" for cb in callbacks)

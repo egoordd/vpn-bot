@@ -388,7 +388,8 @@ async def pay_with_balance_handler(
         except ValueError:
             await callback.answer("Локация не найдена.", show_alert=True)
             return
-        region, region_title = region_option.code, region_option.title
+        region = region_option.code
+        region_title = f"{region_option.flag} {region_option.title}"
         # Balance checkout only for regions backed by a static panel node;
         # autoscaled regions stay crypto-only until provisioning is live.
         if settings.marzban_inbounds_for_region(region) is None:

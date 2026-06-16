@@ -78,11 +78,43 @@ def tier_plans_keyboard(tier: str) -> InlineKeyboardMarkup:
     )
 
 
+def renew_menu_keyboard(subscriptions) -> InlineKeyboardMarkup:
+    """Pick which active subscription to renew."""
+    rows = []
+    for sub in subscriptions:
+        label = "💎 Premium" if sub.tier == "premium" else "🌐 Обычный"
+        rows.append([InlineKeyboardButton(text=f"🔄 Продлить {label}", callback_data=f"renew_sub:{sub.id}")])
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def renew_durations_keyboard(tier: str, region: str | None) -> InlineKeyboardMarkup:
+    """Duration options for renewing a specific tier; premium keeps its region."""
+    rows = []
+    for code, plan in PLANS.items():
+        if not code.startswith(tier):
+            continue
+        if tier == "premium" and region:
+            callback = f"buy_region:{code}:{region}"
+        else:
+            callback = f"buy:{code}"
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{DURATION_EMOJI.get(int(plan['days']), '⏱')} {plan['label']} — {plan['rub_amount']}₽",
+                    callback_data=callback,
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="renew_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def premium_location_keyboard(plan: str) -> InlineKeyboardMarkup:
     region_rows = [
         [
             InlineKeyboardButton(
-                text=f"🌍 {region.title}",
+                text=f"{region.flag} {region.title}",
                 callback_data=f"buy_region:{plan}:{code}",
             )
         ]
@@ -103,7 +135,7 @@ def active_subscription_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🌍 Локации", callback_data="locations")],
             [
                 InlineKeyboardButton(text="🛒 Купить тариф", callback_data="buy_menu"),
-                InlineKeyboardButton(text="🔄 Продлить", callback_data="buy_menu"),
+                InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu"),
             ],
             [
                 InlineKeyboardButton(text="💰 Кошелёк", callback_data="wallet"),

@@ -5,7 +5,13 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.handlers.start import _menu_state
-from bot.keyboards.main_menu import premium_location_keyboard, tier_plans_keyboard, tier_select_keyboard
+from bot.keyboards.main_menu import (
+    premium_location_keyboard,
+    renew_durations_keyboard,
+    renew_menu_keyboard,
+    tier_plans_keyboard,
+    tier_select_keyboard,
+)
 from bot.navigation import show_screen
 from bot.texts import bq
 from config import settings
@@ -15,7 +21,7 @@ from services.cryptobot import CryptoBotError, create_invoice
 from services.cryptobot import is_configured as is_cryptobot_configured
 from services.money import format_rub
 from services.payment import PLANS, normalize_payment_plan_code
-from services.tariffs import resolve_premium_region, resolve_tariff
+from services.tariffs import country_flag, resolve_premium_region, resolve_tariff
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -114,7 +120,7 @@ async def _show_checkout(
         f"💵 Стоимость: {tariff.price_rub}₽",
     ]
     if region_option is not None:
-        card_lines.append(f"🌍 Локация: {region_option.title}")
+        card_lines.append(f"📍 Локация: {region_option.flag} {region_option.title}")
     card_lines.append(f"💳 Ваш баланс: {format_rub(balance)}")
 
     sections = ["💳 <b>Оплата тарифа</b>\n\n" + bq(*card_lines)]
@@ -187,7 +193,7 @@ async def _create_payment_invoice(
         f"💵 Стоимость: {intent.plan.price_rub}₽ ({intent.amount} USDT)",
     ]
     if intent.region is not None:
-        card_lines.append(f"🌍 Локация: {intent.region.title}")
+        card_lines.append(f"📍 Локация: {country_flag(intent.region.country_code)} {intent.region.title}")
     tail = (
         "После оплаты premium-нода закрепляется автоматически. Если свободной нет, подготовка займёт около 2 минут."
         if intent.plan.tier == "premium"
@@ -230,12 +236,12 @@ TIER_TEXTS = {
     "premium": (
         "💎 <b>Premium тариф</b>\n\n"
         "<blockquote>"
-        "🌍 Выбор локации (Амстердам, Франкфурт, Варшава)\n"
+        "🌍 Все premium-локации — переключение бесплатно\n"
         "⚡️ Меньше соседей — стабильнее скорость\n"
         "📊 До 300 ГБ трафика в месяц\n"
         "📱 До 5–8 устройств"
         "</blockquote>\n\n"
-        "Выберите срок:"
+        "Сначала выберите стартовую страну (сменить можно в любой момент):"
     ),
 }
 
@@ -254,6 +260,52 @@ async def buy_tier_handler(callback: CallbackQuery) -> None:
         await callback.answer("Неизвестный тариф.", show_alert=True)
         return
     await _edit_current_message(callback, text, tier_plans_keyboard(tier))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "renew_menu")
+async def renew_menu_handler(callback: CallbackQuery, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+        )
+        subscriptions = await repo.list_active_subscriptions(user.id)
+
+    if not subscriptions:
+        await _edit_current_message(
+            callback,
+            "🔄 <b>Продление</b>\n\nУ вас нет активных подписок. Оформите тариф через «🛒 Купить тариф».",
+            tier_select_keyboard(),
+        )
+        await callback.answer()
+        return
+
+    text = "🔄 <b>Продление</b>\n\nВыберите подписку, которую хотите продлить:"
+    await _edit_current_message(callback, text, renew_menu_keyboard(subscriptions))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("renew_sub:"))
+async def renew_sub_handler(callback: CallbackQuery, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    try:
+        sub_id = int(callback.data.split(":", maxsplit=1)[1])
+    except (IndexError, ValueError):
+        await callback.answer("Подписка не найдена", show_alert=True)
+        return
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(callback.from_user.id)
+        subscription = await repo.get_subscription(sub_id) if user else None
+        if user is None or subscription is None or subscription.user_id != user.id:
+            await callback.answer("Подписка не найдена", show_alert=True)
+            return
+        tier, region = subscription.tier, subscription.region
+
+    label = "💎 Premium" if tier == "premium" else "🌐 Обычный"
+    text = f"🔄 <b>Продление: {label}</b>\n\nВыберите срок — он добавится к текущему:"
+    await _edit_current_message(callback, text, renew_durations_keyboard(tier, region))
     await callback.answer()
 
 
