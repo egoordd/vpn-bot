@@ -20,6 +20,7 @@ os.environ["MARZBAN_API_URL"] = ""
 os.environ["MARZBAN_ACCESS_TOKEN"] = ""
 os.environ["MARZBAN_USERNAME"] = ""
 os.environ["MARZBAN_PASSWORD"] = ""
+os.environ["MARZBAN_REGION_INBOUNDS"] = "{}"
 os.environ["CRYPTOBOT_TOKEN"] = ""
 os.environ["VULTR_API_TOKEN"] = ""
 

@@ -103,7 +103,11 @@ async def activate_panel_subscription(
         raise ValueError(f"Unknown user_id: {user_id}")
 
     now = datetime.now(timezone.utc)
-    latest = await repo.get_latest_subscription(user_id)
+    # Two independent billing lanes: premium (location-specific) and non-premium
+    # (trial + standard, main server). Each lane has its own panel user, expiry
+    # and link — buying in one lane never overwrites the other.
+    is_premium = tariff.tier == "premium"
+    latest = await repo.get_latest_subscription_in_lane(user_id, is_premium)
     starts_at = now
     if latest and latest.is_active and _aware(latest.expires_at) > now:
         starts_at = _aware(latest.expires_at)
@@ -112,7 +116,13 @@ async def activate_panel_subscription(
     if panel_gateway is not None and panel_client is not None:
         raise ValueError("panel_gateway and panel_client are mutually exclusive")
     gateway = panel_gateway or (RemnawavePanelGateway(panel_client) if panel_client is not None else get_panel_gateway())
-    panel_username = latest.panel_username if latest and latest.panel_username else gateway.build_username(user.telegram_id)
+    if latest and latest.panel_username:
+        panel_username = latest.panel_username
+    else:
+        base_username = gateway.build_username(user.telegram_id)
+        # Non-premium lane keeps the bare username (backward compatible); premium
+        # gets a distinct panel user so the two lanes don't overwrite each other.
+        panel_username = f"{base_username}p" if is_premium else base_username
 
     if await _panel_user_exists(gateway, panel_username):
         panel_user = await gateway.modify_user(
@@ -137,7 +147,7 @@ async def activate_panel_subscription(
             inbounds=region_inbounds,
         )
 
-    await repo.deactivate_user_subscriptions(user_id)
+    await repo.deactivate_subscriptions_in_lane(user_id, is_premium)
     return await repo.create_subscription(
         user_id=user_id,
         plan=tariff.code,

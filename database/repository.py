@@ -155,6 +155,32 @@ class Repository:
         )
         return result.scalar_one_or_none()
 
+    async def list_active_subscriptions(self, user_id: int) -> list[Subscription]:
+        """All currently-active subscriptions (one per tier after per-tier
+        activation), newest expiry first."""
+        result = await self.session.execute(
+            select(Subscription)
+            .where(
+                Subscription.user_id == user_id,
+                Subscription.is_active.is_(True),
+                Subscription.expires_at > _now(),
+            )
+            .order_by(Subscription.tier, Subscription.expires_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_latest_subscription_in_lane(self, user_id: int, premium: bool) -> Subscription | None:
+        """Latest subscription in a billing lane. Premium (location-specific) and
+        non-premium (trial + standard, main server) are independent lanes."""
+        lane = Subscription.tier == "premium" if premium else Subscription.tier != "premium"
+        result = await self.session.execute(
+            select(Subscription)
+            .where(Subscription.user_id == user_id, lane)
+            .order_by(Subscription.expires_at.desc(), Subscription.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def list_subscriptions_by_user(self, user_id: int) -> list[Subscription]:
         result = await self.session.execute(
             select(Subscription)
@@ -167,6 +193,15 @@ class Repository:
         await self.session.execute(
             update(Subscription)
             .where(Subscription.user_id == user_id, Subscription.is_active.is_(True))
+            .values(is_active=False)
+        )
+        await self.session.commit()
+
+    async def deactivate_subscriptions_in_lane(self, user_id: int, premium: bool) -> None:
+        lane = Subscription.tier == "premium" if premium else Subscription.tier != "premium"
+        await self.session.execute(
+            update(Subscription)
+            .where(Subscription.user_id == user_id, lane, Subscription.is_active.is_(True))
             .values(is_active=False)
         )
         await self.session.commit()

@@ -300,3 +300,71 @@ async def test_activate_panel_subscription_accepts_generic_panel_gateway(db_sess
     assert subscription.sub_token == "mz_602"
     assert subscription.subscription_url == "https://marzban.example/sub/mz_602"
     assert subscription.traffic_used_bytes == 77
+
+
+@pytest.mark.integration
+async def test_standard_and_premium_coexist_independently(session_pool, monkeypatch):
+    # Premium lane uses a distinct panel user and does not overwrite the
+    # standard (non-premium) lane.
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import services.subscription as subscription_module
+    from database.repository import Repository
+    from services.subscription import activate_panel_subscription
+
+    monkeypatch.setattr(
+        subscription_module.settings,
+        "MARZBAN_REGION_INBOUNDS",
+        '{"ams": {"vless": ["VLESS Reality AMS"]}}',
+    )
+
+    created = []
+
+    class FakeGateway:
+        provider = "fake"
+
+        def build_username(self, telegram_id):
+            return f"tg_{telegram_id}"
+
+        async def get_user(self, username):
+            from services.panel_gateway import PanelUserNotFoundError
+
+            raise PanelUserNotFoundError(username)
+
+        async def create_user(self, **kwargs):
+            created.append(kwargs)
+            return SimpleNamespace(
+                username=kwargs["username"],
+                short_uuid=kwargs["username"],
+                subscription_url=f"https://sub/{kwargs['username']}",
+                status="active",
+                expire_at=0,
+                traffic_limit_bytes=None,
+                used_traffic_bytes=0,
+                lifetime_used_traffic_bytes=0,
+                device_limit=None,
+                provider="fake",
+            )
+
+        async def modify_user(self, **kwargs):
+            raise AssertionError("should not modify in this test")
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=4242, username="dual")
+        gw = FakeGateway()
+        std = await activate_panel_subscription(session, user.id, "standard_1m", panel_gateway=gw)
+        prem = await activate_panel_subscription(session, user.id, "premium_1m", panel_gateway=gw, region="ams")
+
+        actives = await repo.list_active_subscriptions(user.id)
+
+    usernames = {c["username"] for c in created}
+    assert usernames == {"tg_4242", "tg_4242p"}
+    assert std.panel_username == "tg_4242"
+    assert prem.panel_username == "tg_4242p"
+    # premium got the AMS inbound; standard got the default
+    prem_call = next(c for c in created if c["username"] == "tg_4242p")
+    assert prem_call["inbounds"] == {"vless": ["VLESS Reality AMS"]}
+    # both subscriptions remain active simultaneously
+    assert {s.tier for s in actives} == {"standard", "premium"}

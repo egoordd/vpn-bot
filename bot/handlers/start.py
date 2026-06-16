@@ -42,34 +42,39 @@ def _tariff_title(plan_code: str) -> str:
         return plan_code
 
 
-def _menu_text(user: User, subscription: Subscription | None, display_name: str | None) -> str:
+def _subscription_card(subscription: Subscription) -> str:
+    used = _format_gb(subscription.traffic_used_bytes or 0)
+    limit = _format_gb(subscription.traffic_limit_bytes)
+    devices = subscription.device_limit if subscription.device_limit is not None else "∞"
+    label = "💎 Premium" if subscription.tier == "premium" else "🌐 Обычный"
+    return f"📦 <b>{label}</b>\n" + bq(
+        f"💎 Тариф: {html.escape(_tariff_title(subscription.plan))}",
+        f"📊 Трафик: {used} / {limit} ГБ",
+        f"📱 Устройств: до {devices}",
+        f"📅 До: {_format_msk(subscription.expires_at)}",
+    )
+
+
+def _menu_text(user: User, subscriptions: list[Subscription], display_name: str | None) -> str:
     sections = [_profile_block(user, display_name)]
 
-    if subscription is None:
+    if not subscriptions:
         sections.append(
             "🔑 <b>Подписка:</b> не активна\n\n"
             "Выберите тариф ниже — ссылка-подписка придёт автоматически после оплаты."
         )
         return "\n\n".join(sections)
 
-    if subscription.subscription_url:
+    for subscription in subscriptions:
+        sections.append(_subscription_card(subscription))
+
+    if len(subscriptions) == 1 and subscriptions[0].subscription_url:
         sections.append(
             "🔑 <b>Ваша подписка:</b>\n"
-            f"<code>{html.escape(subscription.subscription_url)}</code>"
+            f"<code>{html.escape(subscriptions[0].subscription_url)}</code>"
         )
-
-    used = _format_gb(subscription.traffic_used_bytes or 0)
-    limit = _format_gb(subscription.traffic_limit_bytes)
-    devices = subscription.device_limit if subscription.device_limit is not None else "∞"
-    sections.append(
-        "📦 <b>Информация о тарифе:</b>\n"
-        + bq(
-            f"💎 Тариф: {html.escape(_tariff_title(subscription.plan))}",
-            f"📊 Трафик: {used} / {limit} ГБ",
-            f"📱 Устройств: до {devices}",
-        )
-    )
-    sections.append(f"📅 <b>Срок действия:</b> {_format_msk(subscription.expires_at)}")
+    else:
+        sections.append("🔗 Ссылки на подключение — в разделе «📱 Подключить устройство».")
     return "\n\n".join(sections)
 
 
@@ -87,22 +92,23 @@ async def _menu_state(
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.get_or_create_user(telegram_id=telegram_id, username=username)
-        subscription = await repo.get_active_subscription(user.id)
-        latest = subscription or await repo.get_latest_subscription(user.id)
-        if subscription is None and latest is None and (panel_client is not None or _remnawave_configured()):
+        subscriptions = await repo.list_active_subscriptions(user.id)
+        latest = await repo.get_latest_subscription(user.id)
+        if not subscriptions and latest is None and (panel_client is not None or _remnawave_configured()):
             try:
-                subscription = await activate_panel_subscription(
+                trial = await activate_panel_subscription(
                     session=session,
                     user_id=user.id,
                     plan="trial",
                     panel_client=panel_client,
                 )
+                subscriptions = [trial]
             except PanelGatewayError:
                 logger.exception("Failed to auto-activate trial for user_id=%s", user.id)
 
-        text = _menu_text(user, subscription, display_name)
+        text = _menu_text(user, subscriptions, display_name)
 
-    if subscription is None:
+    if not subscriptions:
         return text, landing_keyboard()
     return text, active_subscription_keyboard()
 

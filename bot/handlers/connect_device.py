@@ -6,7 +6,9 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
+from bot.navigation import show_screen
 from bot.texts import bq
+from database.models import Subscription
 from database.repository import Repository
 from services.deeplinks import AppImportGuide, build_app_import_guides
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
@@ -19,35 +21,55 @@ router = Router()
 APP_CODES = {"hiddify", "v2raytun", "streisand", "singbox"}
 
 
-def _connect_device_keyboard() -> InlineKeyboardMarkup:
+def _location_label(subscription: Subscription) -> str:
+    if subscription.tier == "premium":
+        return "💎 Premium"
+    return "🌐 Обычный"
+
+
+def _connect_device_keyboard(sub_id: int | None = None) -> InlineKeyboardMarkup:
+    suffix = f":{sub_id}" if sub_id is not None else ""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Hiddify", callback_data="connect_app:hiddify"),
-                InlineKeyboardButton(text="V2RayTun", callback_data="connect_app:v2raytun"),
+                InlineKeyboardButton(text="Hiddify", callback_data=f"connect_app:hiddify{suffix}"),
+                InlineKeyboardButton(text="V2RayTun", callback_data=f"connect_app:v2raytun{suffix}"),
             ],
             [
-                InlineKeyboardButton(text="Streisand", callback_data="connect_app:streisand"),
-                InlineKeyboardButton(text="sing-box", callback_data="connect_app:singbox"),
+                InlineKeyboardButton(text="Streisand", callback_data=f"connect_app:streisand{suffix}"),
+                InlineKeyboardButton(text="sing-box", callback_data=f"connect_app:singbox{suffix}"),
             ],
             [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
         ]
     )
 
 
-def _app_instruction_keyboard() -> InlineKeyboardMarkup:
+def _location_selector_keyboard(subs: list[Subscription]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=_location_label(sub), callback_data=f"connect_loc:{sub.id}")]
+        for sub in subs
+    ]
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _app_instruction_keyboard(sub_id: int | None = None) -> InlineKeyboardMarkup:
+    back = f"connect_loc:{sub_id}" if sub_id is not None else "connect_device"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ К подключению", callback_data="connect_device")],
+            [InlineKeyboardButton(text="◀️ К подключению", callback_data=back)],
             [InlineKeyboardButton(text="🏠 В меню", callback_data="main_menu")],
         ]
     )
 
 
-def _subscription_access_text(subscription_url: str) -> str:
+def _subscription_access_text(subscription_url: str, location: str | None = None) -> str:
     escaped_url = html.escape(subscription_url)
+    header = "📱 <b>Подключение устройства</b>"
+    if location:
+        header += f"\n{location}"
     return (
-        "📱 <b>Подключение устройства</b>\n\n"
+        f"{header}\n\n"
         "🔗 <b>Ссылка-подписка:</b>\n"
         f"<code>{escaped_url}</code>\n\n"
         + bq(
@@ -56,6 +78,34 @@ def _subscription_access_text(subscription_url: str) -> str:
             "3️⃣ Включите туннель — готово",
         )
     )
+
+
+async def _resolve_url_for_subscription(repo: Repository, subscription: Subscription) -> str | None:
+    if not subscription.panel_username:
+        return None
+    if subscription.subscription_url:
+        return subscription.subscription_url
+    panel_user = await get_panel_gateway().get_user(subscription.panel_username)
+    return panel_user.subscription_url
+
+
+async def _active_subs_with_links(repo: Repository, user_id: int) -> list[tuple[Subscription, str]]:
+    result: list[tuple[Subscription, str]] = []
+    for sub in await repo.list_active_subscriptions(user_id):
+        url = await _resolve_url_for_subscription(repo, sub)
+        if url:
+            result.append((sub, url))
+    return result
+
+
+async def _send_subscription_screen(callback: CallbackQuery, subscription: Subscription, url: str) -> None:
+    qr_bytes = await generate_qr_png_bytes(url)
+    if callback.message:
+        await callback.message.answer_photo(
+            BufferedInputFile(qr_bytes, filename="subscription_qr.png"),
+            caption=_subscription_access_text(url, _location_label(subscription)),
+            reply_markup=_connect_device_keyboard(subscription.id),
+        )
 
 
 def _app_instruction_text(guide: AppImportGuide, subscription_url: str) -> str:
@@ -107,18 +157,33 @@ async def connect_device_handler(
     callback: CallbackQuery,
     session_pool: async_sessionmaker[AsyncSession],
 ) -> None:
-    user_id, subscription_url = await _get_user_and_subscription_url(callback, session_pool)
-    if user_id is None:
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(callback.from_user.id)
+        if user is None:
+            await callback.answer("Пользователь не найден. Нажмите /start.", show_alert=True)
+            return
+        user_id = user.id
+        try:
+            subs_with_links = await _active_subs_with_links(repo, user_id)
+        except PanelGatewayError:
+            logger.exception("Could not resolve subscription URLs for user_id=%s", user_id)
+            await callback.answer("Не удалось получить ссылку-подписку. Напишите в поддержку.", show_alert=True)
+            return
+
+    if len(subs_with_links) > 1:
+        subs = [sub for sub, _ in subs_with_links]
+        text = (
+            "📱 <b>Подключение устройства</b>\n\n"
+            "У вас несколько подписок. Выберите, какую подключить:"
+        )
+        await show_screen(callback, text, _location_selector_keyboard(subs))
+        await callback.answer()
         return
 
-    if subscription_url:
-        qr_bytes = await generate_qr_png_bytes(subscription_url)
-        if callback.message:
-            await callback.message.answer_photo(
-                BufferedInputFile(qr_bytes, filename="subscription_qr.png"),
-                caption=_subscription_access_text(subscription_url),
-                reply_markup=_connect_device_keyboard(),
-            )
+    if len(subs_with_links) == 1:
+        subscription, url = subs_with_links[0]
+        await _send_subscription_screen(callback, subscription, url)
         await callback.answer()
         return
 
@@ -145,17 +210,69 @@ async def connect_device_handler(
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("connect_loc:"), flags={"subscription_required": True})
+async def connect_location_handler(
+    callback: CallbackQuery,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    try:
+        sub_id = int(callback.data.split(":", maxsplit=1)[1])
+    except (IndexError, ValueError):
+        await callback.answer("Подписка не найдена", show_alert=True)
+        return
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(callback.from_user.id)
+        subscription = await repo.get_subscription(sub_id) if user else None
+        if user is None or subscription is None or subscription.user_id != user.id:
+            await callback.answer("Подписка не найдена", show_alert=True)
+            return
+        try:
+            url = await _resolve_url_for_subscription(repo, subscription)
+        except PanelGatewayError:
+            logger.exception("Could not resolve subscription URL for sub_id=%s", sub_id)
+            await callback.answer("Не удалось получить ссылку. Напишите в поддержку.", show_alert=True)
+            return
+    if not url:
+        await callback.answer("Для этой подписки нет ссылки.", show_alert=True)
+        return
+    await _send_subscription_screen(callback, subscription, url)
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("connect_app:"), flags={"subscription_required": True})
 async def connect_app_handler(
     callback: CallbackQuery,
     session_pool: async_sessionmaker[AsyncSession],
 ) -> None:
-    app_code = callback.data.split(":", maxsplit=1)[1] if callback.data else ""
+    parts = callback.data.split(":") if callback.data else []
+    app_code = parts[1] if len(parts) > 1 else ""
+    sub_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
     if app_code not in APP_CODES:
         await callback.answer("Приложение не найдено", show_alert=True)
         return
 
-    _, subscription_url = await _get_user_and_subscription_url(callback, session_pool)
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(callback.from_user.id)
+        if user is None:
+            await callback.answer("Пользователь не найден. Нажмите /start.", show_alert=True)
+            return
+        try:
+            if sub_id is not None:
+                subscription = await repo.get_subscription(sub_id)
+                subscription_url = (
+                    await _resolve_url_for_subscription(repo, subscription)
+                    if subscription and subscription.user_id == user.id
+                    else None
+                )
+            else:
+                subscription_url = await _resolve_subscription_url(repo, user.id)
+        except PanelGatewayError:
+            logger.exception("Could not resolve subscription URL for user_id=%s", user.id)
+            await callback.answer("Не удалось получить ссылку. Напишите в поддержку.", show_alert=True)
+            return
+
     if not subscription_url:
         await callback.answer("Для этой подписки доступен WireGuard-конфиг, а не ссылка-подписка.", show_alert=True)
         return
@@ -164,7 +281,7 @@ async def connect_app_handler(
     text = _app_instruction_text(guide, subscription_url)
     if callback.message:
         if callback.message.photo:
-            await callback.message.edit_caption(caption=text, reply_markup=_app_instruction_keyboard())
+            await callback.message.edit_caption(caption=text, reply_markup=_app_instruction_keyboard(sub_id))
         else:
-            await callback.message.edit_text(text, reply_markup=_app_instruction_keyboard())
+            await callback.message.edit_text(text, reply_markup=_app_instruction_keyboard(sub_id))
     await callback.answer()

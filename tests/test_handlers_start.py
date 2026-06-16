@@ -59,7 +59,7 @@ async def test_menu_state_returns_active_subscription_menu(session_pool):
 
     text, keyboard = await start._menu_state(session_pool, 921, "active")
 
-    assert "Срок действия" in text
+    assert "📅 До:" in text
     assert "Профиль" in text
     assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"
 
@@ -69,7 +69,7 @@ async def test_menu_state_auto_activates_trial_when_panel_client_is_available(se
     text, keyboard = await start._menu_state(session_pool, 922, "trial", panel_client=FakePanelClient())
 
     assert "Ваша подписка" in text
-    assert "Срок действия" in text
+    assert "📅 До:" in text
     assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"
     async with session_pool() as session:
         repo = Repository(session)
