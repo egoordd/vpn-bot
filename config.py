@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     MARZBAN_USERNAME_PREFIX: str = "tg"
     MARZBAN_DEFAULT_PROXIES: str = "{}"
     MARZBAN_DEFAULT_INBOUNDS: str = "{}"
+    # Per-region Marzban inbounds for static premium nodes (region -> inbounds
+    # dict). Premium users for a configured region are created with that
+    # region's inbound so their traffic routes through that node.
+    # Example: {"ams": {"vless": ["VLESS Reality AMS"]}}
+    MARZBAN_REGION_INBOUNDS: str = "{}"
     MARZBAN_DATA_LIMIT_RESET_STRATEGY: str = "no_reset"
 
     VULTR_API_URL: str = "https://api.vultr.com/v2"
@@ -145,6 +150,26 @@ class Settings(BaseSettings):
     def marzban_default_inbounds_dict(self) -> dict[str, list[str]]:
         raw = self._parse_json_object(self.MARZBAN_DEFAULT_INBOUNDS, "MARZBAN_DEFAULT_INBOUNDS")
         return {str(key): [str(item) for item in value] for key, value in raw.items() if isinstance(value, list)}
+
+    @property
+    def marzban_region_inbounds_dict(self) -> dict[str, dict[str, list[str]]]:
+        raw = self._parse_json_object(self.MARZBAN_REGION_INBOUNDS, "MARZBAN_REGION_INBOUNDS")
+        result: dict[str, dict[str, list[str]]] = {}
+        for region, inbounds in raw.items():
+            if not isinstance(inbounds, dict):
+                continue
+            result[str(region).lower()] = {
+                str(proto): [str(tag) for tag in tags]
+                for proto, tags in inbounds.items()
+                if isinstance(tags, list)
+            }
+        return result
+
+    def marzban_inbounds_for_region(self, region: str | None) -> dict[str, list[str]] | None:
+        """Marzban inbounds for a static premium region, or None if not configured."""
+        if not region:
+            return None
+        return self.marzban_region_inbounds_dict.get(region.lower())
 
     @staticmethod
     def _parse_json_object(raw: str, field: str) -> dict[str, Any]:

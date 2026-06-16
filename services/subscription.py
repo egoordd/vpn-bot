@@ -93,8 +93,10 @@ async def activate_panel_subscription(
     plan: str,
     panel_client: Any | None = None,
     panel_gateway: PanelGateway | None = None,
+    region: str | None = None,
 ) -> Subscription:
     tariff: Tariff = resolve_tariff(plan)
+    region_inbounds = settings.marzban_inbounds_for_region(region)
     repo = Repository(session)
     user = await repo.get_user(user_id)
     if user is None:
@@ -120,6 +122,7 @@ async def activate_panel_subscription(
             device_limit=tariff.device_limit,
             status="active",
             tag=tariff.tier,
+            inbounds=region_inbounds,
         )
     else:
         panel_user = await gateway.create_user(
@@ -131,6 +134,7 @@ async def activate_panel_subscription(
             status="active",
             description=f"Telegram user {user.telegram_id}",
             tag=tariff.tier,
+            inbounds=region_inbounds,
         )
 
     await repo.deactivate_user_subscriptions(user_id)

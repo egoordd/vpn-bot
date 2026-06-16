@@ -8,6 +8,7 @@ from bot.handlers.start import _menu_state
 from bot.keyboards.main_menu import premium_location_keyboard, tier_plans_keyboard, tier_select_keyboard
 from bot.navigation import show_screen
 from bot.texts import bq
+from config import settings
 from database.repository import Repository
 from services.billing_api import build_payment_intent, crypto_minor_units, register_cryptobot_payment
 from services.cryptobot import CryptoBotError, create_invoice
@@ -102,9 +103,10 @@ async def _show_checkout(
         balance = await repo.get_balance(user.id) or 0
 
     region_option = resolve_premium_region(region) if region else None
-    # Balance checkout is available for standard now; premium needs node
-    # assignment (autoscaler), so it stays crypto-only until that's live.
-    balance_ok = tariff.tier == "standard" and balance >= price_kopecks
+    # Balance checkout: standard always; premium only for regions backed by a
+    # static panel node (others need autoscaler and stay crypto-only).
+    premium_static = tariff.tier == "premium" and settings.marzban_inbounds_for_region(region) is not None
+    balance_ok = balance >= price_kopecks and (tariff.tier == "standard" or premium_static)
     crypto_ok = is_cryptobot_configured()
 
     card_lines = [

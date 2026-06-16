@@ -26,7 +26,7 @@ from services.payment import (
 )
 from services.referral import build_referral_link
 from services.subscription import activate_panel_subscription
-from services.tariffs import resolve_tariff
+from services.tariffs import resolve_premium_region, resolve_tariff
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -368,16 +368,33 @@ async def pay_with_balance_handler(
     callback: CallbackQuery,
     session_pool: async_sessionmaker[AsyncSession],
 ) -> None:
-    plan_code = callback.data.split(":", 1)[1]
+    parts = callback.data.split(":", 2)
+    plan_code = parts[1] if len(parts) > 1 else ""
+    raw_region = parts[2] if len(parts) > 2 else None
     try:
         tariff = resolve_tariff(plan_code)
     except ValueError:
         await callback.answer("Неизвестный тариф.", show_alert=True)
         return
-    if tariff.tier != "standard":
-        # Premium needs node assignment; balance checkout starts with standard.
-        await callback.answer("Premium пока оплачивается только криптой.", show_alert=True)
-        return
+
+    region: str | None = None
+    region_title: str | None = None
+    if tariff.tier == "premium":
+        if raw_region is None:
+            await callback.answer("Не выбрана локация.", show_alert=True)
+            return
+        try:
+            region_option = resolve_premium_region(raw_region)
+        except ValueError:
+            await callback.answer("Локация не найдена.", show_alert=True)
+            return
+        region, region_title = region_option.code, region_option.title
+        # Balance checkout only for regions backed by a static panel node;
+        # autoscaled regions stay crypto-only until provisioning is live.
+        if settings.marzban_inbounds_for_region(region) is None:
+            await callback.answer("Эта локация пока оплачивается только криптой.", show_alert=True)
+            return
+
     if not is_panel_configured():
         await callback.answer("Сервис временно недоступен. Попробуйте позже.", show_alert=True)
         return
@@ -411,6 +428,7 @@ async def pay_with_balance_handler(
                 session=session,
                 user_id=user.id,
                 plan=tariff.code,
+                region=region,
             )
         except (PanelGatewayError, Exception):
             logger.exception(
@@ -431,13 +449,14 @@ async def pay_with_balance_handler(
             return
         balance = await wallet.get_balance(session, user.id)
 
+    card_lines = [f"💎 Тариф: {tariff.title}"]
+    if region_title is not None:
+        card_lines.append(f"🌍 Локация: {region_title}")
+    card_lines.append(f"💰 Списано: {format_rub(price_kopecks)}")
+    card_lines.append(f"💳 Остаток: {format_rub(balance)}")
     text = (
         "✅ <b>Тариф оплачен с баланса</b>\n\n"
-        + bq(
-            f"💎 Тариф: {tariff.title}",
-            f"💰 Списано: {format_rub(price_kopecks)}",
-            f"💳 Остаток: {format_rub(balance)}",
-        )
+        + bq(*card_lines)
         + f"\n\n📅 <b>Подписка активна до:</b> {format_msk(subscription.expires_at)}"
     )
     if callback.message:

@@ -64,6 +64,7 @@ class PanelGateway(Protocol):
         status: str = "active",
         description: str | None = None,
         tag: str | None = None,
+        inbounds: dict[str, list[str]] | None = None,
     ) -> PanelAccount:
         pass
 
@@ -77,6 +78,7 @@ class PanelGateway(Protocol):
         status: str = "active",
         description: str | None = None,
         tag: str | None = None,
+        inbounds: dict[str, list[str]] | None = None,
     ) -> PanelAccount:
         pass
 
@@ -123,7 +125,9 @@ class RemnawavePanelGateway:
         status: str = "active",
         description: str | None = None,
         tag: str | None = None,
+        inbounds: dict[str, list[str]] | None = None,
     ) -> PanelAccount:
+        del inbounds  # Remnawave routes via internal squads, not Marzban inbounds.
         active_internal_squads = settings.remnawave_default_internal_squad_uuids_list or None
         try:
             user = await self.client.create_user(
@@ -151,7 +155,9 @@ class RemnawavePanelGateway:
         status: str = "active",
         description: str | None = None,
         tag: str | None = None,
+        inbounds: dict[str, list[str]] | None = None,
     ) -> PanelAccount:
+        del inbounds  # Remnawave routes via internal squads, not Marzban inbounds.
         active_internal_squads = settings.remnawave_default_internal_squad_uuids_list or None
         try:
             user = await self.client.modify_user(
@@ -212,6 +218,7 @@ class MarzbanPanelGateway:
         status: str = "active",
         description: str | None = None,
         tag: str | None = None,
+        inbounds: dict[str, list[str]] | None = None,
     ) -> PanelAccount:
         del device_limit, tag
         try:
@@ -220,7 +227,7 @@ class MarzbanPanelGateway:
                 expire_at=expire_at,
                 data_limit_bytes=traffic_limit_bytes,
                 proxies=settings.marzban_default_proxies_dict,
-                inbounds=settings.marzban_default_inbounds_dict,
+                inbounds=inbounds or settings.marzban_default_inbounds_dict,
                 data_limit_reset_strategy=settings.MARZBAN_DATA_LIMIT_RESET_STRATEGY,
                 status=status.lower(),
                 note=description or (f"Telegram user {telegram_id}" if telegram_id is not None else None),
@@ -241,6 +248,7 @@ class MarzbanPanelGateway:
         status: str = "active",
         description: str | None = None,
         tag: str | None = None,
+        inbounds: dict[str, list[str]] | None = None,
     ) -> PanelAccount:
         del device_limit, tag
         try:
@@ -249,7 +257,7 @@ class MarzbanPanelGateway:
                 expire_at=expire_at,
                 data_limit_bytes=traffic_limit_bytes,
                 proxies=settings.marzban_default_proxies_dict,
-                inbounds=settings.marzban_default_inbounds_dict,
+                inbounds=inbounds or settings.marzban_default_inbounds_dict,
                 data_limit_reset_strategy=settings.MARZBAN_DATA_LIMIT_RESET_STRATEGY,
                 status=status.lower(),
                 note=description,
