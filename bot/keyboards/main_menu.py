@@ -27,7 +27,7 @@ def _tier_buttons() -> list[list[InlineKeyboardButton]]:
         ],
         [
             InlineKeyboardButton(
-                text=f"💎 Premium — от {_min_price('premium')}₽",
+                text="💎 Premium (скоро)",
                 callback_data="buy_tier:premium",
             )
         ],

@@ -51,35 +51,25 @@ async def _edit_text(callback: CallbackQuery, text: str, reply_markup: InlineKey
     await show_screen(callback, text, reply_markup)
 
 
+# Shared locations available in the standard (multi-location) subscription.
+# Switched on the client side (the subscription lists all of them).
+SHARED_LOCATIONS = ["🇺🇸 США", "🇳🇱 Нидерланды"]
+
+
 @router.callback_query(F.data == "locations")
 async def locations_handler(
     callback: CallbackQuery,
     session_pool: async_sessionmaker[AsyncSession],
 ) -> None:
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.get_or_create_user(
-            telegram_id=callback.from_user.id,
-            username=callback.from_user.username,
-        )
-        premium = _premium_active(await repo.list_active_subscriptions(user.id))
-
-    if premium is None:
-        text = (
-            "🌍 <b>Локации</b>\n\n"
-            + bq("🔒 Доступно на Premium-тарифе")
-            + "\n\nКупите Premium — и выбирайте регион подключения."
-        )
-        await _edit_text(callback, text, back_to_menu_keyboard())
-        await callback.answer()
-        return
-
     text = (
-        "🌍 <b>Premium-локации</b>\n\n"
-        + bq(f"📍 Текущая локация: {_region_title(premium.region)}")
-        + "\n\nВыберите регион. Переключение бесплатно, ссылка-подписка остаётся прежней."
+        "🌍 <b>Локации</b>\n\n"
+        "В вашей подписке доступны страны:\n"
+        + bq(*SHARED_LOCATIONS)
+        + "\n\n🔀 Переключайтесь между ними <b>прямо в приложении</b> "
+        "(выбор сервера в Happ / V2RayTun / Hiddify) — ссылка-подписка одна.\n\n"
+        "💎 Premium с фиксированным IP и низкой плотностью — скоро."
     )
-    await _edit_text(callback, text, _locations_keyboard(premium.region))
+    await _edit_text(callback, text, back_to_menu_keyboard())
     await callback.answer()
 
 

@@ -153,23 +153,8 @@ _AMS_INBOUNDS = '{"ams": {"vless": ["VLESS Reality AMS"]}}'
 
 
 @pytest.mark.integration
-async def test_locations_handler_shows_current_premium_region(session_pool, monkeypatch):
-    monkeypatch.setattr(locations.settings, "MARZBAN_REGION_INBOUNDS", _AMS_INBOUNDS)
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.create_user(telegram_id=934)
-        await repo.create_subscription(
-            user_id=user.id,
-            plan="premium_1m",
-            tier="premium",
-            region="ams",
-            panel_username="tg_934p",
-            started_at=datetime.now(timezone.utc),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-            is_active=True,
-        )
-
-    message = SimpleNamespace(edit_text=AsyncMock())
+async def test_locations_handler_shows_shared_locations_info(session_pool):
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=934, username="loc"),
         message=message,
@@ -179,10 +164,8 @@ async def test_locations_handler_shows_current_premium_region(session_pool, monk
     await locations.locations_handler(callback, session_pool)
 
     text = message.edit_text.await_args.args[0]
-    assert "Нидерланды, Амстердам" in text
-    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    # ams is the current static region -> first button marked with ✅
-    assert keyboard.inline_keyboard[0][0].text.startswith("✅")
+    assert "США" in text and "Нидерланды" in text
+    assert "приложении" in text
 
 
 @pytest.mark.integration

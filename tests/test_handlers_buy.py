@@ -91,74 +91,24 @@ async def test_buy_plan_handler_invalid_plan_alerts(session_pool, fake_bot):
 
 
 @pytest.mark.integration
-async def test_buy_plan_handler_premium_opens_region_picker(session_pool, fake_bot):
-    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        data="buy:premium_1m",
-        from_user=SimpleNamespace(id=913, username="buyer"),
-        message=message,
-        answer=AsyncMock(),
-    )
+async def test_premium_entry_points_show_coming_soon(session_pool, fake_bot):
+    for data in ("buy_tier:premium", "buy:premium_1m", "buy_region:premium_1m:ams"):
+        message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+        callback = SimpleNamespace(
+            data=data,
+            from_user=SimpleNamespace(id=913, username="buyer"),
+            message=message,
+            answer=AsyncMock(),
+        )
+        if data == "buy_tier:premium":
+            await buy.buy_tier_handler(callback)
+        elif data.startswith("buy_region:"):
+            await buy.buy_region_handler(callback, fake_bot, session_pool)
+        else:
+            await buy.buy_plan_handler(callback, fake_bot, session_pool)
 
-    await buy.buy_plan_handler(callback, fake_bot, session_pool)
-
-    message.edit_text.assert_awaited_once()
-    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    assert keyboard.inline_keyboard[0][0].callback_data == "buy_region:premium_1m:ams"
-    callback.answer.assert_awaited_once()
-
-
-@pytest.mark.integration
-async def test_buy_region_shows_checkout_then_paycrypto_creates_invoice(session_pool, fake_bot, monkeypatch):
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: True)
-    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
-    region_cb = SimpleNamespace(
-        data="buy_region:premium_1m:ams",
-        from_user=SimpleNamespace(id=914, username="premium"),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await buy.buy_region_handler(region_cb, fake_bot, session_pool)
-
-    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
-    assert "paycrypto:premium_1m:ams" in callbacks
-
-    create_invoice = AsyncMock(return_value={"invoice_id": "ext-premium", "pay_url": "https://pay.example/p"})
-    monkeypatch.setattr(buy, "create_invoice", create_invoice)
-    pay_cb = SimpleNamespace(
-        data="paycrypto:premium_1m:ams",
-        from_user=SimpleNamespace(id=914, username="premium"),
-        message=SimpleNamespace(answer=AsyncMock()),
-        answer=AsyncMock(),
-    )
-
-    await buy.pay_crypto_handler(pay_cb, fake_bot, session_pool)
-
-    create_invoice.assert_awaited_once()
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.get_user_by_telegram_id(914)
-        payment = await repo.get_payment_by_external_id("ext-premium")
-    assert payment is not None
-    assert payment.amount == 499
-    assert payment.invoice_payload.startswith(f"unlock:{user.id}:premium_1m:ams:")
-
-
-@pytest.mark.integration
-async def test_buy_region_handler_invalid_region_alerts(session_pool, fake_bot):
-    callback = SimpleNamespace(
-        data="buy_region:premium_1m:missing",
-        from_user=SimpleNamespace(id=915, username="premium"),
-        message=SimpleNamespace(answer=AsyncMock()),
-        answer=AsyncMock(),
-    )
-
-    await buy.buy_region_handler(callback, fake_bot, session_pool)
-
-    callback.answer.assert_awaited_once()
-    assert callback.answer.await_args.kwargs["show_alert"] is True
+        text = message.edit_text.await_args.args[0]
+        assert "скоро" in text.lower()
 
 
 @pytest.mark.integration
@@ -188,10 +138,10 @@ def test_crypto_minor_units_rounds_half_up():
 
 
 @pytest.mark.integration
-async def test_buy_tier_handler_shows_tier_plans():
+async def test_buy_tier_handler_shows_standard_durations():
     message = SimpleNamespace(photo=None, edit_text=AsyncMock(), edit_caption=AsyncMock())
     callback = SimpleNamespace(
-        data="buy_tier:premium",
+        data="buy_tier:standard",
         from_user=SimpleNamespace(id=915, username="tier"),
         message=message,
         answer=AsyncMock(),
@@ -200,10 +150,8 @@ async def test_buy_tier_handler_shows_tier_plans():
     await buy.buy_tier_handler(callback)
 
     message.edit_text.assert_awaited_once()
-    text = message.edit_text.await_args.args[0]
-    assert "Premium" in text
     keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    assert keyboard.inline_keyboard[0][0].callback_data == "buy:premium_1m"
+    assert keyboard.inline_keyboard[0][0].callback_data == "buy:standard_1m"
 
 
 @pytest.mark.integration

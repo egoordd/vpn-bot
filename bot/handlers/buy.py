@@ -217,31 +217,33 @@ async def _create_payment_invoice(
 BUY_MENU_TEXT = (
     "🛒 <b>Выбор тарифа</b>\n\n"
     "<blockquote>"
-    "🚀 <b>Обычный</b> — общий пул серверов, лучшая цена.\n"
-    "💎 <b>Premium</b> — меньше соседей на ноде, выбор локации, выше скорость."
+    "🚀 <b>Обычный</b> — несколько локаций, переключение в приложении, лучшая цена.\n"
+    "💎 <b>Premium</b> — мало соседей + стабильный IP (скоро)."
     "</blockquote>\n\n"
     "Выберите вариант — ниже появятся сроки и цены."
+)
+
+PREMIUM_SOON_TEXT = (
+    "💎 <b>Premium — скоро</b>\n\n"
+    "<blockquote>"
+    "🔒 Мало соседей на ноде (низкая плотность)\n"
+    "📌 Стабильный IP в выбранной стране\n"
+    "⚡️ Максимальная скорость"
+    "</blockquote>\n\n"
+    "Сейчас доступен <b>Обычный</b> тариф с несколькими локациями. "
+    "Premium запустим с отдельными разгруженными нодами."
 )
 
 TIER_TEXTS = {
     "standard": (
         "🚀 <b>Обычный тариф</b>\n\n"
         "<blockquote>"
-        "🌐 Общий пул серверов\n"
+        "🌍 Несколько локаций (🇺🇸 США, 🇳🇱 Нидерланды)\n"
+        "🔀 Переключение между странами прямо в приложении\n"
         "📊 До 150 ГБ трафика в месяц\n"
         "📱 До 3–5 устройств"
         "</blockquote>\n\n"
         "Выберите срок:"
-    ),
-    "premium": (
-        "💎 <b>Premium тариф</b>\n\n"
-        "<blockquote>"
-        "🌍 Все premium-локации — переключение бесплатно\n"
-        "⚡️ Меньше соседей — стабильнее скорость\n"
-        "📊 До 300 ГБ трафика в месяц\n"
-        "📱 До 5–8 устройств"
-        "</blockquote>\n\n"
-        "Сначала выберите стартовую страну (сменить можно в любой момент):"
     ),
 }
 
@@ -255,6 +257,10 @@ async def buy_menu_handler(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("buy_tier:"))
 async def buy_tier_handler(callback: CallbackQuery) -> None:
     tier = callback.data.split(":", maxsplit=1)[1] if callback.data else ""
+    if tier == "premium":
+        await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_select_keyboard())
+        await callback.answer()
+        return
     text = TIER_TEXTS.get(tier)
     if text is None:
         await callback.answer("Неизвестный тариф.", show_alert=True)
@@ -336,7 +342,8 @@ async def buy_plan_handler(
     tariff = resolve_tariff(plan)
 
     if tariff.tier == "premium":
-        await _edit_current_message(callback, _premium_location_text(plan), premium_location_keyboard(plan))
+        # Premium sales are paused until dedicated low-density nodes exist.
+        await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_select_keyboard())
         await callback.answer()
         return
 
@@ -354,18 +361,9 @@ async def buy_region_handler(
         await callback.answer("Локация не найдена", show_alert=True)
         return
 
-    raw_plan, raw_region = parts[1], parts[2]
-    try:
-        plan = normalize_payment_plan_code(raw_plan)
-        tariff = resolve_tariff(plan)
-        if tariff.tier != "premium":
-            raise ValueError("not premium")
-        region = resolve_premium_region(raw_region).code
-    except ValueError:
-        await callback.answer("Локация не найдена", show_alert=True)
-        return
-
-    await _show_checkout(callback, session_pool, plan=plan, region=region)
+    # Premium sales are paused until dedicated low-density nodes exist.
+    await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_select_keyboard())
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("paycrypto:"))
