@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#
+# Forced-command wrapper for the awg_provision SSH key (referenced from the
+# nodes' ~/.ssh/authorized_keys as command="/usr/local/sbin/awg-provision-cmd").
+#
+# Permits ONLY adding/removing an AmneziaWG peer on awg0, within this node's
+# tunnel subnet. Any other command (interactive shell, `id`, arbitrary exec) is
+# rejected. The command must be byte-compatible with what services/awg_provision
+# sends (_set_peer / _remove_peer).
+#
+# __SUBNET_PREFIX__ is substituted at install time (e.g. 10.13.13 on US,
+# 10.13.14 on NL).
+#
+set -u
+
+PREFIX='__SUBNET_PREFIX__'
+CMD="${SSH_ORIGINAL_COMMAND:-}"
+
+deny() { echo "awg-provision: command not permitted" >&2; exit 1; }
+
+esc_prefix="${PREFIX//./\\.}"
+set_re="^awg set awg0 peer '([A-Za-z0-9+/]{43}=)' allowed-ips (${esc_prefix}\.[0-9]{1,3})/32 && awg-quick save awg0\$"
+rm_re="^awg set awg0 peer '([A-Za-z0-9+/]{43}=)' remove && awg-quick save awg0\$"
+
+host_ok() { local h="${1##*.}"; [[ "$h" =~ ^[0-9]+$ ]] && (( h >= 2 && h <= 254 )); }
+
+if [[ "$CMD" =~ $set_re ]]; then
+  PUB="${BASH_REMATCH[1]}"; IP="${BASH_REMATCH[2]}"
+  host_ok "$IP" || deny
+  awg set awg0 peer "$PUB" allowed-ips "$IP/32" && awg-quick save awg0
+  exit $?
+elif [[ "$CMD" =~ $rm_re ]]; then
+  PUB="${BASH_REMATCH[1]}"
+  awg set awg0 peer "$PUB" remove && awg-quick save awg0
+  exit $?
+else
+  deny
+fi

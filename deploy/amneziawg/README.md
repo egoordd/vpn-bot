@@ -46,3 +46,31 @@ curl -s https://1.1.1.1/cdn-cgi/trace | grep -E '^(ip|loc)='
 
 `Table = off` + a single host route means the client's own routing/SSH is never
 disturbed. Both nodes were confirmed this way (US -> loc=US, NL -> loc=NL).
+
+## Provisioning key hardening
+
+The bot provisions peers over SSH with a dedicated passphraseless key
+(`~/.ssh/awg_provision` on the bot host). Because it's passphraseless root, the
+key is locked to a forced command on each node so it can ONLY add/remove an
+AmneziaWG peer within that node's subnet — nothing else.
+
+Install `awg-provision-cmd` (this dir is a template; `__SUBNET_PREFIX__` is the
+node's tunnel prefix, e.g. `10.13.13` on US, `10.13.14` on NL):
+
+```sh
+sed "s/__SUBNET_PREFIX__/10.13.13/" awg-provision-cmd | \
+  ssh root@<node> "cat > /usr/local/sbin/awg-provision-cmd && chmod 755 /usr/local/sbin/awg-provision-cmd"
+```
+
+Then prefix the awg-provision key line in the node's `~/.ssh/authorized_keys`
+(leave other keys untouched):
+
+```
+command="/usr/local/sbin/awg-provision-cmd",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty ssh-ed25519 AAAA... awg-provision@vpn-bot
+```
+
+The wrapper only accepts the exact commands `services/awg_provision.py` sends
+(`awg set awg0 peer '<pub>' allowed-ips <ip>/32 && awg-quick save awg0` and the
+`remove` form), validating the pubkey shape and that the IP is inside the node's
+subnet. Verified: arbitrary commands (`id`, `cat /etc/shadow`) are rejected;
+provision/revoke still work.
