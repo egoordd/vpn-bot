@@ -31,7 +31,11 @@ from services.money import format_rub
 from services.payment import ParsedTopupPayload, parse_invoice_payload_details, parse_topup_payload
 from services.qrcode import generate_qr_png_bytes
 from services.referral import reward_referrer_for_payment
-from services.subscription import activate_panel_subscription, activate_subscription
+from services.subscription import (
+    activate_panel_subscription,
+    activate_subscription,
+    to_gateway_subscription_url,
+)
 from services.tariffs import resolve_premium_region, resolve_tariff
 from services.wireguard import WireGuardError, ensure_user_peer, remove_peer
 
@@ -494,7 +498,7 @@ async def poll_cryptobot_payments(
                     )
                     if not subscription.subscription_url:
                         raise RuntimeError("Panel subscription has no subscription_url")
-                    subscription_url = subscription.subscription_url
+                    subscription_url = to_gateway_subscription_url(subscription.subscription_url)
                     tariff = resolve_tariff(plan)
                     if tariff.tier == "premium":
                         region_option = (

@@ -13,6 +13,7 @@ from database.repository import Repository
 from services.deeplinks import AppImportGuide, build_app_import_guides
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.qrcode import generate_qr_png_bytes
+from services.subscription import to_gateway_subscription_url
 from services.wireguard import WireGuardError, rotate_user_key
 
 logger = logging.getLogger(__name__)
@@ -86,9 +87,9 @@ async def _resolve_url_for_subscription(repo: Repository, subscription: Subscrip
     if not subscription.panel_username:
         return None
     if subscription.subscription_url:
-        return subscription.subscription_url
+        return to_gateway_subscription_url(subscription.subscription_url)
     panel_user = await get_panel_gateway().get_user(subscription.panel_username)
-    return panel_user.subscription_url
+    return to_gateway_subscription_url(panel_user.subscription_url)
 
 
 async def _active_subs_with_links(repo: Repository, user_id: int) -> list[tuple[Subscription, str]]:
@@ -127,10 +128,10 @@ async def _resolve_subscription_url(repo: Repository, user_id: int) -> str | Non
     if subscription is None or not subscription.panel_username:
         return None
     if subscription.subscription_url:
-        return subscription.subscription_url
+        return to_gateway_subscription_url(subscription.subscription_url)
 
     panel_user = await get_panel_gateway().get_user(subscription.panel_username)
-    return panel_user.subscription_url
+    return to_gateway_subscription_url(panel_user.subscription_url)
 
 
 async def _get_user_and_subscription_url(

@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     REMNAWAVE_NODE_COUNTRY_CODE: str = "XX"
     REMNAWAVE_NODE_TRAFFIC_TRACKING: bool = False
 
+    # Multi-protocol subscription gateway (VLESS + Hysteria2 per location).
+    # When set, the bot serves users this gateway URL instead of the raw Marzban
+    # subscription. Empty -> users get the plain Marzban (VLESS-only) link.
+    SUB_GATEWAY_URL: str = ""
+
     MARZBAN_API_URL: str = ""
     MARZBAN_ACCESS_TOKEN: SecretStr = SecretStr("")
     MARZBAN_USERNAME: str = ""

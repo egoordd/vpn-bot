@@ -8,7 +8,7 @@ from bot.keyboards.main_menu import back_to_menu_keyboard
 from bot.navigation import show_screen
 from bot.texts import bq, format_gb, format_msk
 from database.repository import Repository
-from services.subscription import get_subscription_info
+from services.subscription import get_subscription_info, to_gateway_subscription_url
 
 router = Router()
 
@@ -46,10 +46,11 @@ async def subscription_handler(
             card_lines.append(f"📱 Устройств: до {info['device_limit']}")
 
         sections = ["🔑 <b>Моя подписка</b>\n\n" + bq(*card_lines)]
-        if info.get("subscription_url"):
+        gateway_url = to_gateway_subscription_url(info.get("subscription_url"))
+        if gateway_url:
             sections.append(
                 "🔗 <b>Ссылка-подписка:</b>\n"
-                f"<code>{html.escape(str(info['subscription_url']))}</code>"
+                f"<code>{html.escape(str(gateway_url))}</code>"
             )
         if info.get("expires_at"):
             sections.append(f"📅 <b>Действует до:</b> {format_msk(info['expires_at'])}")

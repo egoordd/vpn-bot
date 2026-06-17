@@ -12,7 +12,32 @@ from services.subscription import (
     activate_subscription,
     check_subscription_active,
     get_subscription_info,
+    to_gateway_subscription_url,
 )
+
+
+def test_gateway_url_rewrites_token_to_gateway(monkeypatch):
+    monkeypatch.setattr(
+        "services.subscription.settings.SUB_GATEWAY_URL",
+        "https://144.172.101.217.sslip.io:8444",
+    )
+    result = to_gateway_subscription_url("https://144.172.101.217.sslip.io:8443/sub/abc123")
+    assert result == "https://144.172.101.217.sslip.io:8444/sub/abc123"
+
+
+def test_gateway_url_passthrough_when_unset(monkeypatch):
+    monkeypatch.setattr("services.subscription.settings.SUB_GATEWAY_URL", "")
+    raw = "https://144.172.101.217.sslip.io:8443/sub/abc123"
+    assert to_gateway_subscription_url(raw) == raw
+
+
+def test_gateway_url_handles_none_and_non_sub_links(monkeypatch):
+    monkeypatch.setattr(
+        "services.subscription.settings.SUB_GATEWAY_URL",
+        "https://gw.example:8444",
+    )
+    assert to_gateway_subscription_url(None) is None
+    assert to_gateway_subscription_url("https://panel/no-token") == "https://panel/no-token"
 
 
 @pytest.mark.integration

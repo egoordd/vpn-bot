@@ -22,6 +22,23 @@ def _aware(value: datetime) -> datetime:
     return value
 
 
+def to_gateway_subscription_url(marzban_url: str | None) -> str | None:
+    """Rewrite a raw Marzban subscription URL to the multi-protocol gateway.
+
+    The gateway serves the same per-user token but augments the VLESS-only
+    Marzban output with a Hysteria2 entry per location. When SUB_GATEWAY_URL
+    is unset, or the URL isn't a recognizable /sub/<token> link, the original
+    URL is returned unchanged so clients still get a working VLESS subscription.
+    """
+    base = settings.SUB_GATEWAY_URL.strip().rstrip("/")
+    if not base or not marzban_url or "/sub/" not in marzban_url:
+        return marzban_url
+    token = marzban_url.rsplit("/sub/", 1)[-1].strip("/")
+    if not token:
+        return marzban_url
+    return f"{base}/sub/{token}"
+
+
 async def activate_subscription(session: AsyncSession, user_id: int, plan: str) -> Subscription:
     plan_data = PLANS.get(plan)
     if plan_data is None:
