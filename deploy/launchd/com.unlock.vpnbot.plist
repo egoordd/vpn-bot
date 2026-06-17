@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent that supervises the bot on macOS: starts at login (RunAtLoad),
+  restarts on crash (KeepAlive), throttled to 1 restart / 10s.
+
+  This is a TEMPLATE. Before installing, replace the placeholders:
+    __DB_USER__, __DB_PASSWORD__  -> your Postgres credentials (see .env)
+  Postgres/Redis run in docker compose (restart: unless-stopped) and are
+  reached over localhost, hence the 127.0.0.1 DSNs below.
+
+  Install:  see deploy/launchd/README.md
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.unlock.vpnbot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/egoordd/vpn-bot/.venv/bin/python</string>
+        <string>/Users/egoordd/vpn-bot/main.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/egoordd/vpn-bot</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DATABASE_URL</key>
+        <string>postgresql+asyncpg://__DB_USER__:__DB_PASSWORD__@127.0.0.1:5432/vpn_bot</string>
+        <key>REDIS_URL</key>
+        <string>redis://127.0.0.1:6379/0</string>
+        <key>PATH</key>
+        <string>/Users/egoordd/vpn-bot/.venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/egoordd/Library/Logs/unlock-vpnbot/bot.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/egoordd/Library/Logs/unlock-vpnbot/bot.err.log</string>
+</dict>
+</plist>
