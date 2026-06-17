@@ -30,6 +30,11 @@ BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 CERT_FILE = os.environ.get("CERT_FILE", "")  # when set -> serve HTTPS on BIND_HOST
 KEY_FILE = os.environ.get("KEY_FILE", "")
 
+# Display name clients show for the subscription (Happ reads `profile-title`,
+# base64 UTF-8, max 25 chars). Without it Happ shows the default "subscription".
+SUB_TITLE = os.environ.get("SUB_TITLE", "UnLock VPN")
+PROFILE_TITLE_HEADER = "base64:" + base64.b64encode(SUB_TITLE.encode("utf-8")).decode("ascii")
+
 # vless host -> location + its Hysteria2 endpoint
 NODES = {
     "144.172.101.217.sslip.io": {
@@ -130,7 +135,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"invalid subscription", "text/plain")
             return
         payload, userinfo = result
-        extra = {"subscription-userinfo": userinfo} if userinfo else {}
+        extra = {"profile-title": PROFILE_TITLE_HEADER}
+        if userinfo:
+            extra["subscription-userinfo"] = userinfo
         self._send(200, payload.encode("ascii"), "text/plain; charset=utf-8", extra)
 
     def _send(self, code: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
