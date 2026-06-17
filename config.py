@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     AWG_H3: int = 3456789
     AWG_H4: int = 4567890
 
+    # AmneziaWG nodes for the multi-protocol subscription. Each user is given a
+    # peer on every node here (provisioned over SSH). JSON: code -> {flag, name,
+    # ssh_host, ssh_user, endpoint, server_pubkey, subnet}. Empty -> AWG disabled.
+    AWG_NODES: str = "{}"
+    # Path to the SSH private key used to provision AWG peers on the nodes.
+    # Must be passphraseless so the bot (under launchd, no ssh-agent) can use it.
+    AWG_SSH_KEY: str = ""
+
     CRYPTOBOT_TOKEN: str = ""
     CRYPTOBOT_API_URL: str = "https://pay.crypt.bot/api"
     CRYPTOBOT_POLL_INTERVAL: int = 30
@@ -168,6 +176,15 @@ class Settings(BaseSettings):
                 for proto, tags in inbounds.items()
                 if isinstance(tags, list)
             }
+        return result
+
+    @property
+    def awg_nodes_dict(self) -> dict[str, dict[str, str]]:
+        raw = self._parse_json_object(self.AWG_NODES, "AWG_NODES")
+        result: dict[str, dict[str, str]] = {}
+        for code, node in raw.items():
+            if isinstance(node, dict):
+                result[str(code)] = {str(k): str(v) for k, v in node.items()}
         return result
 
     def marzban_inbounds_for_region(self, region: str | None) -> dict[str, list[str]] | None:

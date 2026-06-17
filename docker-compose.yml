@@ -96,6 +96,8 @@ services:
       AWG_H2: ${AWG_H2:-2345678}
       AWG_H3: ${AWG_H3:-3456789}
       AWG_H4: ${AWG_H4:-4567890}
+      AWG_NODES: ${AWG_NODES:-}
+      AWG_SSH_KEY: ${AWG_SSH_KEY:-}
       SUPPORT_USERNAME: ${SUPPORT_USERNAME:-support}
       ADMIN_IDS: ${ADMIN_IDS:-}
       DB_ECHO: ${DB_ECHO:-false}

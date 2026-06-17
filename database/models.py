@@ -165,6 +165,33 @@ class WireguardKey(Base):
     user: Mapped[User] = relationship(back_populates="wireguard_key")
 
 
+class AmneziaWgClient(Base):
+    """One AmneziaWG identity per user, peered on every AWG node.
+
+    The same keypair is registered on all nodes; ``ip_index`` is the shared host
+    octet, so the per-node tunnel IP is the node subnet's network address + index
+    (e.g. index 5 -> 10.13.13.5 on US, 10.13.14.5 on NL).
+    """
+
+    __tablename__ = "amneziawg_clients"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_amneziawg_clients_user_id"),
+        UniqueConstraint("ip_index", name="uq_amneziawg_clients_ip_index"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    public_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    private_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    ip_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 class Payment(Base):
     __tablename__ = "payments"
     __table_args__ = (

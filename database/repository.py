@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database.models import (
+    AmneziaWgClient,
     Node,
     Payment,
     Plan,
@@ -483,6 +484,45 @@ class Repository:
         if key is None:
             return False
         await self.session.delete(key)
+        await self.session.commit()
+        return True
+
+    async def get_amneziawg_client_by_user_id(self, user_id: int) -> AmneziaWgClient | None:
+        result = await self.session.execute(
+            select(AmneziaWgClient).where(AmneziaWgClient.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def next_amneziawg_ip_index(self) -> int:
+        """Smallest free host index >= 2 (index 1 is the server on every node)."""
+        result = await self.session.execute(select(AmneziaWgClient.ip_index))
+        used = set(result.scalars().all())
+        index = 2
+        while index in used:
+            index += 1
+        return index
+
+    async def create_amneziawg_client(
+        self,
+        user_id: int,
+        public_key: str,
+        private_key: str,
+        ip_index: int,
+    ) -> AmneziaWgClient:
+        client = AmneziaWgClient(
+            user_id=user_id,
+            public_key=public_key,
+            private_key=private_key,
+            ip_index=ip_index,
+        )
+        self.session.add(client)
+        return await self._commit_refresh(client)
+
+    async def delete_amneziawg_client_by_user_id(self, user_id: int) -> bool:
+        client = await self.get_amneziawg_client_by_user_id(user_id)
+        if client is None:
+            return False
+        await self.session.delete(client)
         await self.session.commit()
         return True
 
