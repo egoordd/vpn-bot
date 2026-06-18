@@ -23,8 +23,8 @@ body {
   color: var(--text);
   background-color: var(--bg);
   background-image:
-    radial-gradient(72rem 48rem at 82% -12%, oklch(60% 0.088 76 / 0.06), transparent 60%),
-    radial-gradient(60rem 42rem at -6% -4%, oklch(48% 0.102 168 / 0.06), transparent 58%);
+    radial-gradient(60rem 42rem at 78% -14%, oklch(98% 0.005 85 / 0.07), transparent 62%),
+    radial-gradient(54rem 40rem at -8% 4%, oklch(98% 0.005 85 / 0.05), transparent 58%);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -39,8 +39,50 @@ body::before {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.022;
+  opacity: 0.04;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* --- Scroll-reveal utility (CSS scroll-driven; no JS) --- */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.reveal,
+.features__head,
+.how__head,
+.pricing__head,
+.faq__head,
+.cta__card {
+  animation: reveal-up both linear;
+  animation-timeline: view();
+  animation-range: entry 0% cover 26%;
+}
+@supports not (animation-timeline: view()) {
+  .reveal,
+  .features__head,
+  .how__head,
+  .pricing__head,
+  .faq__head,
+  .cta__card {
+    animation: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .features__head,
+  .how__head,
+  .pricing__head,
+  .faq__head,
+  .cta__card {
+    animation: none;
+  }
 }
 
 a {

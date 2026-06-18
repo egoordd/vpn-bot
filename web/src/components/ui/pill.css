@@ -49,12 +49,12 @@
 
 @keyframes pill-pulse {
   0% {
-    box-shadow: 0 0 0 0 oklch(48% 0.102 168 / 0.45);
+    box-shadow: 0 0 0 0 oklch(98% 0.005 85 / 0.5);
   }
   70% {
-    box-shadow: 0 0 0 0.5rem oklch(48% 0.102 168 / 0);
+    box-shadow: 0 0 0 0.5rem oklch(98% 0.005 85 / 0);
   }
   100% {
-    box-shadow: 0 0 0 0 oklch(48% 0.102 168 / 0);
+    box-shadow: 0 0 0 0 oklch(98% 0.005 85 / 0);
   }
 }

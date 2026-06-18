@@ -7,6 +7,7 @@ import { SiteFooter } from "@/components/nav/SiteFooter";
 import { SiteNav } from "@/components/nav/SiteNav";
 import { Pricing } from "@/components/pricing/Pricing";
 import { TrustBar } from "@/components/trust/TrustBar";
+import { Locations } from "@/components/world/Locations";
 
 export default function HomePage() {
   return (
@@ -15,6 +16,7 @@ export default function HomePage() {
       <main id="main">
         <Hero />
         <TrustBar />
+        <Locations />
         <Features />
         <HowItWorks />
         <Pricing />

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, Playfair_Display } from "next/font/google";
+import { Manrope } from "next/font/google";
 
 import { SITE } from "@/lib/site";
 import "./globals.css";
@@ -8,14 +8,6 @@ const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
   display: "swap",
   variable: "--font-manrope",
-});
-
-const playfair = Playfair_Display({
-  subsets: ["latin", "cyrillic"],
-  display: "swap",
-  weight: ["500", "600", "700"],
-  style: ["normal", "italic"],
-  variable: "--font-playfair",
 });
 
 export const metadata: Metadata = {
@@ -38,13 +30,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f7f5f0",
-  colorScheme: "light",
+  themeColor: "#121212",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={`${manrope.variable} ${playfair.variable}`}>
+    <html lang="ru" className={manrope.variable}>
       <body>
         <a href="#main" className="skip-link">
           К основному содержимому

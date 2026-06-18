@@ -6,7 +6,7 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: linear-gradient(to bottom, transparent, oklch(48% 0.102 168 / 0.04), transparent);
+  background: linear-gradient(to bottom, transparent, oklch(96% 0.005 85 / 0.035), transparent);
 }
 
 .how__layout {

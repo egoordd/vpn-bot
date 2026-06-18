@@ -1,0 +1,129 @@
+.wmap {
+  position: relative;
+  width: 100%;
+  max-width: 1000px;
+  margin-inline: auto;
+  aspect-ratio: 672 / 336;
+}
+
+.wmap__halo {
+  position: absolute;
+  inset: -8% -4%;
+  z-index: 0;
+  background:
+    radial-gradient(40% 60% at 30% 42%, oklch(98% 0.005 85 / 0.07), transparent 70%),
+    radial-gradient(36% 56% at 54% 26%, oklch(98% 0.005 85 / 0.08), transparent 70%);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.wmap__svg {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* Dim pearl land dots */
+.wmap__land circle {
+  fill: var(--text);
+  opacity: 0.16;
+}
+
+/* Connection arc */
+.wmap__arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 7;
+  opacity: 0.55;
+  animation: wmap-dash 1.4s linear infinite;
+}
+@keyframes wmap-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.wmap__packet {
+  fill: var(--accent-strong);
+  filter: drop-shadow(0 0 4px oklch(100% 0 0 / 0.9));
+}
+
+/* Location nodes */
+.wmap__core {
+  fill: var(--accent-strong);
+  filter: drop-shadow(0 0 7px oklch(100% 0 0 / 0.95)) drop-shadow(0 0 16px oklch(100% 0 0 / 0.5));
+}
+
+.wmap__pulse {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wmap-pulse 3s var(--ease-out-expo) infinite;
+}
+.wmap__pulse--2 {
+  animation-delay: 1.5s;
+}
+@keyframes wmap-pulse {
+  0% {
+    r: 4px;
+    opacity: 0.8;
+  }
+  70% {
+    opacity: 0;
+  }
+  100% {
+    r: 22px;
+    opacity: 0;
+  }
+}
+
+/* Floating location labels */
+.wmap__labels {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.wmap__label {
+  position: absolute;
+  transform: translate(-50%, -200%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  white-space: nowrap;
+  font-size: clamp(0.7rem, 0.6rem + 0.4vw, 0.85rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  background: oklch(22% 0.005 70 / 0.72);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-sm);
+  animation: wmap-float 5s ease-in-out infinite;
+}
+.wmap__label-flag {
+  font-size: 0.95em;
+}
+@keyframes wmap-float {
+  0%, 100% {
+    transform: translate(-50%, -200%);
+  }
+  50% {
+    transform: translate(-50%, -230%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wmap__arc,
+  .wmap__pulse,
+  .wmap__label {
+    animation: none;
+  }
+}
