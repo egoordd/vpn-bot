@@ -25,24 +25,25 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
   transition:
     transform var(--duration) var(--ease-out-expo),
     border-color var(--duration) var(--ease-out-expo),
-    background-color var(--duration) var(--ease-out-expo);
+    box-shadow var(--duration) var(--ease-out-expo);
 }
 .feature::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(20rem 14rem at 100% 0%, oklch(82% 0.16 168 / 0.08), transparent 60%);
+  background: radial-gradient(20rem 14rem at 100% 0%, oklch(48% 0.102 168 / 0.06), transparent 60%);
   opacity: 0;
   transition: opacity var(--duration) var(--ease-out-expo);
 }
 .feature:hover {
   transform: translateY(-4px);
-  border-color: var(--border-strong);
-  background: var(--surface-2);
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow);
 }
 .feature:hover::after {
   opacity: 1;
@@ -55,8 +56,8 @@
   height: 3.25rem;
   border-radius: var(--radius);
   color: var(--accent);
-  background: oklch(82% 0.16 168 / 0.1);
-  border: 1px solid oklch(82% 0.16 168 / 0.22);
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-line);
 }
 
 .feature__text {

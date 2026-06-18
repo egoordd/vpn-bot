@@ -54,22 +54,26 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
+  box-shadow: var(--shadow-sm);
   transition:
     transform var(--duration) var(--ease-out-expo),
-    border-color var(--duration) var(--ease-out-expo);
+    border-color var(--duration) var(--ease-out-expo),
+    box-shadow var(--duration) var(--ease-out-expo);
 }
 .plan:hover {
   transform: translateY(-4px);
   border-color: var(--border-strong);
+  box-shadow: var(--shadow);
 }
 .plan--featured {
-  border-color: oklch(82% 0.16 168 / 0.45);
-  background: linear-gradient(165deg, var(--surface-2), var(--surface));
-  box-shadow: 0 24px 60px -30px var(--glow-accent);
+  border-color: var(--accent-line);
+  background: linear-gradient(165deg, var(--accent-wash), var(--surface) 60%);
+  box-shadow: 0 28px 64px -34px var(--glow-accent), var(--shadow-sm);
 }
 .plan--featured.plan--premium {
-  border-color: oklch(74% 0.15 295 / 0.45);
-  box-shadow: 0 24px 60px -30px var(--glow-premium);
+  border-color: var(--premium-line);
+  background: linear-gradient(165deg, var(--premium-wash), var(--surface) 60%);
+  box-shadow: 0 28px 64px -34px var(--glow-premium), var(--shadow-sm);
 }
 .plan__badge {
   position: absolute;

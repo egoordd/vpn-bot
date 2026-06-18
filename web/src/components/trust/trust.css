@@ -1,9 +1,9 @@
 .trust {
   position: relative;
   z-index: 1;
-  padding-block: 1.5rem;
+  padding-block: 1.75rem;
   border-block: 1px solid var(--border);
-  background: oklch(18% 0.025 270 / 0.4);
+  background: var(--surface-2);
 }
 
 .trust__row {

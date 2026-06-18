@@ -9,9 +9,10 @@
   border-bottom: 1px solid transparent;
 }
 .nav--scrolled {
-  background: oklch(15% 0.02 270 / 0.72);
-  backdrop-filter: blur(14px) saturate(140%);
+  background: oklch(98.3% 0.006 95 / 0.78);
+  backdrop-filter: blur(16px) saturate(150%);
   border-bottom-color: var(--border);
+  box-shadow: 0 1px 0 oklch(100% 0 0 / 0.6) inset, var(--shadow-sm);
 }
 
 .nav__inner {
@@ -98,7 +99,7 @@
   flex-direction: column;
   gap: 0.5rem;
   padding: 1.5rem var(--gutter) 2.5rem;
-  background: oklch(15% 0.02 270 / 0.96);
+  background: oklch(98.3% 0.006 95 / 0.98);
   backdrop-filter: blur(18px);
   animation: drawer-in var(--duration) var(--ease-out-expo);
 }

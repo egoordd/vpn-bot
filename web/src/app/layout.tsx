@@ -1,20 +1,21 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import { Manrope, Playfair_Display } from "next/font/google";
 
 import { SITE } from "@/lib/site";
 import "./globals.css";
 
-const inter = Inter({
+const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
   display: "swap",
-  variable: "--font-inter",
+  variable: "--font-manrope",
 });
 
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
+const playfair = Playfair_Display({
+  subsets: ["latin", "cyrillic"],
   display: "swap",
   weight: ["500", "600", "700"],
-  variable: "--font-space-grotesk",
+  style: ["normal", "italic"],
+  variable: "--font-playfair",
 });
 
 export const metadata: Metadata = {
@@ -37,13 +38,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#10101a",
-  colorScheme: "dark",
+  themeColor: "#f7f5f0",
+  colorScheme: "light",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={`${inter.variable} ${spaceGrotesk.variable}`}>
+    <html lang="ru" className={`${manrope.variable} ${playfair.variable}`}>
       <body>
         <a href="#main" className="skip-link">
           К основному содержимому

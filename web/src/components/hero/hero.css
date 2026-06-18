@@ -56,25 +56,21 @@
 /* Connection panel */
 .hero__panel {
   position: relative;
-  padding: 1.5rem;
-  border: 1px solid var(--border-strong);
+  padding: 1.6rem;
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: linear-gradient(160deg, var(--surface) 0%, oklch(20% 0.03 270 / 0.7) 100%);
+  background: linear-gradient(165deg, var(--surface) 0%, var(--surface-2) 100%);
   box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(8px);
 }
 .hero__panel::before {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(140deg, var(--glow-accent), transparent 45%);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
+  inset-inline: 1.6rem;
+  top: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.7;
   pointer-events: none;
 }
 

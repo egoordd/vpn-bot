@@ -11,10 +11,10 @@
   position: absolute;
   inset: -2px;
   background-image:
-    linear-gradient(oklch(100% 0 0 / 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(100% 0 0 / 0.04) 1px, transparent 1px);
+    linear-gradient(oklch(25% 0.018 265 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(25% 0.018 265 / 0.05) 1px, transparent 1px);
   background-size: 3.5rem 3.5rem;
-  opacity: 0.5;
+  opacity: 0.7;
 }
 
 .tunnel__rings {
@@ -30,14 +30,14 @@
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 1px solid oklch(82% 0.16 168 / 0.18);
+  border: 1px solid var(--accent-line);
   transform: scale(calc(0.18 + var(--i) * 0.17));
   opacity: calc(0.85 - var(--i) * 0.12);
   animation: ring-breathe 7s var(--ease-out-expo) infinite;
   animation-delay: calc(var(--i) * -0.9s);
 }
 .tunnel__ring:nth-child(even) {
-  border-color: oklch(74% 0.15 295 / 0.18);
+  border-color: var(--premium-line);
 }
 
 @keyframes ring-breathe {

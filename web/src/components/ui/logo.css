@@ -14,13 +14,14 @@
   width: 2.25rem;
   height: 2.25rem;
   border-radius: 0.7rem;
-  color: var(--accent);
-  background: oklch(82% 0.16 168 / 0.12);
-  border: 1px solid oklch(82% 0.16 168 / 0.28);
-  transition: box-shadow var(--duration) var(--ease-out-expo);
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow: 0 6px 16px -8px var(--glow-accent);
+  transition: box-shadow var(--duration) var(--ease-out-expo), transform var(--duration) var(--ease-out-expo);
 }
 .logo:hover .logo__mark {
-  box-shadow: 0 0 24px -6px var(--glow-accent);
+  box-shadow: 0 10px 24px -8px var(--glow-accent);
+  transform: translateY(-1px);
 }
 
 .logo__accent {

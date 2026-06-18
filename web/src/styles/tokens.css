@@ -1,67 +1,82 @@
 /*
  * UnLock design tokens.
- * Direction: dark "stealth / secure tunnel" — disciplined contrast, one living
- * signal accent (mint-green = connection alive), violet for premium, semantic
- * amber/red for state. Not a default dark template.
+ * Direction: quiet luxury / institutional trust — warm porcelain canvas, deep
+ * ink, ONE confident deep-emerald accent (security + premium), restrained brass
+ * for the premium tier, soft warm depth. Light, calm, expensive. Not a default
+ * SaaS template.
  */
 :root {
-  /* --- Surfaces (deep blue-violet, never pure black) --- */
-  --bg: oklch(15% 0.02 270);
-  --bg-elev: oklch(18.5% 0.025 270);
-  --surface: oklch(22% 0.03 270);
-  --surface-2: oklch(26% 0.035 270);
-  --surface-3: oklch(30% 0.04 270);
+  color-scheme: light;
 
-  /* --- Text --- */
-  --text: oklch(96% 0.008 270);
-  --text-muted: oklch(74% 0.018 270);
-  --text-dim: oklch(58% 0.02 270);
+  /* --- Surfaces (warm porcelain → white, never stark) --- */
+  --bg: oklch(98.3% 0.006 95);
+  --bg-elev: oklch(99.3% 0.004 95);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(98.2% 0.005 95);
+  --surface-3: oklch(96.4% 0.007 95);
 
-  /* --- Signal accents --- */
-  --accent: oklch(82% 0.16 168); /* connection alive */
-  --accent-strong: oklch(74% 0.18 168);
-  --accent-ink: oklch(20% 0.05 168); /* text on accent fills */
-  --premium: oklch(74% 0.15 295);
-  --premium-strong: oklch(66% 0.17 295);
+  /* --- Ink --- */
+  --text: oklch(25% 0.018 265);
+  --text-muted: oklch(45% 0.014 265);
+  --text-dim: oklch(58% 0.012 265);
+
+  /* --- Accent: deep emerald (trust / secure / alive) --- */
+  --accent: oklch(48% 0.102 168);
+  --accent-strong: oklch(41% 0.108 168);
+  --accent-ink: oklch(99% 0.012 168); /* text on accent fills */
+  --accent-wash: oklch(96% 0.028 168); /* pale badge fill */
+  --accent-line: oklch(48% 0.102 168 / 0.22);
+
+  /* --- Premium: muted brass (sparingly, for the top tier) --- */
+  --premium: oklch(60% 0.088 76);
+  --premium-strong: oklch(53% 0.094 76);
+  --premium-ink: oklch(99% 0.012 76);
+  --premium-wash: oklch(95% 0.03 80);
+  --premium-line: oklch(60% 0.088 76 / 0.28);
 
   /* --- Semantic state --- */
-  --ok: oklch(80% 0.16 158);
-  --warn: oklch(82% 0.15 80);
-  --danger: oklch(68% 0.19 25);
+  --ok: oklch(50% 0.12 158);
+  --warn: oklch(58% 0.11 76);
+  --danger: oklch(54% 0.18 25);
 
-  /* --- Lines & glows --- */
-  --border: oklch(100% 0 0 / 0.09);
-  --border-strong: oklch(100% 0 0 / 0.16);
-  --glow-accent: oklch(82% 0.16 168 / 0.35);
-  --glow-premium: oklch(74% 0.15 295 / 0.32);
+  /* --- Lines & washes (ink-based on light) --- */
+  --border: oklch(25% 0.018 265 / 0.10);
+  --border-strong: oklch(25% 0.018 265 / 0.17);
+  --hover-wash: oklch(25% 0.018 265 / 0.05);
+  --glow-accent: oklch(48% 0.102 168 / 0.18);
+  --glow-premium: oklch(60% 0.088 76 / 0.18);
 
   /* --- Type scale (fluid) --- */
   --text-xs: clamp(0.75rem, 0.72rem + 0.15vw, 0.8125rem);
   --text-sm: clamp(0.875rem, 0.84rem + 0.18vw, 0.9375rem);
   --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.0625rem);
-  --text-lg: clamp(1.125rem, 1.04rem + 0.4vw, 1.25rem);
+  --text-lg: clamp(1.125rem, 1.04rem + 0.4vw, 1.3125rem);
   --text-xl: clamp(1.375rem, 1.2rem + 0.8vw, 1.75rem);
   --text-2xl: clamp(1.75rem, 1.45rem + 1.4vw, 2.5rem);
-  --text-3xl: clamp(2.25rem, 1.7rem + 2.6vw, 3.75rem);
-  --text-hero: clamp(2.75rem, 1.6rem + 5.4vw, 6rem);
+  --text-3xl: clamp(2.25rem, 1.7rem + 2.6vw, 3.5rem);
+  --text-hero: clamp(2.85rem, 1.7rem + 5vw, 5.5rem);
 
   /* --- Rhythm --- */
-  --space-section: clamp(4.5rem, 3rem + 6vw, 9rem);
+  --space-section: clamp(5rem, 3.2rem + 6.5vw, 9.5rem);
   --gutter: clamp(1.25rem, 0.8rem + 2vw, 2.5rem);
-  --max-content: 1200px;
-  --max-prose: 62ch;
+  --max-content: 1180px;
+  --max-prose: 60ch;
 
-  /* --- Radii --- */
-  --radius-sm: 0.5rem;
-  --radius: 0.875rem;
-  --radius-lg: 1.375rem;
+  /* --- Radii (soft, substantial — premium, not pill-y) --- */
+  --radius-sm: 0.55rem;
+  --radius: 0.85rem;
+  --radius-lg: 1.35rem;
   --radius-xl: 2rem;
   --radius-pill: 999px;
 
-  /* --- Elevation --- */
-  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.4);
-  --shadow: 0 12px 30px -12px oklch(0% 0 0 / 0.55);
-  --shadow-lg: 0 30px 70px -28px oklch(0% 0 0 / 0.7);
+  /* --- Elevation (soft, warm, low-opacity = expensive depth) --- */
+  --shadow-sm: 0 1px 2px oklch(25% 0.03 265 / 0.06);
+  --shadow:
+    0 2px 6px -2px oklch(25% 0.03 265 / 0.06),
+    0 18px 44px -22px oklch(25% 0.04 265 / 0.20);
+  --shadow-lg:
+    0 8px 22px -12px oklch(25% 0.03 265 / 0.10),
+    0 44px 90px -40px oklch(25% 0.05 265 / 0.24);
 
   /* --- Motion --- */
   --duration-fast: 150ms;
