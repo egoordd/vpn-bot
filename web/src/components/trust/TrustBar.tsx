@@ -1,10 +1,10 @@
 import "./trust.css";
 
 const ITEMS = [
-  { value: "LTE", label: "проверено на реальном операторе" },
-  { value: "Reality", label: "маскировка под HTTPS" },
-  { value: "7 дней", label: "бесплатный пробник" },
-  { value: "24/7", label: "автоскейл нод под нагрузку" },
+  { value: "1 тап", label: "подключение без настроек" },
+  { value: "7 дней", label: "бесплатно, без карты" },
+  { value: "2 страны", label: "и новые на подходе" },
+  { value: "24/7", label: "стабильная скорость" },
 ];
 
 export function TrustBar() {

@@ -3,9 +3,9 @@
   overflow: hidden;
   text-align: center;
   padding: clamp(2.75rem, 1.5rem + 5vw, 5.5rem) var(--gutter);
-  border: 1px solid oklch(100% 0 0 / 0.6);
+  border: 1px solid oklch(22% 0.008 70 / 0.3);
   border-radius: var(--radius-xl);
-  background: linear-gradient(165deg, oklch(97% 0.005 85), oklch(90% 0.006 80));
+  background: linear-gradient(160deg, oklch(24% 0.008 70), oklch(16% 0.006 70));
   box-shadow: var(--shadow-lg);
   color: var(--accent-ink);
 }
@@ -15,8 +15,8 @@
   inset: 0;
   z-index: 0;
   background:
-    radial-gradient(30rem 18rem at 50% -16%, oklch(100% 0 0 / 0.6), transparent 60%),
-    radial-gradient(26rem 16rem at 84% 116%, oklch(60% 0.008 72 / 0.16), transparent 60%);
+    radial-gradient(30rem 18rem at 50% -16%, oklch(98% 0.004 90 / 0.12), transparent 60%),
+    radial-gradient(26rem 16rem at 84% 116%, oklch(98% 0.004 90 / 0.08), transparent 60%);
 }
 
 .cta__card > *:not(.cta__glow) {
@@ -28,9 +28,9 @@
   margin-inline: auto;
 }
 .cta__card .pill {
-  background: oklch(20% 0.004 70 / 0.08);
-  border-color: oklch(20% 0.004 70 / 0.18);
-  color: oklch(28% 0.01 70);
+  background: oklch(100% 0 0 / 0.1);
+  border-color: oklch(100% 0 0 / 0.24);
+  color: oklch(96% 0.004 90);
 }
 
 .cta__title {
@@ -42,7 +42,7 @@
   margin-top: 1.25rem;
   margin-inline: auto;
   max-width: 44ch;
-  color: oklch(34% 0.01 70);
+  color: oklch(96% 0.004 90 / 0.78);
 }
 
 .cta__actions {
@@ -53,20 +53,20 @@
   margin-top: 2.25rem;
 }
 .cta__actions .btn--primary {
-  --btn-bg: oklch(17% 0.004 70);
-  --btn-fg: oklch(96% 0.006 85);
+  --btn-bg: var(--accent-ink);
+  --btn-fg: oklch(18% 0.006 70);
   --btn-border: transparent;
-  --btn-shadow: 0 14px 30px -14px oklch(0% 0 0 / 0.4);
+  --btn-shadow: 0 14px 30px -14px oklch(0% 0 0 / 0.5);
 }
 .cta__actions .btn--primary:hover {
-  --btn-bg: oklch(22% 0.005 70);
+  --btn-bg: oklch(96% 0.004 90);
 }
 .cta__actions .btn--ghost {
-  --btn-fg: oklch(20% 0.006 70);
-  --btn-border: oklch(20% 0.004 70 / 0.28);
+  --btn-fg: var(--accent-ink);
+  --btn-border: oklch(100% 0 0 / 0.3);
 }
 .cta__actions .btn--ghost:hover {
-  --btn-bg: oklch(20% 0.004 70 / 0.06);
-  --btn-border: oklch(20% 0.004 70 / 0.5);
-  --btn-fg: oklch(15% 0.004 70);
+  --btn-bg: oklch(100% 0 0 / 0.1);
+  --btn-border: var(--accent-ink);
+  --btn-fg: var(--accent-ink);
 }

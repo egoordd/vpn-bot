@@ -1,8 +1,8 @@
 export const SITE = {
   name: "UnLock",
-  tagline: "VPN, который переживает DPI",
+  tagline: "Интернет без границ — просто и надёжно",
   description:
-    "UnLock — подписка на VPN, устойчивый к блокировкам операторов и РКН. VLESS Reality, авто-обновляемая ссылка-подписка, оплата картой и криптой.",
+    "UnLock — надёжный VPN с подпиской. Подключение за минуту, работает на телефоне и компьютере, не обрывается. Оплата картой или криптой.",
   botUsername: process.env.NEXT_PUBLIC_TELEGRAM_BOT ?? "unlock_bot",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://unlock.example",
 } as const;

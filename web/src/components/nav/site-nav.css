@@ -9,10 +9,10 @@
   border-bottom: 1px solid transparent;
 }
 .nav--scrolled {
-  background: oklch(16% 0.004 70 / 0.72);
-  backdrop-filter: blur(16px) saturate(140%);
+  background: oklch(96.5% 0.004 90 / 0.8);
+  backdrop-filter: blur(16px) saturate(150%);
   border-bottom-color: var(--border);
-  box-shadow: 0 1px 0 oklch(100% 0 0 / 0.06) inset, var(--shadow-sm);
+  box-shadow: 0 1px 0 oklch(100% 0 0 / 0.6) inset, var(--shadow-sm);
 }
 
 .nav__inner {
@@ -99,7 +99,7 @@
   flex-direction: column;
   gap: 0.5rem;
   padding: 1.5rem var(--gutter) 2.5rem;
-  background: oklch(15% 0.003 70 / 0.97);
+  background: oklch(96.5% 0.004 90 / 0.98);
   backdrop-filter: blur(18px);
   animation: drawer-in var(--duration) var(--ease-out-expo);
 }

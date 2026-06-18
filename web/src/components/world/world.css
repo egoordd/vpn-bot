@@ -11,8 +11,8 @@
   inset: -8% -4%;
   z-index: 0;
   background:
-    radial-gradient(40% 60% at 30% 42%, oklch(98% 0.005 85 / 0.07), transparent 70%),
-    radial-gradient(36% 56% at 54% 26%, oklch(98% 0.005 85 / 0.08), transparent 70%);
+    radial-gradient(40% 60% at 30% 42%, oklch(22% 0.008 70 / 0.05), transparent 70%),
+    radial-gradient(36% 56% at 54% 26%, oklch(22% 0.008 70 / 0.06), transparent 70%);
   filter: blur(8px);
   pointer-events: none;
 }
@@ -28,7 +28,7 @@
 /* Dim pearl land dots */
 .wmap__land circle {
   fill: var(--text);
-  opacity: 0.16;
+  opacity: 0.2;
 }
 
 /* Connection arc */
@@ -48,13 +48,13 @@
 
 .wmap__packet {
   fill: var(--accent-strong);
-  filter: drop-shadow(0 0 4px oklch(100% 0 0 / 0.9));
+  filter: drop-shadow(0 0 3px oklch(22% 0.008 70 / 0.5));
 }
 
 /* Location nodes */
 .wmap__core {
   fill: var(--accent-strong);
-  filter: drop-shadow(0 0 7px oklch(100% 0 0 / 0.95)) drop-shadow(0 0 16px oklch(100% 0 0 / 0.5));
+  filter: drop-shadow(0 0 6px oklch(22% 0.008 70 / 0.45)) drop-shadow(0 0 14px oklch(22% 0.008 70 / 0.25));
 }
 
 .wmap__pulse {
@@ -101,11 +101,11 @@
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
-  background: oklch(22% 0.005 70 / 0.72);
+  background: oklch(100% 0 0 / 0.85);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
   backdrop-filter: blur(8px);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
   animation: wmap-float 5s ease-in-out infinite;
 }
 .wmap__label-flag {

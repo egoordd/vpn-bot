@@ -1,31 +1,27 @@
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { botLink } from "@/lib/site";
-import { HeroTunnel } from "./HeroTunnel";
+import { LockMark } from "./LockMark";
 import "./hero.css";
 
 export function Hero() {
   return (
     <section className="hero" aria-labelledby="hero-heading">
-      <HeroTunnel />
-
       <div className="container hero__inner">
         <div className="hero__copy">
           <Pill tone="accent" live>
-            Reality · обходит DPI операторов
+            Стабильно работает
           </Pill>
 
           <h1 id="hero-heading" className="hero__title">
-            Интернет без границ.
+            Интернет без границ —
             <br />
-            Трафик, которого
-            <span className="hero__title-accent"> не видно</span>.
+            <span className="hero__title-accent">просто и надёжно</span>
           </h1>
 
           <p className="lead hero__lead">
-            UnLock прячет ваше соединение под обычный HTTPS, поэтому операторы и
-            фильтры РКН не отличают его от захода на сайт. Подключение — по
-            ссылке-подписке, которая обновляется сама.
+            Один тап — и вы онлайн. Работает на телефоне и компьютере, не тормозит
+            и не обрывается. Никаких настроек и сложностей.
           </p>
 
           <div className="hero__actions">
@@ -39,43 +35,20 @@ export function Hero() {
 
           <ul className="hero__points">
             <li>
-              <CheckIcon /> Пробник на 7 дней без карты
+              <CheckIcon /> 7 дней бесплатно — без карты
             </li>
             <li>
-              <CheckIcon /> Оплата картой РФ и криптой
+              <CheckIcon /> Оплата картой или криптой
             </li>
             <li>
-              <CheckIcon /> Доступ без VPN — чистый домен
+              <CheckIcon /> Телефон, компьютер, планшет
             </li>
           </ul>
         </div>
 
-        <aside className="hero__panel" aria-label="Состояние соединения">
-          <div className="hero__panel-head">
-            <span className="mono hero__panel-label">tunnel://unlock</span>
-            <Pill tone="accent" live>
-              активно
-            </Pill>
-          </div>
-          <dl className="hero__stats">
-            <div>
-              <dt>Протокол</dt>
-              <dd className="mono">VLESS · Reality</dd>
-            </div>
-            <div>
-              <dt>Маскировка</dt>
-              <dd className="mono">TLS 1.3 · self-steal</dd>
-            </div>
-            <div>
-              <dt>Отпечаток</dt>
-              <dd className="mono">firefox</dd>
-            </div>
-            <div>
-              <dt>Видимость для DPI</dt>
-              <dd className="hero__stat-accent mono">обычный сайт</dd>
-            </div>
-          </dl>
-        </aside>
+        <div className="hero__visual">
+          <LockMark />
+        </div>
       </div>
     </section>
   );

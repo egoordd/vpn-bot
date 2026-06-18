@@ -2,8 +2,8 @@ import { WorldMap } from "./WorldMap";
 import "./locations.css";
 
 const POINTS = [
-  { flag: "🇺🇸", name: "США", note: "Reality · Hysteria2 · AmneziaWG" },
-  { flag: "🇳🇱", name: "Нидерланды", note: "Reality · Hysteria2 · AmneziaWG" },
+  { flag: "🇺🇸", name: "США", note: "стабильно и быстро" },
+  { flag: "🇳🇱", name: "Нидерланды", note: "стабильно и быстро" },
 ];
 
 export function Locations() {
@@ -11,13 +11,13 @@ export function Locations() {
     <section className="section locations" id="locations" aria-labelledby="loc-heading">
       <div className="container">
         <div className="locations__head reveal">
-          <span className="eyebrow">Сеть</span>
+          <span className="eyebrow">Где мы есть</span>
           <h2 id="loc-heading" className="locations__title">
-            Локации, в которых вас <span className="grad-ember">не видно</span>
+            Наши локации
           </h2>
           <p className="lead locations__sub">
-            Два независимых узла с обфускацией трафика. Переключайтесь прямо в
-            приложении — одна подписка, все локации.
+            Серверы в разных странах. Переключайтесь в один тап — всё в одной
+            подписке, новые страны добавляем.
           </p>
         </div>
 
