@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.handlers import admin, buy, connect_device, help, instructions, locations, start, subscription, support, wallet
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
+from bot.middlewares.update_timing import SlowUpdateLoggingMiddleware
 from config import settings
 from database.models import Base
 from scheduler.tasks import setup_scheduler
@@ -62,6 +63,9 @@ async def main() -> None:
     dispatcher["session_pool"] = session_pool
 
     subscription_middleware = SubscriptionCheckMiddleware()
+    timing_middleware = SlowUpdateLoggingMiddleware(settings.SLOW_UPDATE_THRESHOLD_SECONDS)
+    dispatcher.message.middleware(timing_middleware)
+    dispatcher.callback_query.middleware(timing_middleware)
     dispatcher.message.middleware(subscription_middleware)
     dispatcher.callback_query.middleware(subscription_middleware)
 

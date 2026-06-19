@@ -43,6 +43,18 @@ async def _edit_current_message(callback: CallbackQuery, text: str, reply_markup
     await show_screen(callback, text, reply_markup)
 
 
+async def _send_callback_message(
+    callback: CallbackQuery,
+    bot: Bot,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    if callback.message:
+        await callback.message.answer(text, reply_markup=reply_markup)
+    else:
+        await bot.send_message(callback.from_user.id, text, reply_markup=reply_markup)
+
+
 def _premium_location_text(plan: str) -> str:
     plan_data = PLANS[plan]
     return (
@@ -163,25 +175,26 @@ async def _create_payment_invoice(
             region=region,
         )
 
-        try:
-            invoice = await create_invoice(
-                amount=intent.amount,
-                payload=intent.payload,
-                description=intent.description,
-                asset=intent.asset,
-            )
-        except CryptoBotError:
-            logger.exception("Failed to create CryptoBot invoice for user_id=%s plan=%s", intent.user_id, plan)
-            await callback.answer("Не удалось создать счет. Попробуйте позже.", show_alert=True)
-            return
+    try:
+        invoice = await create_invoice(
+            amount=intent.amount,
+            payload=intent.payload,
+            description=intent.description,
+            asset=intent.asset,
+        )
+    except CryptoBotError:
+        logger.exception("Failed to create CryptoBot invoice for user_id=%s plan=%s", intent.user_id, plan)
+        await _send_callback_message(callback, bot, "Не удалось создать счет. Попробуйте позже.")
+        return
 
-        external_invoice_id = invoice.get("invoice_id")
-        pay_url = invoice.get("bot_invoice_url") or invoice.get("pay_url") or invoice.get("mini_app_invoice_url")
-        if external_invoice_id is None or not pay_url:
-            logger.error("CryptoBot invoice has no invoice_id or payment URL: %s", invoice)
-            await callback.answer("CryptoBot вернул некорректный счет. Напишите в поддержку.", show_alert=True)
-            return
+    external_invoice_id = invoice.get("invoice_id")
+    pay_url = invoice.get("bot_invoice_url") or invoice.get("pay_url") or invoice.get("mini_app_invoice_url")
+    if external_invoice_id is None or not pay_url:
+        logger.error("CryptoBot invoice has no invoice_id or payment URL: %s", invoice)
+        await _send_callback_message(callback, bot, "CryptoBot вернул некорректный счет. Напишите в поддержку.")
+        return
 
+    async with session_pool() as session:
         await register_cryptobot_payment(
             session,
             intent=intent,
@@ -207,11 +220,7 @@ async def _create_payment_invoice(
     )
 
     keyboard = _payment_keyboard(str(pay_url), intent.amount)
-    if callback.message:
-        await callback.message.answer(text, reply_markup=keyboard)
-    else:
-        await bot.send_message(callback.from_user.id, text, reply_markup=keyboard)
-    await callback.answer()
+    await _send_callback_message(callback, bot, text, keyboard)
 
 
 BUY_MENU_TEXT = (
@@ -393,4 +402,5 @@ async def pay_crypto_handler(
         await callback.answer("Оплата криптовалютой сейчас недоступна.", show_alert=True)
         return
 
+    await callback.answer()
     await _create_payment_invoice(callback, bot, session_pool, plan=plan, region=region)

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # Optional proxy for Telegram API access (e.g. socks5://127.0.0.1:1086)
     # for networks where api.telegram.org is throttled or blocked.
     BOT_PROXY: str = ""
+    SLOW_UPDATE_THRESHOLD_SECONDS: float = Field(default=1.0, gt=0)
     DATABASE_URL: str
     REDIS_URL: str
 

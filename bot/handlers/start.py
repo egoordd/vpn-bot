@@ -12,7 +12,7 @@ from bot.texts import aware as _aware, bq, format_gb as _format_gb, format_msk a
 from database.models import Subscription, User
 from database.repository import Repository
 from services.money import format_rub
-from services.panel_gateway import PanelGatewayError, is_panel_configured
+from services.panel_gateway import PanelGatewayError
 from services.referral import ReferralError, attach_referrer, parse_referral_start_payload
 from services.subscription import activate_panel_subscription
 from services.tariffs import resolve_premium_region, resolve_tariff
@@ -106,10 +106,6 @@ def _my_subs_text(subscriptions: list[Subscription]) -> str:
     )
 
 
-def _remnawave_configured() -> bool:
-    return is_panel_configured()
-
-
 async def _menu_state(
     session_pool: async_sessionmaker[AsyncSession],
     telegram_id: int,
@@ -122,7 +118,7 @@ async def _menu_state(
         user = await repo.get_or_create_user(telegram_id=telegram_id, username=username)
         subscriptions = await repo.list_active_subscriptions(user.id)
         latest = await repo.get_latest_subscription(user.id)
-        if not subscriptions and latest is None and (panel_client is not None or _remnawave_configured()):
+        if not subscriptions and latest is None and panel_client is not None:
             try:
                 trial = await activate_panel_subscription(
                     session=session,

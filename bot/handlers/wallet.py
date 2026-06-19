@@ -62,6 +62,15 @@ async def _edit_current_message(callback: CallbackQuery, text: str, reply_markup
     await show_screen(callback, text, reply_markup)
 
 
+async def _send_callback_message(
+    callback: CallbackQuery,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    if callback.message:
+        await callback.message.answer(text, reply_markup=reply_markup)
+
+
 async def _bot_username(bot: Bot) -> str:
     cached = _bot_usernames.get(bot.id)
     if cached is not None:
@@ -195,30 +204,33 @@ async def _create_topup_invoice(
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.get_or_create_user(telegram_id=telegram_id, username=username)
-        payload = create_topup_payload(user.id, amount_kopecks)
+        user_id = user.id
+        payload = create_topup_payload(user_id, amount_kopecks)
         amount_usdt = usdt_amount_for_kopecks(amount_kopecks, settings.rub_per_usdt)
 
-        try:
-            invoice = await create_invoice(
-                amount=amount_usdt,
-                payload=payload,
-                description=f"Пополнение баланса UnLock на {format_rub(amount_kopecks)}",
-                asset="USDT",
-            )
-        except CryptoBotError:
-            logger.exception("Failed to create top-up invoice for user_id=%s", user.id)
-            await on_error("Не удалось создать счёт. Попробуйте позже.")
-            return
+    try:
+        invoice = await create_invoice(
+            amount=amount_usdt,
+            payload=payload,
+            description=f"Пополнение баланса UnLock на {format_rub(amount_kopecks)}",
+            asset="USDT",
+        )
+    except CryptoBotError:
+        logger.exception("Failed to create top-up invoice for user_id=%s", user_id)
+        await on_error("Не удалось создать счёт. Попробуйте позже.")
+        return
 
-        pay_url = invoice.get("pay_url") or invoice.get("bot_invoice_url")
-        external_invoice_id = invoice.get("invoice_id")
-        if not pay_url or external_invoice_id is None:
-            logger.error("CryptoBot returned malformed top-up invoice: %s", invoice)
-            await on_error("CryptoBot вернул некорректный счёт. Обратитесь в поддержку.")
-            return
+    pay_url = invoice.get("pay_url") or invoice.get("bot_invoice_url")
+    external_invoice_id = invoice.get("invoice_id")
+    if not pay_url or external_invoice_id is None:
+        logger.error("CryptoBot returned malformed top-up invoice: %s", invoice)
+        await on_error("CryptoBot вернул некорректный счёт. Обратитесь в поддержку.")
+        return
 
+    async with session_pool() as session:
+        repo = Repository(session)
         await repo.create_cryptobot_payment(
-            user_id=user.id,
+            user_id=user_id,
             amount=billing_api.crypto_minor_units(amount_usdt),
             external_invoice_id=str(external_invoice_id),
             invoice_payload=payload,
@@ -259,8 +271,9 @@ async def topup_handler(
             await bot.send_message(callback.from_user.id, text, reply_markup=reply_markup)
 
     async def _error(text: str) -> None:
-        await callback.answer(text, show_alert=True)
+        await _send_callback_message(callback, text, back_to_wallet_keyboard())
 
+    await callback.answer()
     await _create_topup_invoice(
         telegram_id=callback.from_user.id,
         username=callback.from_user.username,
@@ -269,7 +282,6 @@ async def topup_handler(
         send=_send,
         on_error=_error,
     )
-    await callback.answer()
 
 
 @router.callback_query(F.data == "promo_enter")
@@ -364,9 +376,9 @@ async def referral_handler(
     bot: Bot,
     session_pool: async_sessionmaker[AsyncSession],
 ) -> None:
+    await callback.answer()
     text = await _referral_payload(session_pool, bot, callback.from_user.id, callback.from_user.username)
     await _edit_current_message(callback, text, back_to_menu_keyboard())
-    await callback.answer()
 
 
 @router.message(Command("invite"))
@@ -462,6 +474,7 @@ async def pay_with_balance_handler(
             )
             return
 
+        await callback.answer()
         try:
             subscription = await activate_panel_subscription(
                 session=session,
@@ -481,9 +494,10 @@ async def pay_with_balance_handler(
                 reference=f"{reference}:refund",
                 description=f"Возврат за тариф {tariff.title}",
             )
-            await callback.answer(
+            await _send_callback_message(
+                callback,
                 "Не удалось активировать подписку — деньги вернулись на баланс.",
-                show_alert=True,
+                back_to_wallet_keyboard(),
             )
             return
         balance = await wallet.get_balance(session, user.id)
@@ -500,4 +514,3 @@ async def pay_with_balance_handler(
     )
     if callback.message:
         await callback.message.answer(text, reply_markup=_pay_success_keyboard())
-    await callback.answer()

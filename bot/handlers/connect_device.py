@@ -123,6 +123,11 @@ def _app_instruction_text(guide: AppImportGuide, subscription_url: str) -> str:
     return "\n".join(lines)
 
 
+async def _send_processing_error(callback: CallbackQuery, text: str) -> None:
+    if callback.message:
+        await callback.message.answer(text, reply_markup=back_to_menu_keyboard())
+
+
 async def _resolve_subscription_url(repo: Repository, user_id: int) -> str | None:
     subscription = await repo.get_active_subscription(user_id)
     if subscription is None or not subscription.panel_username:
@@ -167,11 +172,12 @@ async def connect_device_handler(
             await callback.answer("Пользователь не найден. Нажмите /start.", show_alert=True)
             return
         user_id = user.id
+        await callback.answer()
         try:
             subs_with_links = await _active_subs_with_links(repo, user_id)
         except PanelGatewayError:
             logger.exception("Could not resolve subscription URLs for user_id=%s", user_id)
-            await callback.answer("Не удалось получить ссылку-подписку. Напишите в поддержку.", show_alert=True)
+            await _send_processing_error(callback, "Не удалось получить ссылку-подписку. Напишите в поддержку.")
             return
 
     if len(subs_with_links) > 1:
@@ -181,13 +187,11 @@ async def connect_device_handler(
             "У вас несколько подписок. Выберите, какую подключить:"
         )
         await show_screen(callback, text, _location_selector_keyboard(subs))
-        await callback.answer()
         return
 
     if len(subs_with_links) == 1:
         subscription, url = subs_with_links[0]
         await _send_subscription_screen(callback, subscription, url)
-        await callback.answer()
         return
 
     async with session_pool() as session:
@@ -195,7 +199,7 @@ async def connect_device_handler(
             _, config_text = await rotate_user_key(session=session, user_id=user_id)
         except WireGuardError:
             logger.exception("Could not provide WireGuard key for user_id=%s", user_id)
-            await callback.answer("Не удалось подготовить ключ. Напишите в поддержку.", show_alert=True)
+            await _send_processing_error(callback, "Не удалось подготовить ключ. Напишите в поддержку.")
             return
 
     qr_bytes = await generate_qr_png_bytes(config_text)
@@ -210,7 +214,6 @@ async def connect_device_handler(
             caption="QR-код для импорта в WireGuard.",
             reply_markup=back_to_menu_keyboard(),
         )
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("connect_loc:"), flags={"subscription_required": True})
@@ -230,17 +233,17 @@ async def connect_location_handler(
         if user is None or subscription is None or subscription.user_id != user.id:
             await callback.answer("Подписка не найдена", show_alert=True)
             return
+        await callback.answer()
         try:
             url = await _resolve_url_for_subscription(repo, subscription)
         except PanelGatewayError:
             logger.exception("Could not resolve subscription URL for sub_id=%s", sub_id)
-            await callback.answer("Не удалось получить ссылку. Напишите в поддержку.", show_alert=True)
+            await _send_processing_error(callback, "Не удалось получить ссылку. Напишите в поддержку.")
             return
     if not url:
-        await callback.answer("Для этой подписки нет ссылки.", show_alert=True)
+        await _send_processing_error(callback, "Для этой подписки нет ссылки.")
         return
     await _send_subscription_screen(callback, subscription, url)
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("connect_app:"), flags={"subscription_required": True})
@@ -261,6 +264,7 @@ async def connect_app_handler(
         if user is None:
             await callback.answer("Пользователь не найден. Нажмите /start.", show_alert=True)
             return
+        await callback.answer()
         try:
             if sub_id is not None:
                 subscription = await repo.get_subscription(sub_id)
@@ -273,11 +277,11 @@ async def connect_app_handler(
                 subscription_url = await _resolve_subscription_url(repo, user.id)
         except PanelGatewayError:
             logger.exception("Could not resolve subscription URL for user_id=%s", user.id)
-            await callback.answer("Не удалось получить ссылку. Напишите в поддержку.", show_alert=True)
+            await _send_processing_error(callback, "Не удалось получить ссылку. Напишите в поддержку.")
             return
 
     if not subscription_url:
-        await callback.answer("Для этой подписки доступен WireGuard-конфиг, а не ссылка-подписка.", show_alert=True)
+        await _send_processing_error(callback, "Для этой подписки доступен WireGuard-конфиг, а не ссылка-подписка.")
         return
 
     guide = build_app_import_guides(subscription_url)[app_code]
@@ -287,4 +291,3 @@ async def connect_app_handler(
             await callback.message.edit_caption(caption=text, reply_markup=_app_instruction_keyboard(sub_id))
         else:
             await callback.message.edit_text(text, reply_markup=_app_instruction_keyboard(sub_id))
-    await callback.answer()

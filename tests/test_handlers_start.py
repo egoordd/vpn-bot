@@ -68,6 +68,18 @@ async def test_menu_state_returns_active_subscription_menu(session_pool):
 
 
 @pytest.mark.integration
+async def test_menu_state_does_not_auto_activate_trial_without_explicit_panel_client(session_pool):
+    text, keyboard = await start._menu_state(session_pool, 924, "no_trial")
+
+    assert "Активной подписки нет" in text
+    cbs = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+    assert "my_subs" not in cbs
+    async with session_pool() as session:
+        user = await Repository(session).get_user_by_telegram_id(924)
+        assert await Repository(session).get_latest_subscription(user.id) is None
+
+
+@pytest.mark.integration
 async def test_menu_state_auto_activates_trial_when_panel_client_is_available(session_pool):
     text, keyboard = await start._menu_state(session_pool, 922, "trial", panel_client=FakePanelClient())
 

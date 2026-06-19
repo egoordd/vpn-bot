@@ -20,7 +20,11 @@ async def test_get_key_handler_sends_document_and_photo(session_pool, monkeypatc
         answer=AsyncMock(),
     )
     monkeypatch.setattr(connect_device, "rotate_user_key", AsyncMock(return_value=(None, "client-config")))
-    monkeypatch.setattr(connect_device, "generate_qr_png_bytes", AsyncMock(return_value=b"png"))
+    async def generate_qr_png_bytes(url: str) -> bytes:
+        assert callback.answer.await_count == 1
+        return b"png"
+
+    monkeypatch.setattr(connect_device, "generate_qr_png_bytes", generate_qr_png_bytes)
 
     await connect_device.connect_device_handler(callback, session_pool)
 

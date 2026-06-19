@@ -53,7 +53,11 @@ async def test_buy_plan_standard_without_balance_offers_topup(session_pool, fake
 @pytest.mark.integration
 async def test_pay_crypto_handler_creates_invoice_and_payment(session_pool, fake_bot, monkeypatch):
     monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: True)
-    create_invoice = AsyncMock(return_value={"invoice_id": "ext-1", "pay_url": "https://pay.example"})
+    async def create_invoice(**kwargs):
+        assert callback.answer.await_count == 1
+        return {"invoice_id": "ext-1", "pay_url": "https://pay.example"}
+
+    create_invoice = AsyncMock(side_effect=create_invoice)
     monkeypatch.setattr(buy, "create_invoice", create_invoice)
     callback = SimpleNamespace(
         data="paycrypto:standard_1m",

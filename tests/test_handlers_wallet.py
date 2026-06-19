@@ -60,7 +60,11 @@ async def test_wallet_handler_creates_user_when_missing(session_pool):
 @pytest.mark.integration
 async def test_topup_handler_creates_invoice_and_pending_payment(session_pool, fake_bot, monkeypatch):
     callback = _callback("topup:15000", telegram_id=953)
-    create_invoice = AsyncMock(return_value={"invoice_id": "top-1", "pay_url": "https://pay.example/top"})
+    async def create_invoice(**kwargs):
+        assert callback.answer.await_count == 1
+        return {"invoice_id": "top-1", "pay_url": "https://pay.example/top"}
+
+    create_invoice = AsyncMock(side_effect=create_invoice)
     monkeypatch.setattr(wallet_handlers, "create_invoice", create_invoice)
 
     await wallet_handlers.topup_handler(callback, fake_bot, session_pool)
@@ -143,9 +147,11 @@ async def test_pay_with_balance_success(session_pool, monkeypatch):
 
     from datetime import datetime, timedelta, timezone
 
-    activate = AsyncMock(
-        return_value=SimpleNamespace(expires_at=datetime.now(timezone.utc) + timedelta(days=30))
-    )
+    async def activate(**kwargs):
+        assert callback.answer.await_count == 1
+        return SimpleNamespace(expires_at=datetime.now(timezone.utc) + timedelta(days=30))
+
+    activate = AsyncMock(side_effect=activate)
     monkeypatch.setattr(wallet_handlers, "activate_panel_subscription", activate)
     monkeypatch.setattr(wallet_handlers, "is_panel_configured", lambda: True)
 
@@ -182,7 +188,9 @@ async def test_pay_with_balance_refunds_on_panel_failure(session_pool, monkeypat
 
     await wallet_handlers.pay_with_balance_handler(callback, session_pool)
 
-    assert callback.answer.await_args.kwargs["show_alert"] is True
+    callback.answer.assert_awaited_once_with()
+    callback.message.answer.assert_awaited_once()
+    assert "вернулись" in callback.message.answer.await_args.args[0]
     async with session_pool() as session:
         repo = Repository(session)
         balance = await repo.get_balance(user.id)
