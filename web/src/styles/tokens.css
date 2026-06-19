@@ -36,6 +36,15 @@
   --premium-wash: oklch(22% 0.008 70 / 0.07);
   --premium-line: oklch(22% 0.008 70 / 0.22);
 
+  /* --- 3D padlock metal (light theme = dark graphite metal) --- */
+  --lock-hi: oklch(40% 0.01 70);
+  --lock-mid: oklch(26% 0.008 70);
+  --lock-lo: oklch(15% 0.006 70);
+  --lock-edge: oklch(11% 0.005 70);
+  --lock-key: oklch(94% 0.004 90);
+  --lock-floor: oklch(22% 0.02 70 / 0.22);
+  --map-panel: oklch(24% 0.008 70 / 0.07);
+
   /* --- Semantic state (muted) --- */
   --ok: oklch(20% 0.008 70);
   --warn: oklch(55% 0.1 72);
@@ -91,4 +100,60 @@
   /* --- Z --- */
   --z-nav: 50;
   --z-overlay: 80;
+}
+
+/* ============================================================
+ * DARK THEME — obsidian monochrome (toggled via [data-theme="dark"])
+ * ============================================================ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: oklch(15% 0.003 70);
+  --bg-elev: oklch(18.5% 0.004 70);
+  --surface: oklch(22% 0.005 70);
+  --surface-2: oklch(27% 0.006 70);
+  --surface-3: oklch(33% 0.007 70);
+
+  --text: oklch(95% 0.006 85);
+  --text-muted: oklch(72% 0.008 78);
+  --text-dim: oklch(54% 0.008 72);
+
+  --accent: oklch(97% 0.005 85);
+  --accent-strong: oklch(100% 0 0);
+  --accent-2: oklch(85% 0.006 80);
+  --accent-3: oklch(78% 0.007 75);
+  --accent-ink: oklch(15% 0.003 70);
+  --accent-wash: oklch(96% 0.005 85 / 0.1);
+  --accent-line: oklch(96% 0.005 85 / 0.28);
+  --grad-ember: linear-gradient(100deg, oklch(100% 0 0), oklch(82% 0.006 80) 55%, oklch(68% 0.008 72));
+
+  --premium: oklch(92% 0.006 85);
+  --premium-strong: oklch(100% 0 0);
+  --premium-ink: oklch(15% 0.003 70);
+  --premium-wash: oklch(96% 0.005 85 / 0.1);
+  --premium-line: oklch(96% 0.005 85 / 0.32);
+
+  /* Padlock metal (dark theme = bright silver metal) */
+  --lock-hi: oklch(99% 0.003 90);
+  --lock-mid: oklch(86% 0.006 80);
+  --lock-lo: oklch(66% 0.008 75);
+  --lock-edge: oklch(56% 0.008 75);
+  --lock-key: oklch(18% 0.005 70);
+  --lock-floor: oklch(0% 0 0 / 0.5);
+  --map-panel: oklch(98% 0.005 85 / 0.04);
+
+  --border: oklch(96% 0.005 85 / 0.1);
+  --border-strong: oklch(96% 0.005 85 / 0.18);
+  --hover-wash: oklch(96% 0.005 85 / 0.06);
+  --glow-accent: oklch(98% 0.005 85 / 0.32);
+  --glow-coral: oklch(92% 0.006 85 / 0.28);
+  --glow-premium: oklch(98% 0.005 85 / 0.3);
+
+  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.45);
+  --shadow:
+    0 2px 6px -2px oklch(0% 0 0 / 0.5),
+    0 22px 50px -22px oklch(0% 0 0 / 0.72);
+  --shadow-lg:
+    0 10px 26px -14px oklch(0% 0 0 / 0.55),
+    0 50px 100px -40px oklch(0% 0 0 / 0.82);
 }

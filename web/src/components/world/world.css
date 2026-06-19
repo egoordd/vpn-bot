@@ -28,7 +28,7 @@
 /* Dim pearl land dots */
 .wmap__land circle {
   fill: var(--text);
-  opacity: 0.2;
+  opacity: 0.26;
 }
 
 /* Connection arc */
@@ -126,4 +126,20 @@
   .wmap__label {
     animation: none;
   }
+}
+
+/* Dark theme: white glow instead of ink, dark labels */
+:root[data-theme="dark"] .wmap__halo {
+  background:
+    radial-gradient(40% 60% at 30% 42%, oklch(98% 0.005 85 / 0.06), transparent 70%),
+    radial-gradient(36% 56% at 54% 26%, oklch(98% 0.005 85 / 0.07), transparent 70%);
+}
+:root[data-theme="dark"] .wmap__core {
+  filter: drop-shadow(0 0 6px oklch(100% 0 0 / 0.95)) drop-shadow(0 0 15px oklch(100% 0 0 / 0.5));
+}
+:root[data-theme="dark"] .wmap__packet {
+  filter: drop-shadow(0 0 4px oklch(100% 0 0 / 0.9));
+}
+:root[data-theme="dark"] .wmap__label {
+  background: oklch(24% 0.006 70 / 0.78);
 }

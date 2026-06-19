@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Logo } from "@/components/ui/Logo";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/cn";
 import { NAV_LINKS, botLink } from "@/lib/site";
 import "./site-nav.css";
@@ -43,10 +44,15 @@ export function SiteNav() {
           <a href="/cabinet" className="nav__link nav__link--cabinet">
             Кабинет
           </a>
+          <ThemeToggle />
           <Button href={botLink()} size="md">
             Подключить
           </Button>
         </div>
+
+        <span className="nav__mobile-toggle">
+          <ThemeToggle />
+        </span>
 
         <button
           className="nav__burger"

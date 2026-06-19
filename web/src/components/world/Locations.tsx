@@ -21,7 +21,9 @@ export function Locations() {
           </p>
         </div>
 
-        <WorldMap />
+        <div className="locations__panel reveal">
+          <WorldMap />
+        </div>
 
         <ul className="locations__list reveal">
           {POINTS.map((p) => (

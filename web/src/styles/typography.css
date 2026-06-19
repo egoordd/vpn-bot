@@ -30,6 +30,7 @@ h1 {
 h2 {
   font-size: var(--text-3xl);
   letter-spacing: -0.035em;
+  text-shadow: 0 2px 22px var(--glow-accent);
 }
 h3 {
   font-size: var(--text-xl);

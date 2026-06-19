@@ -7,6 +7,11 @@ from urllib.parse import quote, urljoin
 
 import aiohttp
 
+# Process-wide admin-token cache keyed by panel base_url. The bot builds a fresh
+# MarzbanClient per request, so without this every action would re-login (~1s on
+# a slow link). Invalidated on a 401 (token expiry) and re-fetched.
+_TOKEN_CACHE: dict[str, str] = {}
+
 
 class MarzbanError(RuntimeError):
     pass
@@ -112,6 +117,10 @@ class MarzbanClient:
     async def _ensure_token(self) -> str:
         if self.access_token:
             return self.access_token
+        cached = _TOKEN_CACHE.get(self.base_url)
+        if cached:
+            self.access_token = cached
+            return cached
         if not self.username or not self.password:
             raise MarzbanError("MARZBAN_ACCESS_TOKEN or MARZBAN_USERNAME/MARZBAN_PASSWORD is required")
         if not self.base_url:
@@ -135,6 +144,7 @@ class MarzbanClient:
         if not token:
             raise MarzbanError("Marzban token response has no access_token")
         self.access_token = str(token)
+        _TOKEN_CACHE[self.base_url] = self.access_token
         return self.access_token
 
     async def _request(
@@ -148,22 +158,29 @@ class MarzbanClient:
         if not self.base_url:
             raise MarzbanError("MARZBAN_API_URL is not configured")
 
-        token = await self._ensure_token()
-        url = f"{self.base_url}{path}"
-        headers = {
-            "Accept": "application/json",
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
-        async with aiohttp.ClientSession(timeout=self.timeout) as session:
-            async with session.request(
-                method.upper(),
-                url,
-                headers=headers,
-                json=json,
-                params=_clean_payload(params or {}),
-            ) as response:
-                return await self._read_response(response)
+        for attempt in (1, 2):
+            token = await self._ensure_token()
+            url = f"{self.base_url}{path}"
+            headers = {
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            }
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.request(
+                    method.upper(),
+                    url,
+                    headers=headers,
+                    json=json,
+                    params=_clean_payload(params or {}),
+                ) as response:
+                    if response.status == 401 and attempt == 1:
+                        # Cached token expired — drop it and retry with a fresh login.
+                        self.access_token = ""
+                        _TOKEN_CACHE.pop(self.base_url, None)
+                        continue
+                    return await self._read_response(response)
+        raise MarzbanError("Marzban authentication failed after token refresh")
 
     async def _read_response(self, response: aiohttp.ClientResponse) -> Any:
         if response.status == 404:

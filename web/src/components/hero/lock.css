@@ -3,105 +3,63 @@
   display: grid;
   place-items: center;
   width: 100%;
-  aspect-ratio: 1;
-  max-width: 440px;
+  max-width: 360px;
   margin-inline: auto;
-}
-
-.lockmark__glow {
-  position: absolute;
-  inset: 12%;
-  border-radius: 50%;
-  background: radial-gradient(circle, oklch(22% 0.008 70 / 0.08), transparent 68%);
-  filter: blur(6px);
-  animation: lock-breathe 4.6s ease-in-out infinite;
+  perspective: 1000px;
 }
 
 .lockmark__svg {
-  position: relative;
-  width: 78%;
+  width: 80%;
   height: auto;
   overflow: visible;
-  filter: drop-shadow(0 18px 30px oklch(22% 0.03 70 / 0.18));
+  transform: rotateX(8deg);
+  filter: drop-shadow(0 26px 34px var(--lock-floor));
+  animation: lock-float 6s ease-in-out 2.1s infinite;
 }
 
-.lockmark__body {
-  fill: var(--accent);
-}
-.lockmark__keyhole {
-  fill: var(--accent-ink);
+.lockmark__floor {
+  fill: var(--lock-floor);
+  filter: blur(7px);
 }
 
+.lockmark__edge {
+  fill: var(--lock-edge);
+}
+
+/* Shackle clicks, swings open on entry — and stays open. */
 .lockmark__shackle {
   transform-box: view-box;
-  transform-origin: 142px 120px;
-  animation: lock-open 4.6s var(--ease-out-expo) infinite;
+  transform-origin: 148px 134px;
+  animation: lock-open 1.5s var(--ease-out-expo) 0.45s both;
 }
 
 @keyframes lock-open {
-  0%, 10% {
+  0% {
     transform: rotate(0deg);
-  }
-  20% {
-    transform: rotate(5deg);
-  }
-  40%, 70% {
-    transform: rotate(-38deg);
-  }
-  86%, 100% {
-    transform: rotate(0deg);
-  }
-}
-
-/* Ring pulses outward the instant the lock opens */
-.lockmark__ring {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.5;
-  transform-box: view-box;
-  transform-origin: 110px 178px;
-  opacity: 0;
-  animation: lock-pulse 4.6s var(--ease-out-expo) infinite;
-}
-.lockmark__ring--2 {
-  animation-delay: 0.28s;
-}
-
-@keyframes lock-pulse {
-  0%, 34% {
-    transform: scale(0.45);
-    opacity: 0;
-  }
-  42% {
-    opacity: 0.5;
-  }
-  70% {
-    transform: scale(1.15);
-    opacity: 0;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes lock-breathe {
-  0%, 100% {
-    transform: scale(0.96);
-    opacity: 0.8;
   }
   50% {
-    transform: scale(1.04);
-    opacity: 1;
+    transform: rotate(7deg);
+  }
+  100% {
+    transform: rotate(-42deg);
+  }
+}
+
+@keyframes lock-float {
+  0%, 100% {
+    transform: rotateX(8deg) translateY(0);
+  }
+  50% {
+    transform: rotateX(8deg) translateY(-8px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lockmark__shackle,
-  .lockmark__ring,
-  .lockmark__glow {
+  .lockmark__svg {
     animation: none;
   }
   .lockmark__shackle {
-    transform: rotate(-38deg);
+    animation: none;
+    transform: rotate(-42deg);
   }
 }

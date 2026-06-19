@@ -70,3 +70,42 @@
   --btn-border: var(--accent-ink);
   --btn-fg: var(--accent-ink);
 }
+
+/* Dark theme: invert the panel to luminous bone-on-obsidian */
+:root[data-theme="dark"] .cta__card {
+  border-color: oklch(100% 0 0 / 0.5);
+  background: linear-gradient(165deg, oklch(97% 0.005 85), oklch(90% 0.006 80));
+  color: oklch(18% 0.005 70);
+}
+:root[data-theme="dark"] .cta__glow {
+  background:
+    radial-gradient(30rem 18rem at 50% -16%, oklch(100% 0 0 / 0.6), transparent 60%),
+    radial-gradient(26rem 16rem at 84% 116%, oklch(60% 0.008 72 / 0.16), transparent 60%);
+}
+:root[data-theme="dark"] .cta__card .pill {
+  background: oklch(20% 0.004 70 / 0.08);
+  border-color: oklch(20% 0.004 70 / 0.18);
+  color: oklch(28% 0.01 70);
+}
+:root[data-theme="dark"] .cta__title {
+  color: oklch(18% 0.005 70);
+}
+:root[data-theme="dark"] .cta__sub {
+  color: oklch(34% 0.01 70);
+}
+:root[data-theme="dark"] .cta__actions .btn--primary {
+  --btn-bg: oklch(17% 0.004 70);
+  --btn-fg: oklch(96% 0.006 85);
+}
+:root[data-theme="dark"] .cta__actions .btn--primary:hover {
+  --btn-bg: oklch(24% 0.005 70);
+}
+:root[data-theme="dark"] .cta__actions .btn--ghost {
+  --btn-fg: oklch(20% 0.006 70);
+  --btn-border: oklch(20% 0.004 70 / 0.28);
+}
+:root[data-theme="dark"] .cta__actions .btn--ghost:hover {
+  --btn-bg: oklch(20% 0.004 70 / 0.06);
+  --btn-border: oklch(15% 0.004 70);
+  --btn-fg: oklch(15% 0.004 70);
+}

@@ -8,20 +8,22 @@ export function Hero() {
   return (
     <section className="hero" aria-labelledby="hero-heading">
       <div className="container hero__inner">
+        <div className="hero__visual">
+          <LockMark />
+        </div>
+
         <div className="hero__copy">
           <Pill tone="accent" live>
             Стабильно работает
           </Pill>
 
           <h1 id="hero-heading" className="hero__title">
-            Интернет без границ —
-            <br />
-            <span className="hero__title-accent">просто и надёжно</span>
+            Интернет без границ — <span className="hero__title-accent">просто и надёжно</span>
           </h1>
 
           <p className="lead hero__lead">
             Один тап — и вы онлайн. Работает на телефоне и компьютере, не тормозит
-            и не обрывается. Никаких настроек и сложностей.
+            и не обрывается. Никаких настроек.
           </p>
 
           <div className="hero__actions">
@@ -35,19 +37,15 @@ export function Hero() {
 
           <ul className="hero__points">
             <li>
-              <CheckIcon /> 7 дней бесплатно — без карты
+              <CheckIcon /> 7 дней бесплатно
             </li>
             <li>
-              <CheckIcon /> Оплата картой или криптой
+              <CheckIcon /> Картой или криптой
             </li>
             <li>
-              <CheckIcon /> Телефон, компьютер, планшет
+              <CheckIcon /> На всех устройствах
             </li>
           </ul>
-        </div>
-
-        <div className="hero__visual">
-          <LockMark />
         </div>
       </div>
     </section>
