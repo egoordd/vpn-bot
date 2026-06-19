@@ -118,3 +118,52 @@ async def test_connect_app_handler_shows_app_specific_instruction(session_pool):
     assert "Hiddify" in text
     assert "hiddify://import/" in text
     assert "https://sub.example/api/sub/short" in text
+
+
+def test_connect_keyboard_shows_awg_only_when_configured(monkeypatch):
+    monkeypatch.setattr(connect_device, "_awg_available", lambda: True)
+    datas_on = [b.callback_data for row in connect_device._connect_device_keyboard().inline_keyboard for b in row]
+    assert "connect_awg" in datas_on
+
+    monkeypatch.setattr(connect_device, "_awg_available", lambda: False)
+    datas_off = [b.callback_data for row in connect_device._connect_device_keyboard().inline_keyboard for b in row]
+    assert "connect_awg" not in datas_off
+
+
+@pytest.mark.integration
+async def test_connect_awg_handler_sends_configs(session_pool, monkeypatch):
+    from services.awg_provision import AwgClientConfig
+
+    async with session_pool() as session:
+        await Repository(session).create_user(telegram_id=904, username="awg")
+
+    message = SimpleNamespace(answer=AsyncMock(), answer_document=AsyncMock(), answer_photo=AsyncMock())
+    callback = SimpleNamespace(from_user=SimpleNamespace(id=904), message=message, answer=AsyncMock())
+
+    configs = [
+        AwgClientConfig(node_code="us", flag="🇺🇸", name="США", config_text="[Interface]\nPrivateKey = a"),
+        AwgClientConfig(node_code="nl", flag="🇳🇱", name="Нидерланды", config_text="[Interface]\nPrivateKey = b"),
+    ]
+    monkeypatch.setattr(connect_device, "ensure_client_configs", AsyncMock(return_value=configs))
+    monkeypatch.setattr(connect_device, "generate_qr_png_bytes", AsyncMock(return_value=b"png"))
+
+    await connect_device.connect_awg_handler(callback, session_pool)
+
+    callback.answer.assert_awaited_once()
+    assert message.answer_document.await_count == 2
+    assert message.answer_photo.await_count == 2
+
+
+@pytest.mark.integration
+async def test_connect_awg_handler_handles_unavailable(session_pool, monkeypatch):
+    async with session_pool() as session:
+        await Repository(session).create_user(telegram_id=905, username="awg2")
+
+    message = SimpleNamespace(answer=AsyncMock(), answer_document=AsyncMock(), answer_photo=AsyncMock())
+    callback = SimpleNamespace(from_user=SimpleNamespace(id=905), message=message, answer=AsyncMock())
+    monkeypatch.setattr(connect_device, "ensure_client_configs", AsyncMock(return_value=[]))
+
+    await connect_device.connect_awg_handler(callback, session_pool)
+
+    callback.answer.assert_awaited_once()
+    message.answer_document.assert_not_awaited()

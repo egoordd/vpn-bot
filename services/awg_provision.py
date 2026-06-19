@@ -24,7 +24,7 @@ from services.awg_keys import generate_keypair
 
 logger = logging.getLogger(__name__)
 
-_SSH_TIMEOUT = 20
+_SSH_TIMEOUT = 35
 
 
 class AwgProvisionError(RuntimeError):
@@ -128,19 +128,29 @@ async def ensure_client_configs(session: AsyncSession, user_id: int) -> list[Awg
             ip_index=ip_index,
         )
 
-    configs: list[AwgClientConfig] = []
-    for code, node in nodes.items():
+    async def _provision(code: str, node: dict[str, str]) -> AwgClientConfig:
         client_ip = _node_client_ip(node["subnet"], client.ip_index)
         await _set_peer(node, client.public_key, client_ip)
-        configs.append(
-            AwgClientConfig(
-                node_code=code,
-                flag=node.get("flag", ""),
-                name=node.get("name", code),
-                config_text=_build_config(node, client.private_key, client_ip),
-            )
+        return AwgClientConfig(
+            node_code=code,
+            flag=node.get("flag", ""),
+            name=node.get("name", code),
+            config_text=_build_config(node, client.private_key, client_ip),
         )
-    logger.info("Provisioned AmneziaWG for user_id=%s on %d node(s)", user_id, len(configs))
+
+    # Provision every node concurrently; a slow/failing node doesn't block the
+    # others. The keypair is shared, so a later retry fills in any missing node.
+    results = await asyncio.gather(
+        *(_provision(code, node) for code, node in nodes.items()),
+        return_exceptions=True,
+    )
+    configs: list[AwgClientConfig] = []
+    for result in results:
+        if isinstance(result, AwgClientConfig):
+            configs.append(result)
+        elif isinstance(result, Exception):
+            logger.warning("AmneziaWG provisioning failed for a node (user_id=%s): %s", user_id, result)
+    logger.info("Provisioned AmneziaWG for user_id=%s on %d/%d node(s)", user_id, len(configs), len(nodes))
     return configs
 
 

@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from bot.keyboards.main_menu import back_to_menu_keyboard
 from bot.navigation import show_screen
 from bot.texts import bq
+from config import settings
 from database.models import Subscription
 from database.repository import Repository
+from services.awg_provision import AwgProvisionError, ensure_client_configs
 from services.deeplinks import AppImportGuide, build_app_import_guides
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.qrcode import generate_qr_png_bytes
@@ -28,21 +30,26 @@ def _location_label(subscription: Subscription) -> str:
     return "🌐 Обычный"
 
 
+def _awg_available() -> bool:
+    return bool(settings.awg_nodes_dict)
+
+
 def _connect_device_keyboard(sub_id: int | None = None) -> InlineKeyboardMarkup:
     suffix = f":{sub_id}" if sub_id is not None else ""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Hiddify", callback_data=f"connect_app:hiddify{suffix}"),
-                InlineKeyboardButton(text="V2RayTun", callback_data=f"connect_app:v2raytun{suffix}"),
-            ],
-            [
-                InlineKeyboardButton(text="Streisand", callback_data=f"connect_app:streisand{suffix}"),
-                InlineKeyboardButton(text="sing-box", callback_data=f"connect_app:singbox{suffix}"),
-            ],
-            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
-        ]
-    )
+    rows = [
+        [
+            InlineKeyboardButton(text="Hiddify", callback_data=f"connect_app:hiddify{suffix}"),
+            InlineKeyboardButton(text="V2RayTun", callback_data=f"connect_app:v2raytun{suffix}"),
+        ],
+        [
+            InlineKeyboardButton(text="Streisand", callback_data=f"connect_app:streisand{suffix}"),
+            InlineKeyboardButton(text="sing-box", callback_data=f"connect_app:singbox{suffix}"),
+        ],
+    ]
+    if _awg_available():
+        rows.append([InlineKeyboardButton(text="🔒 AmneziaWG (запасной канал)", callback_data="connect_awg")])
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _location_selector_keyboard(subs: list[Subscription]) -> InlineKeyboardMarkup:
@@ -291,3 +298,60 @@ async def connect_app_handler(
             await callback.message.edit_caption(caption=text, reply_markup=_app_instruction_keyboard(sub_id))
         else:
             await callback.message.edit_text(text, reply_markup=_app_instruction_keyboard(sub_id))
+
+
+_AWG_INTRO = (
+    "🔒 <b>AmneziaWG — запасной канал</b>\n\n"
+    + bq(
+        "Отдельный протокол на случай, если основной где-то не проходит.",
+        "Нужно приложение AmneziaVPN (App Store / Google Play).",
+        "Импортируйте файл .conf или отсканируйте QR — по одному на страну.",
+    )
+)
+
+
+@router.callback_query(F.data == "connect_awg", flags={"subscription_required": True})
+async def connect_awg_handler(
+    callback: CallbackQuery,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer("🔒 Готовлю конфиги AmneziaWG — несколько секунд…")
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(callback.from_user.id)
+        if user is None:
+            await _send_processing_error(callback, "Пользователь не найден. Нажмите /start.")
+            return
+        try:
+            configs = await ensure_client_configs(session, user.id)
+        except AwgProvisionError:
+            logger.exception("AmneziaWG provisioning failed for user_id=%s", user.id)
+            await _send_processing_error(callback, "Не удалось подготовить AmneziaWG. Напишите в поддержку.")
+            return
+
+    if not configs:
+        await _send_processing_error(callback, "AmneziaWG сейчас недоступен.")
+        return
+
+    if not callback.message:
+        return
+
+    await callback.message.answer(_AWG_INTRO)
+    for cfg in configs:
+        label = f"{cfg.flag} {cfg.name}".strip()
+        await callback.message.answer_document(
+            BufferedInputFile(cfg.config_text.encode("utf-8"), filename=f"unlock-awg-{cfg.node_code}.conf"),
+            caption=f"{label} — AmneziaWG",
+        )
+        qr_bytes = await generate_qr_png_bytes(cfg.config_text)
+        await callback.message.answer_photo(
+            BufferedInputFile(qr_bytes, filename=f"awg-{cfg.node_code}.png"),
+            caption=f"QR · {label}",
+        )
+    await callback.message.answer(
+        "Готово. Импортируйте конфиг в приложение AmneziaVPN — и подключайтесь.",
+        reply_markup=back_to_menu_keyboard(),
+    )
