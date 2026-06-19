@@ -7,10 +7,15 @@ from urllib.parse import quote, urljoin
 
 import aiohttp
 
-# Process-wide admin-token cache keyed by panel base_url. The bot builds a fresh
-# MarzbanClient per request, so without this every action would re-login (~1s on
-# a slow link). Invalidated on a 401 (token expiry) and re-fetched.
-_TOKEN_CACHE: dict[str, str] = {}
+# Process-wide admin-token cache keyed by panel base_url and admin username.
+# The bot builds a fresh MarzbanClient per request, so without this every action
+# would re-login (~1s on a slow link). Invalidated on a 401 (token expiry) and
+# re-fetched with the configured password grant credentials.
+_TOKEN_CACHE: dict[tuple[str, str], str] = {}
+
+
+def clear_marzban_token_cache() -> None:
+    _TOKEN_CACHE.clear()
 
 
 class MarzbanError(RuntimeError):
@@ -114,17 +119,22 @@ class MarzbanClient:
             return replace(user, subscription_url=urljoin(f"{self.base_url}/", user.subscription_url))
         return user
 
+    def _token_cache_key(self) -> tuple[str, str]:
+        return self.base_url, self.username
+
     async def _ensure_token(self) -> str:
         if self.access_token:
             return self.access_token
-        cached = _TOKEN_CACHE.get(self.base_url)
-        if cached:
-            self.access_token = cached
-            return cached
         if not self.username or not self.password:
             raise MarzbanError("MARZBAN_ACCESS_TOKEN or MARZBAN_USERNAME/MARZBAN_PASSWORD is required")
         if not self.base_url:
             raise MarzbanError("MARZBAN_API_URL is not configured")
+
+        cache_key = self._token_cache_key()
+        cached = _TOKEN_CACHE.get(cache_key)
+        if cached:
+            self.access_token = cached
+            return cached
 
         url = f"{self.base_url}/api/admin/token"
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
@@ -144,7 +154,7 @@ class MarzbanClient:
         if not token:
             raise MarzbanError("Marzban token response has no access_token")
         self.access_token = str(token)
-        _TOKEN_CACHE[self.base_url] = self.access_token
+        _TOKEN_CACHE[cache_key] = self.access_token
         return self.access_token
 
     async def _request(
@@ -177,7 +187,8 @@ class MarzbanClient:
                     if response.status == 401 and attempt == 1:
                         # Cached token expired — drop it and retry with a fresh login.
                         self.access_token = ""
-                        _TOKEN_CACHE.pop(self.base_url, None)
+                        if self.username:
+                            _TOKEN_CACHE.pop(self._token_cache_key(), None)
                         continue
                     return await self._read_response(response)
         raise MarzbanError("Marzban authentication failed after token refresh")

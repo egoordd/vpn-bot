@@ -55,6 +55,18 @@ export interface AccountOverview {
   referral: ReferralStats;
 }
 
+export interface BillingPlanDto {
+  code: string;
+  title: string;
+  tier: "trial" | "standard" | "premium";
+  durationDays: number;
+  priceRub: number;
+  cryptoAmount: string;
+  trafficLimitBytes: number | null;
+  deviceLimit: number | null;
+  description: string;
+}
+
 export interface DiscountResult {
   code: string;
   originalKopecks: number;

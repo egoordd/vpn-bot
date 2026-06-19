@@ -10,6 +10,7 @@ from services.marzban_client import (
     MarzbanError,
     MarzbanNotFoundError,
     _timestamp,
+    clear_marzban_token_cache,
 )
 
 
@@ -30,6 +31,13 @@ def _marzban_user_payload(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+@pytest.fixture(autouse=True)
+def _clear_marzban_cache_between_tests():
+    clear_marzban_token_cache()
+    yield
+    clear_marzban_token_cache()
 
 
 @pytest.mark.unit
@@ -89,6 +97,77 @@ async def test_create_user_requests_token_and_sends_marzban_payload():
     assert user.subscription_url == "https://panel.example/sub/tg_1001/token"
     assert user.used_traffic_bytes == 123
     assert user.links == ["vless://example"]
+
+
+@pytest.mark.unit
+async def test_password_grant_token_is_cached_for_same_panel_and_admin():
+    first = MarzbanClient(
+        base_url="https://panel.example",
+        username="admin",
+        password="secret",
+    )
+    second = MarzbanClient(
+        base_url="https://panel.example",
+        username="admin",
+        password="secret",
+    )
+
+    with aioresponses() as mocked:
+        mocked.post(
+            "https://panel.example/api/admin/token",
+            status=200,
+            payload={"access_token": "cached-token", "token_type": "bearer"},
+        )
+        mocked.get("https://panel.example/api/system", status=200, payload={"version": "0.8.4"})
+        mocked.get("https://panel.example/api/user/tg_1001", status=200, payload=_marzban_user_payload())
+
+        assert await first.get_system() == {"version": "0.8.4"}
+        user = await second.get_user("tg_1001")
+
+    token_requests = mocked.requests[("POST", URL("https://panel.example/api/admin/token"))]
+    get_request = mocked.requests[("GET", URL("https://panel.example/api/user/tg_1001"))][0]
+    assert len(token_requests) == 1
+    assert get_request.kwargs["headers"]["Authorization"] == "Bearer cached-token"
+    assert user.username == "tg_1001"
+
+
+@pytest.mark.unit
+async def test_cached_password_grant_token_refreshes_once_on_401():
+    first = MarzbanClient(
+        base_url="https://panel.example",
+        username="admin",
+        password="secret",
+    )
+    second = MarzbanClient(
+        base_url="https://panel.example",
+        username="admin",
+        password="secret",
+    )
+
+    with aioresponses() as mocked:
+        mocked.post(
+            "https://panel.example/api/admin/token",
+            status=200,
+            payload={"access_token": "expired-token", "token_type": "bearer"},
+        )
+        mocked.get("https://panel.example/api/system", status=200, payload={"version": "0.8.4"})
+        mocked.get("https://panel.example/api/user/tg_1001", status=401, payload={"detail": "expired"})
+        mocked.post(
+            "https://panel.example/api/admin/token",
+            status=200,
+            payload={"access_token": "fresh-token", "token_type": "bearer"},
+        )
+        mocked.get("https://panel.example/api/user/tg_1001", status=200, payload=_marzban_user_payload())
+
+        await first.get_system()
+        user = await second.get_user("tg_1001")
+
+    token_requests = mocked.requests[("POST", URL("https://panel.example/api/admin/token"))]
+    get_requests = mocked.requests[("GET", URL("https://panel.example/api/user/tg_1001"))]
+    assert len(token_requests) == 2
+    assert get_requests[0].kwargs["headers"]["Authorization"] == "Bearer expired-token"
+    assert get_requests[1].kwargs["headers"]["Authorization"] == "Bearer fresh-token"
+    assert user.username == "tg_1001"
 
 
 @pytest.mark.unit

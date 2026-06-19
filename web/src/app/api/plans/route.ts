@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server";
 
-import { TARIFFS } from "@/lib/tariffs";
+import { getBillingPlans } from "@/lib/billing/client";
+import { type Tier } from "@/lib/tariffs";
 
-export const dynamic = "force-static";
+export const dynamic = "force-dynamic";
 
-/** Public tariff catalogue. Mirrors services/tariffs.py until the live API feeds it. */
-export function GET() {
-  const plans = Object.values(TARIFFS).sort((a, b) => a.sortOrder - b.sortOrder);
+const TIERS = new Set(["trial", "standard", "premium"]);
+
+/** Public tariff catalogue. Uses the live billing API when configured. */
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const rawTier = searchParams.get("tier");
+  if (rawTier !== null && !TIERS.has(rawTier)) {
+    return NextResponse.json({ error: "invalid tier" }, { status: 400 });
+  }
+
+  const plans = await getBillingPlans((rawTier ?? undefined) as Tier | undefined);
   return NextResponse.json({ plans });
 }

@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { AccountOverview, DiscountResult } from "./types";
+import { TARIFFS, type Tariff, type Tier } from "@/lib/tariffs";
+import type { AccountOverview, BillingPlanDto, DiscountResult } from "./types";
 import { mockAccountOverview, mockPreviewDiscount } from "./mock";
 
 /**
@@ -13,6 +14,8 @@ const API_URL = process.env.BILLING_API_URL?.replace(/\/$/, "");
 const API_TOKEN = process.env.BILLING_API_TOKEN;
 
 export const isBillingLive = Boolean(API_URL);
+
+const GB = 1024 ** 3;
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   if (!API_URL) {
@@ -36,6 +39,35 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 export async function getAccountOverview(userId: number): Promise<AccountOverview> {
   if (!API_URL) return mockAccountOverview();
   return call<AccountOverview>(`/account/${userId}`);
+}
+
+function fallbackPlans(tier?: Tier): Tariff[] {
+  return Object.values(TARIFFS)
+    .filter((plan) => (tier ? plan.tier === tier : true))
+    .filter((plan) => plan.code !== "trial")
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function planFromBillingDto(plan: BillingPlanDto, sortOrder: number): Tariff {
+  return {
+    code: plan.code,
+    title: plan.title,
+    tier: plan.tier,
+    durationDays: plan.durationDays,
+    priceRub: plan.priceRub,
+    cryptoAmount: plan.cryptoAmount,
+    trafficGb: plan.trafficLimitBytes === null ? null : Math.round(plan.trafficLimitBytes / GB),
+    deviceLimit: plan.deviceLimit,
+    description: plan.description,
+    sortOrder,
+  };
+}
+
+export async function getBillingPlans(tier?: Tier): Promise<Tariff[]> {
+  if (!API_URL) return fallbackPlans(tier);
+  const query = tier ? `?tier=${encodeURIComponent(tier)}` : "";
+  const response = await call<{ plans: BillingPlanDto[] }>(`/plans${query}`);
+  return response.plans.map((plan, index) => planFromBillingDto(plan, (index + 1) * 10));
 }
 
 export async function previewDiscount(
