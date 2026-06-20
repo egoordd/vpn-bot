@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { botLink } from "@/lib/site";
-import { LockMark } from "./LockMark";
+import { ConnectionOrbit } from "./ConnectionOrbit";
 import "./hero.css";
 
 export function Hero() {
@@ -9,7 +9,7 @@ export function Hero() {
     <section className="hero" aria-labelledby="hero-heading">
       <div className="container hero__inner">
         <div className="hero__visual">
-          <LockMark />
+          <ConnectionOrbit />
         </div>
 
         <div className="hero__copy">
@@ -37,7 +37,7 @@ export function Hero() {
 
           <ul className="hero__points">
             <li>
-              <CheckIcon /> 7 дней бесплатно
+              <CheckIcon /> 3 дня бесплатно
             </li>
             <li>
               <CheckIcon /> Картой или криптой

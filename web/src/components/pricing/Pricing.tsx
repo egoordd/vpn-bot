@@ -34,7 +34,7 @@ export function Pricing() {
           <h2 id="pricing-heading">Платите за плотность, а не за обещания</h2>
           <p className="lead pricing__sub">
             Чем выше тариф — тем меньше людей на ноде и стабильнее скорость.
-            Пробник на 7 дней доступен всем и бесплатно.
+            Пробник на 3 дня доступен всем и бесплатно.
           </p>
 
           <div className="pricing__toggle" role="tablist" aria-label="Уровень тарифа">

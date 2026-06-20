@@ -10,7 +10,7 @@ export function CtaBanner() {
         <div className="cta__card">
           <div className="cta__glow" aria-hidden />
           <Pill tone="accent" live>
-            7 дней бесплатно
+            3 дня бесплатно
           </Pill>
           <h2 id="cta-heading" className="cta__title">
             Проверьте, как это —<br />
