@@ -1,0 +1,19 @@
+[Unit]
+Description=UnLock VPN Telegram bot
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/vpn-bot
+Environment=DATABASE_URL=postgresql+asyncpg://vpn_bot:vpn_bot_password@127.0.0.1:5432/vpn_bot
+ExecStartPre=/opt/vpn-bot/.venv/bin/alembic upgrade head
+ExecStart=/opt/vpn-bot/.venv/bin/python main.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/unlock-vpnbot.log
+StandardError=append:/var/log/unlock-vpnbot.log
+
+[Install]
+WantedBy=multi-user.target

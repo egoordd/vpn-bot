@@ -1,0 +1,8 @@
+[Unit]
+Description=UnLock VPN node/service health watchdog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vpn-bot/deploy/watchdog/node_watchdog.sh
