@@ -45,12 +45,7 @@ def main_menu_keyboard(has_subscription: bool = False) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu"),
             ]
         )
-    rows.append(
-        [
-            InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
-            InlineKeyboardButton(text="❓ Помощь", callback_data="help"),
-        ]
-    )
+    rows.append([InlineKeyboardButton(text="❓ Помощь", callback_data="help")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -136,7 +131,6 @@ def my_subs_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📱 Подключить устройство", callback_data="connect_device")],
-            [InlineKeyboardButton(text="🌍 Локации", callback_data="locations")],
             [InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu")],
             [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
         ]

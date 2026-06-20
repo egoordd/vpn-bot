@@ -39,6 +39,19 @@ def to_gateway_subscription_url(marzban_url: str | None) -> str | None:
     return f"{base}/sub/{token}"
 
 
+def to_happ_import_url(gateway_url: str | None) -> str | None:
+    """Map a gateway `/sub/<token>` URL to the `/happ/<token>` redirect.
+
+    The redirect endpoint bounces the browser into the `happ://add/...` deep
+    link so a single HTTPS button (Telegram rejects custom schemes) opens Happ
+    and imports the subscription. Returns None when the URL isn't a recognizable
+    `/sub/<token>` gateway link.
+    """
+    if not gateway_url or "/sub/" not in gateway_url:
+        return None
+    return gateway_url.replace("/sub/", "/happ/", 1)
+
+
 async def activate_subscription(session: AsyncSession, user_id: int, plan: str) -> Subscription:
     plan_data = PLANS.get(plan)
     if plan_data is None:

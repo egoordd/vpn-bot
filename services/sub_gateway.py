@@ -18,7 +18,10 @@ Env:
 from __future__ import annotations
 
 import base64
+import html
+import json
 import os
+import re
 import ssl
 import urllib.parse
 import urllib.request
@@ -29,6 +32,10 @@ LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8090"))
 BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 CERT_FILE = os.environ.get("CERT_FILE", "")  # when set -> serve HTTPS on BIND_HOST
 KEY_FILE = os.environ.get("KEY_FILE", "")
+# Public origin used to build the /sub/<token> URL embedded in the Happ deep
+# link. Empty -> derive from the request Host header (correct in prod).
+PUBLIC_BASE = os.environ.get("PUBLIC_BASE", "").rstrip("/")
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 # Display name clients show for the subscription (Happ reads `profile-title`,
 # base64 UTF-8, max 25 chars). Without it Happ shows the default "subscription".
@@ -111,6 +118,35 @@ def build_combined(token: str) -> tuple[str, str | None] | None:
     return payload, userinfo
 
 
+def happ_redirect_page(sub_url: str) -> str:
+    """HTML that bounces the browser into Happ's `happ://add/<sub_url>` deep link.
+
+    Telegram rejects custom URL schemes in inline buttons, so the bot button is a
+    plain HTTPS link to `/happ/<token>` which serves this page; the page then
+    hands off to the app (JS + meta-refresh) with a tappable fallback.
+    """
+    happ_url = f"happ://add/{sub_url}"
+    href = html.escape(happ_url, quote=True)
+    js_url = json.dumps(happ_url)
+    return (
+        "<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>UnLock VPN</title>"
+        f"<script>location.replace({js_url})</script>"
+        f"<meta http-equiv=\"refresh\" content=\"0;url={href}\"></head>"
+        "<body style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
+        "text-align:center;padding:48px 20px;color:#1a1a1a\">"
+        "<h2>Открываю Happ…</h2>"
+        "<p>Если приложение не открылось автоматически:</p>"
+        f"<p><a href=\"{href}\" style=\"display:inline-block;padding:13px 24px;"
+        "background:#111;color:#fff;border-radius:12px;text-decoration:none;"
+        "font-weight:600\">Открыть в Happ</a></p>"
+        "<p style=\"color:#888;font-size:14px;margin-top:28px\">Нет приложения? "
+        "Установите Happ из App Store или Google Play и нажмите кнопку снова.</p>"
+        "</body></html>"
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "unlock-subgw"
 
@@ -121,6 +157,16 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if path in ("/health", "/healthz"):
             self._send(200, b"ok", "text/plain")
+            return
+        happ_prefix = "/happ/"
+        if path.startswith(happ_prefix):
+            token = path[len(happ_prefix):].split("/", 1)[0]
+            if not _TOKEN_RE.match(token):
+                self._send(404, b"not found", "text/plain")
+                return
+            base = PUBLIC_BASE or f"https://{self.headers.get('Host', '')}".rstrip("/")
+            page = happ_redirect_page(f"{base}/sub/{token}")
+            self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
             return
         prefix = "/sub/"
         if not path.startswith(prefix):

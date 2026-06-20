@@ -12,16 +12,13 @@ from config import settings
 from database.models import Subscription
 from database.repository import Repository
 from services.awg_provision import AwgProvisionError, ensure_client_configs
-from services.deeplinks import AppImportGuide, build_app_import_guides
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.qrcode import generate_qr_png_bytes
-from services.subscription import to_gateway_subscription_url
+from services.subscription import to_gateway_subscription_url, to_happ_import_url
 from services.wireguard import WireGuardError, rotate_user_key
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-APP_CODES = {"hiddify", "v2raytun", "streisand", "singbox"}
 
 
 def _location_label(subscription: Subscription) -> str:
@@ -34,20 +31,14 @@ def _awg_available() -> bool:
     return bool(settings.awg_nodes_dict)
 
 
-def _connect_device_keyboard(sub_id: int | None = None) -> InlineKeyboardMarkup:
+def _connect_device_keyboard(happ_url: str | None = None, sub_id: int | None = None) -> InlineKeyboardMarkup:
     suffix = f":{sub_id}" if sub_id is not None else ""
-    rows = [
-        [
-            InlineKeyboardButton(text="Hiddify", callback_data=f"connect_app:hiddify{suffix}"),
-            InlineKeyboardButton(text="V2RayTun", callback_data=f"connect_app:v2raytun{suffix}"),
-        ],
-        [
-            InlineKeyboardButton(text="Streisand", callback_data=f"connect_app:streisand{suffix}"),
-            InlineKeyboardButton(text="sing-box", callback_data=f"connect_app:singbox{suffix}"),
-        ],
-    ]
+    rows: list[list[InlineKeyboardButton]] = []
+    if happ_url:
+        rows.append([InlineKeyboardButton(text="📲 Подключить", url=happ_url)])
     if _awg_available():
         rows.append([InlineKeyboardButton(text="🔒 AmneziaWG (запасной канал)", callback_data="connect_awg")])
+    rows.append([InlineKeyboardButton(text="❓ Как подключить вручную", callback_data=f"connect_help{suffix}")])
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -61,7 +52,7 @@ def _location_selector_keyboard(subs: list[Subscription]) -> InlineKeyboardMarku
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _app_instruction_keyboard(sub_id: int | None = None) -> InlineKeyboardMarkup:
+def _manual_help_keyboard(sub_id: int | None = None) -> InlineKeyboardMarkup:
     back = f"connect_loc:{sub_id}" if sub_id is not None else "connect_device"
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -81,11 +72,12 @@ def _subscription_access_text(subscription_url: str, location: str | None = None
         "🔗 <b>Ссылка-подписка:</b>\n"
         f"<code>{escaped_url}</code>\n\n"
         + bq(
-            "1️⃣ Выберите приложение ниже",
-            "2️⃣ Импортируйте ссылку (или отсканируйте QR)",
-            "3️⃣ Включите туннель — готово",
+            "1️⃣ Нажмите «📲 Подключить» — откроется Happ и загрузит подписку",
+            "2️⃣ Разрешите добавить VPN и включите туннель",
+            "3️⃣ Выберите страну в приложении — готово",
         )
         + "\n\n🌍 В подписке несколько стран — выбирайте сервер в приложении.\n"
+        "❓ Нет Happ или другое приложение? Нажмите «Как подключить вручную».\n"
         "♻️ Сменили тариф или локацию? Нажмите «Обновить подписку» в приложении."
     )
 
@@ -114,19 +106,29 @@ async def _send_subscription_screen(callback: CallbackQuery, subscription: Subsc
         await callback.message.answer_photo(
             BufferedInputFile(qr_bytes, filename="subscription_qr.png"),
             caption=_subscription_access_text(url, _location_label(subscription)),
-            reply_markup=_connect_device_keyboard(subscription.id),
+            reply_markup=_connect_device_keyboard(to_happ_import_url(url), subscription.id),
         )
 
 
-def _app_instruction_text(guide: AppImportGuide, subscription_url: str) -> str:
-    escaped_url = html.escape(subscription_url)
-    lines = [f"📲 <b>{html.escape(guide.title)}</b>", ""]
-    if guide.deeplink:
-        lines.extend(["⚡️ <b>Быстрый импорт:</b>", f"<code>{html.escape(guide.deeplink)}</code>", ""])
-    steps = [f"{index}. {html.escape(step)}" for index, step in enumerate(guide.steps, start=1)]
-    lines.append("Если быстрый импорт не открыл приложение:")
-    lines.append(bq(*steps))
-    lines.extend(["", "🔗 <b>Ссылка-подписка:</b>", f"<code>{escaped_url}</code>"])
+def _manual_help_text(subscription_url: str | None) -> str:
+    lines = [
+        "📖 <b>Как подключить вручную</b>",
+        "",
+        bq(
+            "1️⃣ Скопируйте ссылку-подписку (ниже) — нажмите на неё.",
+            "2️⃣ Откройте приложение и импортируйте ссылку по URL или QR.",
+            "3️⃣ Включите туннель и выберите страну.",
+        ),
+        "",
+        "<b>Приложения, которые поддерживают ссылку:</b>",
+        bq(
+            "🍏 iOS — Happ, V2RayTun, Streisand",
+            "🤖 Android — Happ, V2RayTun, Hiddify, sing-box",
+        ),
+    ]
+    if subscription_url:
+        lines.extend(["", "🔗 <b>Ссылка-подписка:</b>", f"<code>{html.escape(subscription_url)}</code>"])
+    lines.extend(["", "♻️ Сменили тариф или локацию? Нажмите «Обновить подписку» в приложении."])
     return "\n".join(lines)
 
 
@@ -253,17 +255,13 @@ async def connect_location_handler(
     await _send_subscription_screen(callback, subscription, url)
 
 
-@router.callback_query(F.data.startswith("connect_app:"), flags={"subscription_required": True})
-async def connect_app_handler(
+@router.callback_query(F.data.startswith("connect_help"), flags={"subscription_required": True})
+async def connect_help_handler(
     callback: CallbackQuery,
     session_pool: async_sessionmaker[AsyncSession],
 ) -> None:
     parts = callback.data.split(":") if callback.data else []
-    app_code = parts[1] if len(parts) > 1 else ""
-    sub_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
-    if app_code not in APP_CODES:
-        await callback.answer("Приложение не найдено", show_alert=True)
-        return
+    sub_id = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
 
     async with session_pool() as session:
         repo = Repository(session)
@@ -272,32 +270,23 @@ async def connect_app_handler(
             await callback.answer("Пользователь не найден. Нажмите /start.", show_alert=True)
             return
         await callback.answer()
+        subscription_url: str | None = None
         try:
             if sub_id is not None:
                 subscription = await repo.get_subscription(sub_id)
-                subscription_url = (
-                    await _resolve_url_for_subscription(repo, subscription)
-                    if subscription and subscription.user_id == user.id
-                    else None
-                )
-            else:
+                if subscription and subscription.user_id == user.id:
+                    subscription_url = await _resolve_url_for_subscription(repo, subscription)
+            if subscription_url is None:
                 subscription_url = await _resolve_subscription_url(repo, user.id)
         except PanelGatewayError:
-            logger.exception("Could not resolve subscription URL for user_id=%s", user.id)
-            await _send_processing_error(callback, "Не удалось получить ссылку. Напишите в поддержку.")
-            return
+            logger.exception("Could not resolve subscription URL for help, user_id=%s", user.id)
+            subscription_url = None
 
-    if not subscription_url:
-        await _send_processing_error(callback, "Для этой подписки доступен WireGuard-конфиг, а не ссылка-подписка.")
-        return
-
-    guide = build_app_import_guides(subscription_url)[app_code]
-    text = _app_instruction_text(guide, subscription_url)
     if callback.message:
-        if callback.message.photo:
-            await callback.message.edit_caption(caption=text, reply_markup=_app_instruction_keyboard(sub_id))
-        else:
-            await callback.message.edit_text(text, reply_markup=_app_instruction_keyboard(sub_id))
+        await callback.message.answer(
+            _manual_help_text(subscription_url),
+            reply_markup=_manual_help_keyboard(sub_id),
+        )
 
 
 _AWG_INTRO = (

@@ -16,7 +16,8 @@ def test_main_menu_buy_first_then_subs_when_active():
     assert no_sub[0][0].callback_data == "buy_menu"
     callbacks = [b.callback_data for row in no_sub for b in row]
     assert "my_subs" not in callbacks  # no subs -> no "Мои подписки"
-    assert "profile" in callbacks and "help" in callbacks
+    assert "profile" not in callbacks  # profile shown on the menu itself, no button
+    assert "help" in callbacks
 
     active = main_menu_keyboard(has_subscription=True).inline_keyboard
     assert active[0][0].callback_data == "buy_menu"

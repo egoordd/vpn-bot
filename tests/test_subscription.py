@@ -13,6 +13,7 @@ from services.subscription import (
     check_subscription_active,
     get_subscription_info,
     to_gateway_subscription_url,
+    to_happ_import_url,
 )
 
 
@@ -38,6 +39,18 @@ def test_gateway_url_handles_none_and_non_sub_links(monkeypatch):
     )
     assert to_gateway_subscription_url(None) is None
     assert to_gateway_subscription_url("https://panel/no-token") == "https://panel/no-token"
+
+
+def test_happ_import_url_maps_sub_to_happ_path():
+    assert (
+        to_happ_import_url("https://sub.unlockvpn.org:8444/sub/abc123")
+        == "https://sub.unlockvpn.org:8444/happ/abc123"
+    )
+
+
+def test_happ_import_url_none_for_invalid_links():
+    assert to_happ_import_url(None) is None
+    assert to_happ_import_url("https://panel/no-token") is None
 
 
 @pytest.mark.integration

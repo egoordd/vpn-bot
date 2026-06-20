@@ -87,7 +87,7 @@ async def test_get_key_handler_sends_subscription_link_for_panel_subscription(se
 
 
 @pytest.mark.integration
-async def test_connect_app_handler_shows_app_specific_instruction(session_pool):
+async def test_connect_help_handler_shows_manual_instructions(session_pool):
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=903, username="panel")
@@ -103,31 +103,37 @@ async def test_connect_app_handler_shows_app_specific_instruction(session_pool):
             is_active=True,
         )
 
-    message = SimpleNamespace(photo=[object()], edit_caption=AsyncMock(), edit_text=AsyncMock())
+    message = SimpleNamespace(answer=AsyncMock())
     callback = SimpleNamespace(
-        data="connect_app:hiddify",
+        data="connect_help",
         from_user=SimpleNamespace(id=903),
         message=message,
         answer=AsyncMock(),
     )
 
-    await connect_device.connect_app_handler(callback, session_pool)
+    await connect_device.connect_help_handler(callback, session_pool)
 
-    message.edit_caption.assert_awaited_once()
-    text = message.edit_caption.await_args.kwargs["caption"]
-    assert "Hiddify" in text
-    assert "hiddify://import/" in text
+    callback.answer.assert_awaited_once()
+    message.answer.assert_awaited_once()
+    text = message.answer.await_args.args[0]
+    assert "Как подключить вручную" in text
+    assert "Happ" in text
     assert "https://sub.example/api/sub/short" in text
 
 
-def test_connect_keyboard_shows_awg_only_when_configured(monkeypatch):
+def test_connect_keyboard_has_happ_help_and_awg_when_configured(monkeypatch):
     monkeypatch.setattr(connect_device, "_awg_available", lambda: True)
-    datas_on = [b.callback_data for row in connect_device._connect_device_keyboard().inline_keyboard for b in row]
+    kb_on = connect_device._connect_device_keyboard(happ_url="https://sub.example/happ/x", sub_id=7)
+    datas_on = [b.callback_data for row in kb_on.inline_keyboard for b in row]
+    urls_on = [b.url for row in kb_on.inline_keyboard for b in row]
+    assert "https://sub.example/happ/x" in urls_on
     assert "connect_awg" in datas_on
+    assert "connect_help:7" in datas_on
 
     monkeypatch.setattr(connect_device, "_awg_available", lambda: False)
     datas_off = [b.callback_data for row in connect_device._connect_device_keyboard().inline_keyboard for b in row]
     assert "connect_awg" not in datas_off
+    assert "connect_help" in datas_off
 
 
 @pytest.mark.integration
