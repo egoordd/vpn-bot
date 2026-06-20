@@ -156,9 +156,33 @@ async def _attach_referrer_from_start(
             return
 
 
+async def _maybe_grant_trial(
+    session_pool: async_sessionmaker[AsyncSession],
+    message: Message,
+) -> None:
+    """Best-effort: give a brand-new user a free trial subscription on first
+    /start. Skipped if the user already has any subscription (active or past).
+    Provisioning failures must never break /start, so they are logged, not raised."""
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+        )
+        if await repo.list_active_subscriptions(user.id):
+            return
+        if await repo.get_latest_subscription(user.id) is not None:
+            return
+        try:
+            await activate_panel_subscription(session=session, user_id=user.id, plan="trial")
+        except Exception:  # noqa: BLE001 - trial is best-effort; never block /start
+            logger.exception("Failed to grant trial for user_id=%s", user.id)
+
+
 @router.message(CommandStart())
 async def start_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
     await _attach_referrer_from_start(session_pool, message)
+    await _maybe_grant_trial(session_pool, message)
     text, keyboard = await _menu_state(
         session_pool=session_pool,
         telegram_id=message.from_user.id,

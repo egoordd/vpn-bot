@@ -165,3 +165,37 @@ async def test_my_subs_handler_lists_cards(session_pool):
     assert "Мои подписки" in text
     keyboard = message.edit_text.await_args.kwargs["reply_markup"]
     assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"
+
+
+@pytest.mark.integration
+async def test_maybe_grant_trial_activates_for_new_user(session_pool, monkeypatch):
+    activate = AsyncMock()
+    monkeypatch.setattr(start, "activate_panel_subscription", activate)
+    message = SimpleNamespace(from_user=SimpleNamespace(id=980, username="newbie"))
+
+    await start._maybe_grant_trial(session_pool, message)
+
+    activate.assert_awaited_once()
+    assert activate.await_args.kwargs["plan"] == "trial"
+
+
+@pytest.mark.integration
+async def test_maybe_grant_trial_skips_user_with_subscription(session_pool, monkeypatch):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=981, username="returning")
+        await repo.create_subscription(
+            user_id=user.id, plan="standard_1m", tier="standard",
+            panel_username="tg_981", sub_token="tok",
+            subscription_url="https://sub.example/sub/tok",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            is_active=True,
+        )
+    activate = AsyncMock()
+    monkeypatch.setattr(start, "activate_panel_subscription", activate)
+    message = SimpleNamespace(from_user=SimpleNamespace(id=981, username="returning"))
+
+    await start._maybe_grant_trial(session_pool, message)
+
+    activate.assert_not_awaited()
