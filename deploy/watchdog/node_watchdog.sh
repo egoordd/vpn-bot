@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
 # Health watchdog for UnLock VPN nodes/services. Runs on the bot VPS via a
 # systemd timer. Network-only checks (no traffic through this box). Sends a
-# Telegram alert to ADMIN_IDS on state transitions (down / recovered).
+# Telegram alert to the SEPARATE alerts bot on state transitions (down/recover).
 set -u
 
 ENV_FILE="${ENV_FILE:-/opt/vpn-bot/.env}"
 STATE_DIR="${STATE_DIR:-/var/lib/node-watchdog}"
 mkdir -p "$STATE_DIR"
 
-BOT_TOKEN=$(sed -n 's/^BOT_TOKEN=//p' "$ENV_FILE")
-ADMIN_IDS=$(sed -n 's/^ADMIN_IDS=//p' "$ENV_FILE" | tr ',' ' ')
+ALERT_TOKEN=$(sed -n 's/^ALERTS_BOT_TOKEN=//p' "$ENV_FILE")
+ALERT_CHAT=$(sed -n 's/^ALERTS_CHAT_ID=//p' "$ENV_FILE")
+[ -n "$ALERT_CHAT" ] || ALERT_CHAT=$(sed -n 's/^ADMIN_IDS=//p' "$ENV_FILE" | cut -d, -f1)
 
 notify() {
-  [ -n "$BOT_TOKEN" ] || return 0
-  local id
-  for id in $ADMIN_IDS; do
-    curl -s -m 15 "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-      --data-urlencode "chat_id=${id}" \
-      --data-urlencode "text=$1" \
-      -d parse_mode=HTML >/dev/null
-  done
+  [ -n "$ALERT_TOKEN" ] && [ -n "$ALERT_CHAT" ] || return 0
+  curl -s -m 15 "https://api.telegram.org/bot${ALERT_TOKEN}/sendMessage" \
+    --data-urlencode "chat_id=${ALERT_CHAT}" \
+    --data-urlencode "text=$1" \
+    -d parse_mode=HTML >/dev/null
 }
 
 # report <state-key> <human label> <exit-status: 0=ok>

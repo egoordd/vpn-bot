@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 
 from aiogram import Bot, Dispatcher
@@ -6,8 +7,10 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, ErrorEvent
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from services.alerts import send_alert
 
 from bot.handlers import admin, buy, connect_device, help, instructions, locations, start, subscription, support, wallet
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
@@ -79,6 +82,17 @@ async def main() -> None:
     dispatcher.include_router(connect_device.router)
     dispatcher.include_router(instructions.router)
     dispatcher.include_router(support.router)
+
+    @dispatcher.errors()
+    async def on_update_error(event: ErrorEvent) -> bool:
+        exc = event.exception
+        logger.exception("Update processing error", exc_info=exc)
+        detail = html.escape(f"{type(exc).__name__}: {exc}")[:600]
+        await send_alert(
+            f"⚠️ <b>Ошибка в боте</b>\n<code>{detail}</code>",
+            throttle_key=f"{type(exc).__name__}:{exc}"[:120],
+        )
+        return True
 
     scheduler = setup_scheduler(bot=bot, session_pool=session_pool)
     scheduler.start()

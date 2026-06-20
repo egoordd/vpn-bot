@@ -107,6 +107,10 @@ class Settings(BaseSettings):
 
     SUPPORT_USERNAME: str = "support"
     ADMIN_IDS: str = ""
+    # Separate Telegram bot that receives ops errors + user complaints, so they
+    # never surface in the main user-facing bot. Empty -> alerts disabled.
+    ALERTS_BOT_TOKEN: str = ""
+    ALERTS_CHAT_ID: str = ""
     DB_ECHO: bool = False
 
     @field_validator("ADMIN_IDS", mode="before")
@@ -124,6 +128,15 @@ class Settings(BaseSettings):
             return []
         raw = self.ADMIN_IDS.strip().strip("[]")
         return [int(item.strip()) for item in raw.split(",") if item.strip()]
+
+    @property
+    def alerts_chat_id(self) -> str:
+        """Chat that receives alerts; falls back to the first admin id."""
+        cid = self.ALERTS_CHAT_ID.strip()
+        if cid:
+            return cid
+        ids = self.admin_ids_list
+        return str(ids[0]) if ids else ""
 
     @property
     def bot_token(self) -> str:
