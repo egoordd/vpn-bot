@@ -8,6 +8,7 @@ Requires=docker.service
 Type=simple
 WorkingDirectory=/opt/vpn-bot
 Environment=DATABASE_URL=postgresql+asyncpg://vpn_bot:vpn_bot_password@127.0.0.1:5432/vpn_bot
+Environment=REDIS_URL=redis://127.0.0.1:6379/0
 ExecStartPre=/opt/vpn-bot/.venv/bin/alembic upgrade head
 ExecStart=/opt/vpn-bot/.venv/bin/python main.py
 Restart=always
