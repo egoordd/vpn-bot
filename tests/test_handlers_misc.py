@@ -30,7 +30,7 @@ async def test_instructions_handler_replaces_photo_message():
 
 @pytest.mark.unit
 async def test_support_handler_edits_text(monkeypatch):
-    monkeypatch.setattr(support.settings, "SUPPORT_USERNAME", "helpdesk")
+    monkeypatch.setattr(support.settings, "SUPPORT_BOT_USERNAME", "unlock_support_bot")
     message = SimpleNamespace(photo=None, edit_caption=AsyncMock(), edit_text=AsyncMock())
     callback = SimpleNamespace(
         message=message,
@@ -41,7 +41,9 @@ async def test_support_handler_edits_text(monkeypatch):
     await support.support_handler(callback)
 
     message.edit_text.assert_awaited_once()
-    assert "@helpdesk" in message.edit_text.await_args.args[0]
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    urls = [b.url for row in keyboard.inline_keyboard for b in row if b.url]
+    assert any("unlock_support_bot" in u for u in urls)
     callback.answer.assert_awaited_once()
 
 

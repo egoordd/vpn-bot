@@ -107,10 +107,14 @@ class Settings(BaseSettings):
 
     SUPPORT_USERNAME: str = "support"
     ADMIN_IDS: str = ""
-    # Separate Telegram bot that receives ops errors + user complaints, so they
-    # never surface in the main user-facing bot. Empty -> alerts disabled.
+    # Reports bot: receives ops errors, complaints (relayed) and payment
+    # notifications; admin replies here are relayed back to users. Empty -> off.
     ALERTS_BOT_TOKEN: str = ""
     ALERTS_CHAT_ID: str = ""
+    # Support bot: users open tickets here; the support relay forwards them to the
+    # reports bot and routes the admin's replies back. Username = for the deep link.
+    SUPPORT_BOT_TOKEN: str = ""
+    SUPPORT_BOT_USERNAME: str = ""
     DB_ECHO: bool = False
 
     @field_validator("ADMIN_IDS", mode="before")

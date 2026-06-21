@@ -1,0 +1,18 @@
+[Unit]
+Description=UnLock VPN support relay (support bot <-> reports bot)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/vpn-bot
+Environment=REDIS_URL=redis://127.0.0.1:6379/0
+ExecStart=/opt/vpn-bot/.venv/bin/python -m services.support_relay
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/unlock-support.log
+StandardError=append:/var/log/unlock-support.log
+
+[Install]
+WantedBy=multi-user.target

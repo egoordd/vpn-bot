@@ -7,39 +7,19 @@ from bot.handlers import support
 
 
 @pytest.mark.unit
-async def test_support_receive_forwards_to_alerts(monkeypatch):
-    send = AsyncMock(return_value=True)
-    monkeypatch.setattr(support, "send_alert", send)
-    state = AsyncMock()
-    message = SimpleNamespace(
-        text="не работает подключение",
-        caption=None,
-        from_user=SimpleNamespace(id=555, username="bob", full_name="Bob B"),
-        answer=AsyncMock(),
-    )
+async def test_support_handler_links_to_support_bot(monkeypatch):
+    monkeypatch.setattr(support.settings, "SUPPORT_BOT_USERNAME", "unlock_support_bot")
+    shown = {}
 
-    await support.support_receive(message, state)
+    async def fake_show(callback, text, keyboard):
+        shown["text"] = text
+        shown["keyboard"] = keyboard
 
-    state.clear.assert_awaited_once()
-    send.assert_awaited_once()
-    sent = send.await_args.args[0]
-    assert "555" in sent
-    assert "не работает подключение" in sent
-    message.answer.assert_awaited_once()
+    monkeypatch.setattr(support, "show_screen", fake_show)
+    callback = SimpleNamespace(from_user=SimpleNamespace(id=42), answer=AsyncMock())
 
+    await support.support_handler(callback)
 
-@pytest.mark.unit
-async def test_support_receive_ignores_empty(monkeypatch):
-    send = AsyncMock(return_value=True)
-    monkeypatch.setattr(support, "send_alert", send)
-    state = AsyncMock()
-    message = SimpleNamespace(
-        text="",
-        caption=None,
-        from_user=SimpleNamespace(id=5, username=None, full_name=None),
-        answer=AsyncMock(),
-    )
-
-    await support.support_receive(message, state)
-
-    send.assert_not_awaited()
+    urls = [b.url for row in shown["keyboard"].inline_keyboard for b in row if b.url]
+    assert any("unlock_support_bot" in u for u in urls)
+    callback.answer.assert_awaited_once()
