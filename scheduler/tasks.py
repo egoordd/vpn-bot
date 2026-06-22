@@ -17,7 +17,6 @@ from services.autoscaler import (
     autoscale_premium_pool,
     release_subscription_nodes,
 )
-from services.alerts import send_alert
 from services.cryptobot import get_invoices_by_status
 from services.panel_gateway import (
     PanelGateway,
@@ -555,18 +554,6 @@ async def poll_cryptobot_payments(
                     claimed_user_id,
                 )
                 continue
-
-            try:
-                tariff_title = resolve_tariff(plan).title
-            except ValueError:
-                tariff_title = plan
-            uname = f"@{user.username}" if user.username else "—"
-            await send_alert(
-                "💰 <b>Оплата подписки</b>\n"
-                f"Тариф: {tariff_title}\n"
-                f"Пользователь: {uname} (<code>{user.telegram_id}</code>)\n"
-                f"Действует до: {subscription.expires_at:%d.%m.%Y}"
-            )
 
             try:
                 await reward_referrer_for_payment(
