@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { botLink } from "@/lib/site";
-import { ConnectionOrbit } from "./ConnectionOrbit";
+import { HeroLock } from "./HeroLock";
 import "./hero.css";
 
 export function Hero() {
@@ -9,7 +9,7 @@ export function Hero() {
     <section className="hero" aria-labelledby="hero-heading">
       <div className="container hero__inner">
         <div className="hero__visual">
-          <ConnectionOrbit />
+          <HeroLock />
         </div>
 
         <div className="hero__copy">

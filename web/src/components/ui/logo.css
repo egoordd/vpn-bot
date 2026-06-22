@@ -1,29 +1,30 @@
 .logo {
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 800;
   font-size: var(--text-lg);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
+  color: var(--accent);
 }
 
 .logo__mark {
-  display: grid;
-  place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 0.7rem;
-  color: var(--accent-ink);
-  background: var(--accent);
-  box-shadow: 0 6px 16px -8px var(--glow-accent);
-  transition: box-shadow var(--duration) var(--ease-out-expo), transform var(--duration) var(--ease-out-expo);
+  height: 1.5em;
+  width: auto;
+  margin-right: 0.05em;
+  color: var(--accent);
+  overflow: visible;
+  transition: transform var(--duration) var(--ease-out-expo);
 }
 .logo:hover .logo__mark {
-  box-shadow: 0 10px 24px -8px var(--glow-accent);
   transform: translateY(-1px);
 }
 
-.logo__accent {
+.logo__word {
   color: var(--accent);
+}
+.logo__upn {
+  color: var(--text-dim);
+  margin-left: 0.22em;
+  font-weight: 700;
 }

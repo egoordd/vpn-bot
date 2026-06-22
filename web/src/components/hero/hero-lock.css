@@ -1,0 +1,48 @@
+.herolock {
+  width: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.herolock__mark {
+  width: min(38%, 15rem);
+  height: auto;
+  color: var(--accent);
+  overflow: visible;
+  filter: drop-shadow(0 26px 55px var(--glow-accent));
+}
+
+.herolock__mark .lk-cap {
+  transform-box: view-box;
+  transform-origin: 76px 36px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .herolock__mark {
+    animation: herolock-float 9s ease-in-out infinite;
+  }
+  .herolock__mark .lk-cap {
+    animation: herolock-unlock 4.5s var(--ease-out-expo) infinite;
+  }
+}
+
+@keyframes herolock-unlock {
+  0%, 30% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  52%, 80% {
+    transform: translate(6px, -12px) rotate(14deg);
+  }
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+}
+
+@keyframes herolock-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
