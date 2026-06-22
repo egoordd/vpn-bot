@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, AsyncIterator
@@ -9,9 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from database.repository import Repository
-from services import billing_api, promo, wallet
+from services import billing_api, promo, tribute, wallet
 from services.billing_api import AccountOverview, BillingPlan, BillingRegion, SubscriptionSnapshot
 from services.referral import ReferralStats
+from services.subscription import activate_panel_subscription, to_gateway_subscription_url
 from services.tariffs import resolve_tariff
 from services.wallet import UnknownWalletUserError, WalletEntry, WalletSnapshot
 
@@ -146,9 +148,16 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     engine = create_async_engine(settings.DATABASE_URL)
     application.state.session_pool = async_sessionmaker(engine, expire_on_commit=False)
     application.state.api_token = settings.BILLING_API_TOKEN.get_secret_value()
+    application.state.redis = None
+    if settings.REDIS_URL:
+        import redis.asyncio as aioredis
+
+        application.state.redis = aioredis.from_url(settings.REDIS_URL)
     try:
         yield
     finally:
+        if application.state.redis is not None:
+            await application.state.redis.aclose()
         await engine.dispose()
 
 
@@ -162,6 +171,10 @@ async def _require_auth(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:
+    # The Tribute webhook authenticates via its own HMAC signature, not the
+    # bearer token, so it is exempt from this app-wide check.
+    if request.url.path == "/tribute/webhook":
+        return
     expected = getattr(request.app.state, "api_token", "")
     if not expected:
         return
@@ -258,6 +271,56 @@ def create_app() -> FastAPI:
             "recent": recent,
             "generatedAt": _iso(now),
         }
+
+    @application.post("/tribute/webhook")
+    async def tribute_webhook(request: Request, session: SessionDep) -> dict[str, Any]:
+        raw = await request.body()
+        if not tribute.verify_signature(raw, request.headers.get("trbt-signature", "")):
+            raise HTTPException(status_code=401, detail="invalid signature")
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid json")
+
+        name = data.get("name")
+        payload = data.get("payload") or {}
+
+        # Idempotency: Tribute may retry. Dedupe on the purchase/transaction id.
+        event_id = str(
+            payload.get("purchase_id")
+            or payload.get("transaction_id")
+            or f"{name}:{payload.get('subscription_id')}:{payload.get('period_id')}"
+        )
+        redis = getattr(request.app.state, "redis", None)
+        if redis is not None:
+            fresh = await redis.set(f"tribute:evt:{event_id}", "1", nx=True, ex=60 * 60 * 24 * 7)
+            if not fresh:
+                return {"ok": True, "deduped": True}
+
+        if name not in ("new_subscription", "new_digital_product"):
+            return {"ok": True, "ignored": name}
+
+        telegram_id = payload.get("telegram_user_id")
+        tribute_id = payload.get("product_id") if name == "new_digital_product" else payload.get("subscription_id")
+        plan = tribute.plan_for(tribute_id)
+        if not telegram_id or not plan:
+            # Log raw payload so an unmapped product can be wired up afterwards.
+            import logging
+
+            logging.getLogger("tribute").error("Unmapped Tribute purchase: %s", raw.decode("utf-8", "replace"))
+            return {"ok": False, "error": "unmapped"}
+
+        username = (payload.get("telegram_username") or "").lstrip("@") or None
+        repo = Repository(session)
+        user = await repo.get_or_create_user(telegram_id=int(telegram_id), username=username)
+        try:
+            subscription = await activate_panel_subscription(session=session, user_id=user.id, plan=plan)
+        except Exception as exc:  # noqa: BLE001 - surface as 500 so Tribute retries
+            raise HTTPException(status_code=500, detail="provisioning failed") from exc
+
+        sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
+        await tribute.deliver_subscription(int(telegram_id), sub_url)
+        return {"ok": True, "plan": plan}
 
     return application
 

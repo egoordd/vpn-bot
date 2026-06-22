@@ -175,3 +175,42 @@ async def test_admin_stats_returns_aggregates(api_client, session_pool):
     assert "activeByTier" in data["subscriptions"]
     assert "balancesKopecks" in data["money"] and "depositsKopecks" in data["money"]
     assert isinstance(data["recent"], list)
+
+
+@pytest.mark.asyncio
+async def test_tribute_webhook_provisions_and_delivers(api_client, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(api_mod.tribute, "verify_signature", lambda raw, sig: True)
+    monkeypatch.setattr(api_mod.tribute, "plan_for", lambda tid: "standard_1m")
+    deliver = AsyncMock(return_value=True)
+    monkeypatch.setattr(api_mod.tribute, "deliver_subscription", deliver)
+
+    class _Sub:
+        subscription_url = "https://sub.example/sub/abc"
+
+    activate = AsyncMock(return_value=_Sub())
+    monkeypatch.setattr(api_mod, "activate_panel_subscription", activate)
+
+    body = {
+        "name": "new_digital_product",
+        "payload": {"telegram_user_id": 555, "product_id": 1, "purchase_id": "p1", "telegram_username": "@buyer"},
+    }
+    response = await api_client.post("/tribute/webhook", json=body, headers={"trbt-signature": "x"})
+
+    assert response.status_code == 200
+    assert response.json()["plan"] == "standard_1m"
+    activate.assert_awaited_once()
+    assert activate.await_args.kwargs["plan"] == "standard_1m"
+    deliver.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_tribute_webhook_rejects_bad_signature(api_client, monkeypatch):
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(api_mod.tribute, "verify_signature", lambda raw, sig: False)
+    response = await api_client.post("/tribute/webhook", json={"name": "x"}, headers={"trbt-signature": "bad"})
+    assert response.status_code == 401

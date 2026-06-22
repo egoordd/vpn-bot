@@ -115,6 +115,12 @@ class Settings(BaseSettings):
     # reports bot and routes the admin's replies back. Username = for the deep link.
     SUPPORT_BOT_TOKEN: str = ""
     SUPPORT_BOT_USERNAME: str = ""
+    # Tribute card payments. API key verifies the webhook HMAC signature.
+    # PLAN_MAP: JSON {"<tribute product/subscription id>": "<our plan code>"}.
+    # DEFAULT_PLAN: fallback plan if an id isn't in the map. Empty -> disabled.
+    TRIBUTE_API_KEY: str = ""
+    TRIBUTE_PLAN_MAP: str = "{}"
+    TRIBUTE_DEFAULT_PLAN: str = ""
     DB_ECHO: bool = False
 
     @field_validator("ADMIN_IDS", mode="before")
@@ -181,6 +187,11 @@ class Settings(BaseSettings):
     def marzban_default_inbounds_dict(self) -> dict[str, list[str]]:
         raw = self._parse_json_object(self.MARZBAN_DEFAULT_INBOUNDS, "MARZBAN_DEFAULT_INBOUNDS")
         return {str(key): [str(item) for item in value] for key, value in raw.items() if isinstance(value, list)}
+
+    @property
+    def tribute_plan_map_dict(self) -> dict[str, str]:
+        raw = self._parse_json_object(self.TRIBUTE_PLAN_MAP, "TRIBUTE_PLAN_MAP")
+        return {str(key): str(value) for key, value in raw.items()}
 
     @property
     def marzban_region_inbounds_dict(self) -> dict[str, dict[str, list[str]]]:
