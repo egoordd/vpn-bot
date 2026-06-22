@@ -45,8 +45,6 @@ export function ConnectionOrbit() {
           </g>
         </g>
 
-        <path className="orbit__link" d="M 64 250 Q 150 150 214 206" fill="none" />
-
         <g className="orbit__core">
           <circle cx="220" cy="216" r="58" className="orbit__core-halo" fill="url(#orbitHalo)" />
           <circle cx="220" cy="216" r="32" className="orbit__core-disc" fill="url(#orbitCore)" />
