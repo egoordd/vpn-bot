@@ -799,6 +799,40 @@ class Repository:
         )
         return int(result.scalar_one())
 
+    async def count_subscriptions_total(self) -> int:
+        result = await self.session.execute(select(func.count()).select_from(Subscription))
+        return int(result.scalar_one())
+
+    async def recent_subscriptions(self, limit: int = 20) -> list[dict[str, Any]]:
+        result = await self.session.execute(
+            select(
+                Subscription.id,
+                Subscription.tier,
+                Subscription.plan,
+                Subscription.started_at,
+                Subscription.expires_at,
+                Subscription.is_active,
+                User.telegram_id,
+                User.username,
+            )
+            .join(User, User.id == Subscription.user_id)
+            .order_by(Subscription.id.desc())
+            .limit(limit)
+        )
+        return [
+            {
+                "id": row.id,
+                "tier": row.tier,
+                "plan": row.plan,
+                "startedAt": row.started_at,
+                "expiresAt": row.expires_at,
+                "isActive": row.is_active,
+                "telegramId": row.telegram_id,
+                "username": row.username,
+            }
+            for row in result.all()
+        ]
+
     # ---- Referrals ---------------------------------------------------------
 
     async def get_user_by_ref_code(self, ref_code: str) -> User | None:

@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, AsyncIterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from services import billing_api, promo
+from database.repository import Repository
+from services import billing_api, promo, wallet
 from services.billing_api import AccountOverview, BillingPlan, BillingRegion, SubscriptionSnapshot
 from services.referral import ReferralStats
+from services.tariffs import resolve_tariff
 from services.wallet import UnknownWalletUserError, WalletEntry, WalletSnapshot
 
 # HTTP transport over services/billing_api.py (Phase 3, item 32/33).
@@ -212,6 +214,50 @@ def create_app() -> FastAPI:
         except promo.PromoError as exc:
             raise _promo_http_error(exc)
         return _discount_payload(result)
+
+    @application.get("/admin/stats")
+    async def admin_stats(session: SessionDep) -> dict[str, Any]:
+        repo = Repository(session)
+        now = datetime.now(timezone.utc)
+        active_by_tier = await repo.count_active_subscriptions_by_tier()
+        recent_rows = await repo.recent_subscriptions(limit=25)
+        recent = []
+        for row in recent_rows:
+            try:
+                plan_title = resolve_tariff(row["plan"]).title
+            except ValueError:
+                plan_title = row["plan"]
+            recent.append(
+                {
+                    "id": row["id"],
+                    "tier": row["tier"],
+                    "plan": row["plan"],
+                    "planTitle": plan_title,
+                    "telegramId": row["telegramId"],
+                    "username": row["username"],
+                    "isActive": row["isActive"],
+                    "startedAt": _iso(row["startedAt"]),
+                    "expiresAt": _iso(row["expiresAt"]),
+                }
+            )
+        return {
+            "users": {
+                "total": await repo.count_users(),
+                "new24h": await repo.count_users_since(now - timedelta(days=1)),
+                "new7d": await repo.count_users_since(now - timedelta(days=7)),
+            },
+            "subscriptions": {
+                "activeByTier": active_by_tier,
+                "activeTotal": sum(active_by_tier.values()),
+                "total": await repo.count_subscriptions_total(),
+            },
+            "money": {
+                "balancesKopecks": await repo.sum_all_user_balances(),
+                "depositsKopecks": await repo.sum_all_wallet_by_kind(wallet.KIND_DEPOSIT),
+            },
+            "recent": recent,
+            "generatedAt": _iso(now),
+        }
 
     return application
 

@@ -161,3 +161,17 @@ async def test_auth_required_when_token_configured(secured_client):
         "/plans", headers={"Authorization": "Bearer secret-token"}
     )
     assert allowed.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_stats_returns_aggregates(api_client, session_pool):
+    await _user(session_pool, telegram_id=9100)
+
+    response = await api_client.get("/admin/stats")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["users"]["total"] >= 1
+    assert "activeByTier" in data["subscriptions"]
+    assert "balancesKopecks" in data["money"] and "depositsKopecks" in data["money"]
+    assert isinstance(data["recent"], list)
