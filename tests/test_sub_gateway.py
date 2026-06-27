@@ -70,6 +70,33 @@ def test_combine_links_empty_when_no_proxies():
     assert combine_links("garbage\nmore garbage") == []
 
 
+def test_combine_links_appends_trojan_for_node_with_trojan_pass(monkeypatch):
+    nodes = {US_HOST: {**sub_gateway.NODES[US_HOST], "hy2_pass": "", "trojan_pass": "tj", "trojan_port": 8444}}
+    monkeypatch.setattr(sub_gateway, "NODES", nodes)
+    vless = f"vless://uuid@{US_HOST}:443#US"
+    result = combine_links(vless)
+    trojans = [u for u in result if u.startswith("trojan://")]
+    assert len(trojans) == 1
+    assert trojans[0].startswith(f"trojan://tj@{US_HOST}:8444")
+    assert "security=tls" in trojans[0] and f"sni={US_HOST}" in trojans[0]
+
+
+def test_combine_links_emits_hy2_then_trojan_in_order(monkeypatch):
+    nodes = {US_HOST: {**sub_gateway.NODES[US_HOST], "hy2_pass": "h", "trojan_pass": "t", "trojan_port": 8444}}
+    monkeypatch.setattr(sub_gateway, "NODES", nodes)
+    vless = f"vless://uuid@{US_HOST}:443#US"
+    result = combine_links(vless)
+    assert result[0] == vless
+    assert result[1].startswith("hysteria2://h@")
+    assert result[2].startswith("trojan://t@")
+
+
+def test_combine_links_no_trojan_when_pass_empty():
+    # Real PL node has a trojan_pass key but PL_TROJAN_PASS is empty in tests.
+    vless = f"vless://uuid@78.17.154.225.sslip.io:2087#PL"
+    assert combine_links(vless) == [vless]
+
+
 
 def test_happ_redirect_page_embeds_add_deeplink():
     page = happ_redirect_page("https://sub.unlockvpn.org:8444/sub/abc123")

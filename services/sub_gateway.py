@@ -60,6 +60,8 @@ NODES = {
         "flag": "🇵🇱", "name": "Польша",
         "hy2_host": "78.17.154.225.sslip.io", "hy2_port": 443,
         "hy2_pass": os.environ.get("PL_HY2_PASS", ""),
+        "trojan_port": 8444,
+        "trojan_pass": os.environ.get("PL_TROJAN_PASS", ""),
     },
 }
 
@@ -89,6 +91,16 @@ def _hy2_uri(node: dict) -> str:
     )
 
 
+def _trojan_uri(node: dict) -> str:
+    # Standalone per-node Trojan-TLS (not a Marzban inbound), hand-added like Hy2.
+    remark = urllib.parse.quote(f"{node['flag']} {node['name']} · Trojan")
+    host, port = node["hy2_host"], node["trojan_port"]
+    return (
+        f"trojan://{node['trojan_pass']}@{host}:{port}"
+        f"?security=tls&sni={host}&type=tcp#{remark}"
+    )
+
+
 def _fetch_marzban_sub(token: str) -> tuple[str, str | None] | None:
     """Returns (decoded_uris_text, userinfo_header) or None if invalid."""
     url = f"{MARZBAN_BASE}/sub/{token}"
@@ -110,20 +122,25 @@ def combine_links(decoded: str) -> list[str]:
     """Pass through every proxy link Marzban issued and append each node's
     Hysteria2 endpoint once (after the node's first link), preserving order.
 
-    Protocol-agnostic: vless, trojan, shadowsocks etc. all flow through, so a
-    new panel inbound needs no gateway change. Hy2 is deduped per node so a
-    location that exposes both VLESS and Trojan doesn't list Hysteria2 twice.
+    Protocol-agnostic: vless, trojan, shadowsocks etc. from Marzban all flow
+    through, so a new panel inbound needs no gateway change. Each node's
+    standalone extras (Hysteria2, Trojan) are hand-appended once after the
+    node's first link, so a location exposing both VLESS and a panel Trojan
+    doesn't list its Hy2/Trojan twice.
     """
     proxy_uris = [line.strip() for line in decoded.splitlines() if "://" in line.strip()]
     combined: list[str] = []
-    hy2_done: set[str] = set()
+    extras_done: set[str] = set()
     for uri in proxy_uris:
         combined.append(uri)
         host = _uri_host(uri)
         node = NODES.get(host) if host else None
-        if node and node["hy2_pass"] and host not in hy2_done:
-            combined.append(_hy2_uri(node))
-            hy2_done.add(host)
+        if node and host not in extras_done:
+            extras_done.add(host)
+            if node.get("hy2_pass"):
+                combined.append(_hy2_uri(node))
+            if node.get("trojan_pass"):
+                combined.append(_trojan_uri(node))
     return combined
 
 
