@@ -1,9 +1,19 @@
 import { WorldMap } from "./WorldMap";
 import "./locations.css";
 
-const POINTS = [
+const LIVE = [
   { flag: "🇺🇸", name: "США", note: "стабильно и быстро" },
   { flag: "🇳🇱", name: "Нидерланды", note: "стабильно и быстро" },
+  { flag: "🇵🇱", name: "Польша", note: "стабильно и быстро" },
+];
+
+const SOON = [
+  { flag: "🇩🇪", name: "Германия" },
+  { flag: "🇫🇮", name: "Финляндия" },
+  { flag: "🇬🇧", name: "Англия" },
+  { flag: "🗽", name: "Нью-Йорк" },
+  { flag: "🌴", name: "Лос-Анджелес" },
+  { flag: "🇦🇪", name: "ОАЭ" },
 ];
 
 export function Locations() {
@@ -26,7 +36,7 @@ export function Locations() {
         </div>
 
         <ul className="locations__list reveal">
-          {POINTS.map((p) => (
+          {LIVE.map((p) => (
             <li key={p.name} className="locations__item">
               <span className="locations__dot" aria-hidden />
               <span className="locations__flag">{p.flag}</span>
@@ -34,11 +44,20 @@ export function Locations() {
               <span className="locations__note mono">{p.note}</span>
             </li>
           ))}
-          <li className="locations__item locations__item--soon">
-            <span className="locations__dot locations__dot--soon" aria-hidden />
-            <span className="locations__name">Новые локации</span>
-            <span className="locations__note mono">скоро</span>
-          </li>
+        </ul>
+
+        <div className="locations__soon-head reveal">
+          <span className="eyebrow">Скоро</span>
+        </div>
+        <ul className="locations__list locations__list--soon reveal">
+          {SOON.map((p) => (
+            <li key={p.name} className="locations__item locations__item--soon">
+              <span className="locations__dot locations__dot--soon" aria-hidden />
+              <span className="locations__flag">{p.flag}</span>
+              <span className="locations__name">{p.name}</span>
+              <span className="locations__note mono">скоро</span>
+            </li>
+          ))}
         </ul>
       </div>
     </section>

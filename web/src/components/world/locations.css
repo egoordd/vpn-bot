@@ -68,8 +68,23 @@
   font-weight: 600;
   font-size: var(--text-sm);
 }
+.locations__soon-head {
+  margin-top: clamp(1.5rem, 1rem + 2vw, 2.5rem);
+  text-align: center;
+}
+.locations__list--soon {
+  margin-top: 1rem;
+}
+.locations__item--soon {
+  background: transparent;
+  border-style: dashed;
+  box-shadow: none;
+}
 .locations__item--soon .locations__name {
   color: var(--text-muted);
+}
+.locations__item--soon .locations__flag {
+  opacity: 0.7;
 }
 .locations__note {
   font-size: var(--text-xs);

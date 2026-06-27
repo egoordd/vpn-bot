@@ -82,6 +82,14 @@
   }
 }
 
+/* Coming-soon nodes: faint hollow rings, no glow, no pulse */
+.wmap__soon {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.1;
+  opacity: 0.34;
+}
+
 /* Floating location labels */
 .wmap__labels {
   position: absolute;
@@ -120,6 +128,20 @@
   }
 }
 
+/* Render below the point (avoids the NL/PL label collision in Europe) */
+.wmap__label--below {
+  transform: translate(-50%, 90%);
+  animation-name: wmap-float-below;
+}
+@keyframes wmap-float-below {
+  0%, 100% {
+    transform: translate(-50%, 90%);
+  }
+  50% {
+    transform: translate(-50%, 120%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .wmap__arc,
   .wmap__pulse,
@@ -136,6 +158,10 @@
 }
 :root[data-theme="dark"] .wmap__core {
   filter: drop-shadow(0 0 6px oklch(100% 0 0 / 0.95)) drop-shadow(0 0 15px oklch(100% 0 0 / 0.5));
+}
+:root[data-theme="dark"] .wmap__soon {
+  stroke: oklch(100% 0 0 / 0.55);
+  opacity: 0.45;
 }
 :root[data-theme="dark"] .wmap__packet {
   filter: drop-shadow(0 0 4px oklch(100% 0 0 / 0.9));

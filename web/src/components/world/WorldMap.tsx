@@ -40,15 +40,29 @@ interface Node {
   id: string;
   flag: string;
   name: string;
-  meta: string;
+  status: "live" | "soon";
   col: number;
   row: number;
+  labelBelow?: boolean;
 }
 
+// Equirectangular-ish placement on the 42×21 grid. Live nodes glow + carry a
+// label; coming-soon nodes are faint hollow rings (named in the list below, so
+// the dense Europe cluster stays readable without overlapping map labels).
 const NODES: readonly Node[] = [
-  { id: "us", flag: "🇺🇸", name: "США", meta: "Reality · Hysteria2 · AmneziaWG", col: 12, row: 6 },
-  { id: "nl", flag: "🇳🇱", name: "Нидерланды", meta: "Reality · Hysteria2 · AmneziaWG", col: 22, row: 4 },
+  { id: "us", flag: "🇺🇸", name: "США", status: "live", col: 12, row: 6 },
+  { id: "nl", flag: "🇳🇱", name: "Нидерланды", status: "live", col: 22, row: 4 },
+  { id: "pl", flag: "🇵🇱", name: "Польша", status: "live", col: 24, row: 5, labelBelow: true },
+  { id: "uk", flag: "🇬🇧", name: "Англия", status: "soon", col: 20, row: 4 },
+  { id: "de", flag: "🇩🇪", name: "Германия", status: "soon", col: 22, row: 6 },
+  { id: "fi", flag: "🇫🇮", name: "Финляндия", status: "soon", col: 25, row: 3 },
+  { id: "ny", flag: "🗽", name: "Нью-Йорк", status: "soon", col: 14, row: 6 },
+  { id: "la", flag: "🌴", name: "Лос-Анджелес", status: "soon", col: 8, row: 7 },
+  { id: "ae", flag: "🇦🇪", name: "ОАЭ", status: "soon", col: 27, row: 8 },
 ];
+
+const LIVE = NODES.filter((n) => n.status === "live");
+const SOON = NODES.filter((n) => n.status === "soon");
 
 const cx = (col: number) => col * GAP + PAD;
 const cy = (row: number) => row * GAP + PAD;
@@ -72,7 +86,7 @@ export function WorldMap() {
         viewBox={`0 0 ${W} ${H}`}
         className="wmap__svg"
         role="img"
-        aria-label="Карта мира с доступными локациями UnLock: США и Нидерланды"
+        aria-label="Карта мира: активные локации UnLock — США, Нидерланды, Польша; скоро — Германия, Финляндия, Англия, Нью-Йорк, Лос-Анджелес, ОАЭ"
       >
         <g className="wmap__land">
           {dots.map((d, i) => (
@@ -85,7 +99,11 @@ export function WorldMap() {
           <animateMotion dur="3.4s" repeatCount="indefinite" path={ARC} calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1" />
         </circle>
 
-        {NODES.map((n) => (
+        {SOON.map((n) => (
+          <circle key={n.id} className="wmap__soon" cx={cx(n.col)} cy={cy(n.row)} r="3.2" />
+        ))}
+
+        {LIVE.map((n) => (
           <g key={n.id} className="wmap__node">
             <circle className="wmap__pulse" cx={cx(n.col)} cy={cy(n.row)} r="4" />
             <circle className="wmap__pulse wmap__pulse--2" cx={cx(n.col)} cy={cy(n.row)} r="4" />
@@ -95,10 +113,10 @@ export function WorldMap() {
       </svg>
 
       <div className="wmap__labels" aria-hidden>
-        {NODES.map((n) => (
+        {LIVE.map((n) => (
           <span
             key={n.id}
-            className="wmap__label"
+            className={n.labelBelow ? "wmap__label wmap__label--below" : "wmap__label"}
             style={{ left: `${(cx(n.col) / W) * 100}%`, top: `${(cy(n.row) / H) * 100}%` }}
           >
             <span className="wmap__label-flag">{n.flag}</span>
