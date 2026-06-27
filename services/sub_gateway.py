@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Multi-protocol subscription gateway.
 
-Wraps the Marzban subscription: fetches the user's VLESS Reality links from the
-panel (token-authed, so it's per-user and respects status/expiry) and appends a
-Hysteria2 entry for each location the user has. The client imports ONE link and
-sees both protocols per location, e.g. 🇺🇸 США VLESS + Hysteria2, 🇳🇱 Нидерланды
-VLESS + Hysteria2.
+Wraps the Marzban subscription: fetches the user's proxy links from the panel
+(token-authed, so it's per-user and respects status/expiry) and appends a
+Hysteria2 entry for each location the user has. Every link Marzban issues is
+passed through verbatim, so adding a panel-side inbound (VLESS Reality, Trojan,
+…) surfaces it in the subscription without changing this gateway. The client
+imports ONE link and sees all protocols per location, e.g. 🇺🇸 США VLESS +
+Trojan + Hysteria2, 🇳🇱 Нидерланды VLESS + Trojan + Hysteria2.
 
 Runs on the main server next to Marzban. Stdlib only (no pip deps).
 
@@ -63,12 +65,14 @@ _SSL.check_hostname = False
 _SSL.verify_mode = ssl.CERT_NONE
 
 
-def _vless_host(uri: str) -> str | None:
+# Proxy URIs Marzban issues share the `scheme://creds@host:port?...#remark`
+# shape (vless, trojan, ss, …), so the host extraction is protocol-agnostic.
+def _uri_host(uri: str) -> str | None:
     try:
         after_at = uri.split("@", 1)[1]
-        return after_at.split(":", 1)[0]
     except IndexError:
         return None
+    return after_at.split(":", 1)[0].split("?", 1)[0].split("/", 1)[0] or None
 
 
 def _hy2_uri(node: dict) -> str:
@@ -97,22 +101,35 @@ def _fetch_marzban_sub(token: str) -> tuple[str, str | None] | None:
     return decoded, userinfo
 
 
+def combine_links(decoded: str) -> list[str]:
+    """Pass through every proxy link Marzban issued and append each node's
+    Hysteria2 endpoint once (after the node's first link), preserving order.
+
+    Protocol-agnostic: vless, trojan, shadowsocks etc. all flow through, so a
+    new panel inbound needs no gateway change. Hy2 is deduped per node so a
+    location that exposes both VLESS and Trojan doesn't list Hysteria2 twice.
+    """
+    proxy_uris = [line.strip() for line in decoded.splitlines() if "://" in line.strip()]
+    combined: list[str] = []
+    hy2_done: set[str] = set()
+    for uri in proxy_uris:
+        combined.append(uri)
+        host = _uri_host(uri)
+        node = NODES.get(host) if host else None
+        if node and node["hy2_pass"] and host not in hy2_done:
+            combined.append(_hy2_uri(node))
+            hy2_done.add(host)
+    return combined
+
+
 def build_combined(token: str) -> tuple[str, str | None] | None:
     fetched = _fetch_marzban_sub(token)
     if fetched is None:
         return None
     decoded, userinfo = fetched
-    vless_uris = [line.strip() for line in decoded.splitlines() if line.strip().startswith("vless://")]
-    if not vless_uris:
+    combined = combine_links(decoded)
+    if not combined:
         return "", userinfo
-
-    combined: list[str] = []
-    for uri in vless_uris:
-        combined.append(uri)
-        host = _vless_host(uri)
-        node = NODES.get(host) if host else None
-        if node and node["hy2_pass"]:
-            combined.append(_hy2_uri(node))
 
     payload = base64.b64encode("\n".join(combined).encode("utf-8")).decode("ascii")
     return payload, userinfo
