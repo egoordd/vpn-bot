@@ -56,6 +56,11 @@ NODES = {
         "hy2_host": "107.189.22.160.sslip.io", "hy2_port": 443,
         "hy2_pass": os.environ.get("NL_HY2_PASS", ""),
     },
+    "78.17.154.225.sslip.io": {
+        "flag": "🇵🇱", "name": "Польша",
+        "hy2_host": "78.17.154.225.sslip.io", "hy2_port": 443,
+        "hy2_pass": os.environ.get("PL_HY2_PASS", ""),
+    },
 }
 
 # The gateway calls our own Marzban panel (same host in prod), so TLS
