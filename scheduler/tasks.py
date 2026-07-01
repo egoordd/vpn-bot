@@ -2,10 +2,11 @@ import logging
 from datetime import datetime, timezone
 
 from aiogram import Bot
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from bot.banners import EXPIRED_BANNER, send_banner
 from bot.keyboards.main_menu import back_to_menu_keyboard
 from bot.texts import bq, format_msk
 from config import settings
@@ -88,12 +89,19 @@ async def deactivate_expired_subscriptions(
 
             await repo.deactivate_subscription(subscription.id)
             try:
-                await bot.send_message(
-                    chat_id=subscription.user.telegram_id,
-                    text=(
-                            "⛔️ <b>Подписка истекла</b>\n\n"
-                            "Доступ отключён. Продление доступно в меню — ссылка-подписка останется прежней."
-                        ),
+                await send_banner(
+                    bot,
+                    subscription.user.telegram_id,
+                    EXPIRED_BANNER,
+                    caption=(
+                        "⛔️ <b>Подписка истекла</b>\n\n"
+                        "Доступ отключён. Верни его в один тап — ссылка-подписка останется прежней."
+                    ),
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu")]
+                        ]
+                    ),
                 )
             except Exception:
                 logger.exception("Failed to notify expired subscription user_id=%s", subscription.user_id)

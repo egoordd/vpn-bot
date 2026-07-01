@@ -550,7 +550,7 @@ async def test_deactivate_expired_subscriptions_removes_peer_and_notifies(fake_b
     await tasks.deactivate_expired_subscriptions(fake_bot, session_pool)
 
     remove_peer.assert_awaited_once_with("PUB")
-    fake_bot.send_message.assert_awaited_once()
+    fake_bot.send_photo.assert_awaited_once()
     async with session_pool() as session:
         refreshed = await Repository(session).get_subscription(subscription.id)
         assert refreshed.is_active is False
@@ -575,7 +575,7 @@ async def test_deactivate_expired_subscriptions_catches_remove_peer_errors(fake_
     await tasks.deactivate_expired_subscriptions(fake_bot, session_pool)
 
     remove_peer.assert_awaited_once_with("PUBERR")
-    fake_bot.send_message.assert_awaited_once()
+    fake_bot.send_photo.assert_awaited_once()
     async with session_pool() as session:
         refreshed = await Repository(session).get_subscription(subscription.id)
         assert refreshed.is_active is False
@@ -615,7 +615,7 @@ async def test_deactivate_expired_subscriptions_releases_premium_nodes(fake_bot,
     assert refreshed_node.current_users == 0
     assert refreshed_subscription.node_ids == []
     assert refreshed_subscription.is_active is False
-    fake_bot.send_message.assert_awaited_once()
+    fake_bot.send_photo.assert_awaited_once()
 
 
 @pytest.mark.integration

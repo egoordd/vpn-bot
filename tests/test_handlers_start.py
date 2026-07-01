@@ -29,15 +29,16 @@ class FakePanelClient:
 
 
 @pytest.mark.integration
-async def test_start_handler_gets_or_creates_user_and_sends_menu(session_pool):
+async def test_start_handler_gets_or_creates_user_and_sends_menu(session_pool, fake_bot):
     message = SimpleNamespace(
         from_user=SimpleNamespace(id=920, username="starter"),
-        answer_photo=AsyncMock(),
+        chat=SimpleNamespace(id=920),
+        bot=fake_bot,
     )
 
     await start.start_handler(message, session_pool)
 
-    message.answer_photo.assert_awaited_once()
+    fake_bot.send_photo.assert_awaited_once()
     async with session_pool() as session:
         user = await Repository(session).get_user_by_telegram_id(920)
     assert user is not None
@@ -57,8 +58,9 @@ async def test_menu_state_returns_active_subscription_menu(session_pool):
             True,
         )
 
-    text, keyboard = await start._menu_state(session_pool, 921, "active")
+    text, keyboard, has_subscription = await start._menu_state(session_pool, 921, "active")
 
+    assert has_subscription is True
     assert "Профиль" in text
     assert "Активных подписок" in text
     # Main menu: buy first, and "Мои подписки" present when a subscription is active
@@ -69,8 +71,9 @@ async def test_menu_state_returns_active_subscription_menu(session_pool):
 
 @pytest.mark.integration
 async def test_menu_state_does_not_auto_activate_trial_without_explicit_panel_client(session_pool):
-    text, keyboard = await start._menu_state(session_pool, 924, "no_trial")
+    text, keyboard, has_subscription = await start._menu_state(session_pool, 924, "no_trial")
 
+    assert has_subscription is False
     assert "Активной подписки нет" in text
     cbs = [button.callback_data for row in keyboard.inline_keyboard for button in row]
     assert "my_subs" not in cbs
@@ -81,7 +84,7 @@ async def test_menu_state_does_not_auto_activate_trial_without_explicit_panel_cl
 
 @pytest.mark.integration
 async def test_menu_state_auto_activates_trial_when_panel_client_is_available(session_pool):
-    text, keyboard = await start._menu_state(session_pool, 922, "trial", panel_client=FakePanelClient())
+    text, keyboard, _ = await start._menu_state(session_pool, 922, "trial", panel_client=FakePanelClient())
 
     assert "Активных подписок" in text
     assert keyboard.inline_keyboard[0][0].callback_data == "buy_menu"
@@ -105,14 +108,15 @@ def test_start_aware_and_msk_formatting():
 
 
 @pytest.mark.integration
-async def test_start_handler_attaches_referrer_from_deep_link(session_pool):
+async def test_start_handler_attaches_referrer_from_deep_link(session_pool, fake_bot):
     async with session_pool() as session:
         referrer = await Repository(session).create_user(telegram_id=921, username="ref")
 
     message = SimpleNamespace(
         text=f"/start ref_{referrer.ref_code}",
         from_user=SimpleNamespace(id=922, username="referee"),
-        answer_photo=AsyncMock(),
+        chat=SimpleNamespace(id=922),
+        bot=fake_bot,
     )
 
     await start.start_handler(message, session_pool)
@@ -124,11 +128,12 @@ async def test_start_handler_attaches_referrer_from_deep_link(session_pool):
 
 
 @pytest.mark.integration
-async def test_start_handler_ignores_bad_ref_code(session_pool):
+async def test_start_handler_ignores_bad_ref_code(session_pool, fake_bot):
     message = SimpleNamespace(
         text="/start ref_nonexistent",
         from_user=SimpleNamespace(id=923, username="referee2"),
-        answer_photo=AsyncMock(),
+        chat=SimpleNamespace(id=923),
+        bot=fake_bot,
     )
 
     await start.start_handler(message, session_pool)

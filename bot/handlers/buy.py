@@ -75,6 +75,7 @@ def _checkout_keyboard(
     balance_ok: bool,
     crypto_ok: bool,
     price_kopecks: int,
+    tribute_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     suffix = f":{region}" if region else ""
     rows: list[list[InlineKeyboardButton]] = []
@@ -87,6 +88,10 @@ def _checkout_keyboard(
                 )
             ]
         )
+    if tribute_url:
+        # URL button opens Tribute inside Telegram → buyer is Telegram-identified →
+        # the new_digital_product webhook delivers the subscription automatically.
+        rows.append([InlineKeyboardButton(text="💳 Оплатить картой", url=tribute_url)])
     if crypto_ok:
         rows.append(
             [
@@ -126,6 +131,7 @@ async def _show_checkout(
     premium_static = tariff.tier == "premium" and settings.marzban_inbounds_for_region(region) is not None
     balance_ok = balance >= price_kopecks and (tariff.tier == "standard" or premium_static)
     crypto_ok = is_cryptobot_configured()
+    tribute_url = settings.tribute_pay_links_dict.get(plan)
 
     card_lines = [
         f"💎 Тариф: {tariff.title}",
@@ -136,8 +142,13 @@ async def _show_checkout(
     card_lines.append(f"💳 Ваш баланс: {format_rub(balance)}")
 
     sections = ["💳 <b>Оплата тарифа</b>\n\n" + bq(*card_lines)]
-    if balance_ok or crypto_ok:
+    if balance_ok or crypto_ok or tribute_url:
         sections.append("Выберите способ оплаты:")
+        if tribute_url:
+            sections.append(
+                "💳 <i>Картой:</i> на странице оплаты войдите <b>через Telegram</b> — "
+                "тогда подписка придёт сюда автоматически после оплаты."
+            )
     elif tariff.tier == "premium":
         sections.append("⚠️ Оплата Premium временно доступна только криптовалютой, а она сейчас недоступна. Попробуйте позже.")
     else:
@@ -153,6 +164,7 @@ async def _show_checkout(
             balance_ok=balance_ok,
             crypto_ok=crypto_ok,
             price_kopecks=price_kopecks,
+            tribute_url=tribute_url,
         ),
     )
     await callback.answer()
@@ -326,7 +338,7 @@ async def renew_sub_handler(callback: CallbackQuery, session_pool: async_session
 
 @router.callback_query(F.data == "main_menu")
 async def main_menu_handler(callback: CallbackQuery, session_pool: async_sessionmaker[AsyncSession]) -> None:
-    text, keyboard = await _menu_state(
+    text, keyboard, _ = await _menu_state(
         session_pool=session_pool,
         telegram_id=callback.from_user.id,
         username=callback.from_user.username,

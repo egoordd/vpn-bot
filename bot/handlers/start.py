@@ -3,9 +3,10 @@ import logging
 
 from aiogram import F, Router
 from aiogram.filters import CommandStart
-from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from bot.banners import pick_start_banner, send_banner
 from bot.keyboards.main_menu import main_menu_keyboard, my_subs_keyboard
 from bot.navigation import show_screen
 from bot.texts import aware as _aware, bq, format_gb as _format_gb, format_msk as _format_msk
@@ -19,12 +20,6 @@ from services.tariffs import resolve_premium_region, resolve_tariff
 
 router = Router()
 logger = logging.getLogger(__name__)
-
-BANNER_PATH = "assets/banner.jpg"
-
-# Telegram file_id of the banner after the first upload; reused so the static
-# asset is uploaded at most once per process instead of on every /start.
-_banner_file_id: str | None = None
 
 
 def _profile_block(user: User, display_name: str | None) -> str:
@@ -112,7 +107,7 @@ async def _menu_state(
     username: str | None,
     panel_client: object | None = None,
     display_name: str | None = None,
-) -> tuple[str, InlineKeyboardMarkup]:
+) -> tuple[str, InlineKeyboardMarkup, bool]:
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.get_or_create_user(telegram_id=telegram_id, username=username)
@@ -131,8 +126,9 @@ async def _menu_state(
                 logger.exception("Failed to auto-activate trial for user_id=%s", user.id)
 
         text = _menu_text(user, subscriptions, display_name)
+        has_subscription = bool(subscriptions)
 
-    return text, main_menu_keyboard(has_subscription=bool(subscriptions))
+    return text, main_menu_keyboard(has_subscription=has_subscription), has_subscription
 
 
 async def _attach_referrer_from_start(
@@ -181,24 +177,29 @@ async def _maybe_grant_trial(
 
 @router.message(CommandStart())
 async def start_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    # Determine first-touch BEFORE the helpers below create the user record.
+    async with session_pool() as session:
+        is_new_user = await Repository(session).get_user_by_telegram_id(message.from_user.id) is None
     await _attach_referrer_from_start(session_pool, message)
     await _maybe_grant_trial(session_pool, message)
-    text, keyboard = await _menu_state(
+    text, keyboard, _ = await _menu_state(
         session_pool=session_pool,
         telegram_id=message.from_user.id,
         username=message.from_user.username,
         display_name=getattr(message.from_user, "full_name", None),
     )
-    global _banner_file_id
-    photo = _banner_file_id if _banner_file_id else FSInputFile(BANNER_PATH)
-    sent = await message.answer_photo(photo, caption=text, reply_markup=keyboard)
-    if _banner_file_id is None and sent.photo:
-        _banner_file_id = sent.photo[-1].file_id
+    await send_banner(
+        message.bot,
+        message.chat.id,
+        pick_start_banner(is_new_user),
+        caption=text,
+        reply_markup=keyboard,
+    )
 
 
 @router.callback_query(F.data == "profile")
 async def profile_handler(callback: CallbackQuery, session_pool: async_sessionmaker[AsyncSession]) -> None:
-    text, keyboard = await _menu_state(
+    text, keyboard, _ = await _menu_state(
         session_pool=session_pool,
         telegram_id=callback.from_user.id,
         username=callback.from_user.username,
