@@ -46,15 +46,18 @@ def test_parse_admin_ids_validator(raw, expected):
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("raw", "expected"),
+    ("bot_username", "manual", "expected"),
     [
-        ("foo", "@foo"),
-        ("@foo", "@foo"),
-        ("", "\u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d"),
+        ("supportbot", "", "@supportbot"),        # prefers the real support-relay bot
+        ("supportbot", "manual", "@supportbot"),  # relay bot wins over a manual @username
+        ("", "foo", "@foo"),                      # falls back to the manual username
+        ("", "@foo", "@foo"),
+        ("", "", "\u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d"),
     ],
 )
-def test_support_contact(raw, expected):
-    assert make_settings(SUPPORT_USERNAME=raw).support_contact == expected
+def test_support_contact(bot_username, manual, expected):
+    settings = make_settings(SUPPORT_BOT_USERNAME=bot_username, SUPPORT_USERNAME=manual)
+    assert settings.support_contact == expected
 
 
 @pytest.mark.unit

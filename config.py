@@ -121,6 +121,10 @@ class Settings(BaseSettings):
     TRIBUTE_API_KEY: str = ""
     TRIBUTE_PLAN_MAP: str = "{}"
     TRIBUTE_DEFAULT_PLAN: str = ""
+    # Map of our plan code -> Tribute Telegram payment link (t.me/tribute/app?startapp=...).
+    # The bot shows a "pay by card" button that opens Tribute INSIDE Telegram, so the
+    # buyer is Telegram-identified and the new_digital_product webhook can auto-deliver.
+    TRIBUTE_PAY_LINKS: str = "{}"
     DB_ECHO: bool = False
 
     @field_validator("ADMIN_IDS", mode="before")
@@ -154,7 +158,9 @@ class Settings(BaseSettings):
 
     @property
     def support_contact(self) -> str:
-        username = self.SUPPORT_USERNAME.strip()
+        # Prefer the real support-relay bot (users write there → tickets reach the
+        # reports bot → replies route back). Fall back to a manual @username.
+        username = self.SUPPORT_BOT_USERNAME.strip() or self.SUPPORT_USERNAME.strip()
         if not username:
             return "не указан"
         return username if username.startswith("@") else f"@{username}"
@@ -191,6 +197,11 @@ class Settings(BaseSettings):
     @property
     def tribute_plan_map_dict(self) -> dict[str, str]:
         raw = self._parse_json_object(self.TRIBUTE_PLAN_MAP, "TRIBUTE_PLAN_MAP")
+        return {str(key): str(value) for key, value in raw.items()}
+
+    @property
+    def tribute_pay_links_dict(self) -> dict[str, str]:
+        raw = self._parse_json_object(self.TRIBUTE_PAY_LINKS, "TRIBUTE_PAY_LINKS")
         return {str(key): str(value) for key, value in raw.items()}
 
     @property
