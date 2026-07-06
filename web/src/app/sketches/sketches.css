@@ -1,0 +1,126 @@
+.sk-page {
+  min-height: 100vh;
+  padding: clamp(1.5rem, 1rem + 3vw, 4rem);
+  background: var(--bg);
+  color: var(--text);
+}
+.sk-head {
+  max-width: var(--max-content);
+  margin: 0 auto 2rem;
+}
+.sk-head h1 {
+  font-size: var(--text-2xl);
+  margin: 0 0 0.4rem;
+}
+.sk-head p {
+  color: var(--text-muted);
+  margin: 0;
+}
+.sk-grid {
+  max-width: var(--max-content);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+.sk-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.sk-stage {
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+.sk-stage--dark {
+  background: oklch(16% 0.004 70);
+}
+.sk-stage--wide {
+  aspect-ratio: 16 / 6;
+}
+.sk-card h3 {
+  font-size: var(--text-base);
+  margin: 0.3rem 0 0;
+}
+.sk-card p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* ---- the mark ---- */
+.lk {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lk-outer {
+  stroke-width: 13;
+}
+.lk-cap {
+  stroke-width: 13;
+}
+.lk-u {
+  stroke-width: 12;
+}
+.mark {
+  width: 46%;
+  height: auto;
+  overflow: visible;
+}
+.mark--cream .lk {
+  stroke: oklch(94% 0.01 85);
+}
+
+.tile {
+  width: 60%;
+  aspect-ratio: 1 / 1;
+  background: oklch(18% 0.004 70);
+  border-radius: 24%;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 18px 40px -18px oklch(0% 0 0 / 0.55);
+}
+.tile .mark {
+  width: 52%;
+}
+
+/* ---- wordmark ---- */
+.wm {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 800;
+  font-size: clamp(2rem, 1.3rem + 3vw, 3.4rem);
+  letter-spacing: -0.03em;
+  color: var(--accent);
+  line-height: 1;
+}
+.wm__mark {
+  height: 1.12em;
+  width: auto;
+  margin-right: 0.02em;
+  overflow: visible;
+}
+.wm__upn {
+  color: var(--text-dim);
+  margin-left: 0.22em;
+  letter-spacing: 0.01em;
+}
+.wm--cream {
+  color: oklch(94% 0.01 85);
+}
+.wm--cream .lk {
+  stroke: oklch(94% 0.01 85);
+}
+.wm--cream .wm__upn {
+  color: oklch(70% 0.01 80);
+}

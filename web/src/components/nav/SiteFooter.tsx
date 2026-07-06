@@ -23,9 +23,8 @@ const COLUMNS = [
   {
     title: "Правовое",
     links: [
-      { href: "#", label: "Условия использования" },
-      { href: "#", label: "Политика конфиденциальности" },
-      { href: "#", label: "Оферта" },
+      { href: "/offer", label: "Публичная оферта" },
+      { href: "/privacy", label: "Политика конфиденциальности" },
     ],
   },
 ];
@@ -36,9 +35,7 @@ export function SiteFooter() {
       <div className="container footer__inner">
         <div className="footer__brand">
           <Logo />
-          <p className="footer__tagline">
-            {SITE.tagline}. Доступ без VPN — на чистом домене и зеркалах.
-          </p>
+          <p className="footer__tagline">{SITE.tagline}.</p>
           <p className="footer__signal mono">
             <span className="footer__signal-dot" aria-hidden /> Сеть работает
           </p>
@@ -64,7 +61,7 @@ export function SiteFooter() {
 
       <div className="container footer__bottom">
         <span className="mono">© {new Date().getFullYear()} {SITE.name}</span>
-        <span className="footer__note mono">Не для обхода закона. Используй ответственно.</span>
+        <span className="footer__note mono">Используйте сервис ответственно и в рамках закона.</span>
       </div>
     </footer>
   );

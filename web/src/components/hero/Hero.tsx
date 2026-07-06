@@ -40,7 +40,7 @@ export function Hero() {
               <CheckIcon /> 3 дня бесплатно
             </li>
             <li>
-              <CheckIcon /> Картой или криптой
+              <CheckIcon /> Удобная оплата
             </li>
             <li>
               <CheckIcon /> На всех устройствах
