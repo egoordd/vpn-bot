@@ -286,3 +286,23 @@ class PromoRedemption(Base):
     )
 
     promo: Mapped[PromoCode] = relationship(back_populates="redemptions")
+
+
+class FunnelEvent(Base):
+    """First occurrence of a funnel milestone per user (start/trial/first_connect/payment)."""
+
+    __tablename__ = "funnel_events"
+    __table_args__ = (
+        UniqueConstraint("user_id", "event", name="uq_funnel_events_user_event"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    event: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )

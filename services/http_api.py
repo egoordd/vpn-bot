@@ -322,6 +322,7 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001 - surface as 500 so Tribute retries
             raise HTTPException(status_code=500, detail="provisioning failed") from exc
 
+        await repo.record_funnel_event(user.id, "payment", meta={"provider": "tribute"})
         sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
         await tribute.deliver_subscription(int(telegram_id), sub_url)
         return {"ok": True, "plan": plan}

@@ -1,13 +1,15 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database.models import (
     AmneziaWgClient,
+    FunnelEvent,
     Node,
     Payment,
     Plan,
@@ -599,7 +601,9 @@ class Repository:
         payment.status = "completed"
         payment.telegram_payment_charge_id = telegram_payment_charge_id
         payment.provider_payment_charge_id = provider_payment_charge_id
-        return await self._commit_refresh(payment)
+        completed = await self._commit_refresh(payment)
+        await self.record_funnel_event(completed.user_id, "payment", meta={"provider": completed.provider})
+        return completed
 
     async def complete_payment_by_external_id(self, external_invoice_id: str) -> Payment | None:
         result = await self.session.execute(
@@ -621,7 +625,10 @@ class Repository:
             return None
 
         await self.session.commit()
-        return await self.get_payment(payment_id)
+        payment = await self.get_payment(payment_id)
+        if payment is not None:
+            await self.record_funnel_event(payment.user_id, "payment", meta={"provider": payment.provider})
+        return payment
 
     async def claim_pending_cryptobot_payment(self, external_invoice_id: str) -> Payment | None:
         result = await self.session.execute(
@@ -932,3 +939,42 @@ class Repository:
         )
         self.session.add(redemption)
         return await self._commit_refresh(redemption)
+
+    # ---- Funnel events -------------------------------------------------------
+
+    async def record_funnel_event(
+        self,
+        user_id: int,
+        event: str,
+        meta: dict[str, Any] | None = None,
+    ) -> FunnelEvent | None:
+        """Record the first occurrence of a funnel milestone; repeats are no-ops.
+
+        Telemetry only: any DB error is logged and swallowed so it can never
+        break the money/provisioning flow that triggered it.
+        """
+        try:
+            existing = await self.session.execute(
+                select(FunnelEvent.id).where(
+                    FunnelEvent.user_id == user_id,
+                    FunnelEvent.event == event,
+                )
+            )
+            if existing.scalar_one_or_none() is not None:
+                return None
+            record = FunnelEvent(user_id=user_id, event=event, meta=meta)
+            self.session.add(record)
+            return await self._commit_refresh(record)
+        except SQLAlchemyError:
+            await self.session.rollback()
+            logging.getLogger(__name__).warning(
+                "Failed to record funnel event user_id=%s event=%s", user_id, event, exc_info=True
+            )
+            return None
+
+    async def funnel_counts(self, since: datetime | None = None) -> dict[str, int]:
+        query = select(FunnelEvent.event, func.count(FunnelEvent.id)).group_by(FunnelEvent.event)
+        if since is not None:
+            query = query.where(FunnelEvent.created_at >= since)
+        result = await self.session.execute(query)
+        return {event: int(count) for event, count in result.all()}

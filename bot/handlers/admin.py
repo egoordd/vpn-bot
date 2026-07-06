@@ -168,6 +168,7 @@ async def admin_help_handler(message: Message) -> None:
             "/gift_promo &lt;КОД&gt; &lt;₽&gt; [исп.] — промокод на баланс",
             "/sync_traffic — синхронизировать трафик",
             "/panel_user &lt;tg_id&gt; — юзер в панели",
+            "/funnel — воронка start→триал→подключение→оплата",
         )
     )
     await message.answer(text)
@@ -205,6 +206,47 @@ async def stats_handler(message: Message, session_pool: async_sessionmaker[Async
             f"Потрачено на тарифы: {format_rub(spent)}",
             f"Пополнено (CryptoBot): {format_rub(deposited)}",
         )
+    )
+    await message.answer(text)
+
+
+FUNNEL_STEPS: tuple[tuple[str, str], ...] = (
+    ("start", "Запустили бота"),
+    ("trial", "Получили триал"),
+    ("first_connect", "Подключились"),
+    ("payment", "Оплатили"),
+)
+
+
+def _funnel_report(counts: dict[str, int], title: str) -> str:
+    lines = []
+    previous: int | None = None
+    for event, label in FUNNEL_STEPS:
+        count = counts.get(event, 0)
+        if previous in (None, 0):
+            lines.append(f"{label}: {count}")
+        else:
+            lines.append(f"{label}: {count} ({count * 100 // previous}% от пред.)")
+        previous = count
+    return f"<b>{title}</b>\n" + bq(*lines)
+
+
+@router.message(Command("funnel"))
+async def funnel_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    if await _reject_non_admin(message):
+        return
+    async with session_pool() as session:
+        repo = Repository(session)
+        total = await repo.funnel_counts()
+        week = await repo.funnel_counts(since=datetime.now(timezone.utc) - timedelta(days=7))
+
+    text = (
+        "🧭 <b>Воронка</b>\n\n"
+        + _funnel_report(total, "За всё время")
+        + "\n\n"
+        + _funnel_report(week, "За 7 дней")
+        + "\n\n"
+        + bq("События пишутся один раз на пользователя; проценты — конверсия из предыдущего шага.")
     )
     await message.answer(text)
 

@@ -178,7 +178,7 @@ async def activate_panel_subscription(
         )
 
     await repo.deactivate_subscriptions_in_lane(user_id, is_premium)
-    return await repo.create_subscription(
+    subscription = await repo.create_subscription(
         user_id=user_id,
         plan=tariff.code,
         tier=tariff.tier,
@@ -194,6 +194,9 @@ async def activate_panel_subscription(
         expires_at=expires_at,
         is_active=True,
     )
+    if tariff.tier == "trial":
+        await repo.record_funnel_event(user_id, "trial")
+    return subscription
 
 
 class StaticRegionError(RuntimeError):

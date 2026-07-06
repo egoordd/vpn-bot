@@ -152,6 +152,23 @@ async def _attach_referrer_from_start(
             return
 
 
+async def _record_start_event(
+    session_pool: async_sessionmaker[AsyncSession],
+    message: Message,
+) -> None:
+    """Best-effort funnel telemetry; must never break /start."""
+    try:
+        async with session_pool() as session:
+            repo = Repository(session)
+            user = await repo.get_or_create_user(
+                telegram_id=message.from_user.id,
+                username=message.from_user.username,
+            )
+            await repo.record_funnel_event(user.id, "start")
+    except Exception:  # noqa: BLE001 - telemetry only
+        logger.exception("Failed to record start funnel event for telegram_id=%s", message.from_user.id)
+
+
 async def _maybe_grant_trial(
     session_pool: async_sessionmaker[AsyncSession],
     message: Message,
@@ -181,6 +198,7 @@ async def start_handler(message: Message, session_pool: async_sessionmaker[Async
     async with session_pool() as session:
         is_new_user = await Repository(session).get_user_by_telegram_id(message.from_user.id) is None
     await _attach_referrer_from_start(session_pool, message)
+    await _record_start_event(session_pool, message)
     await _maybe_grant_trial(session_pool, message)
     text, keyboard, _ = await _menu_state(
         session_pool=session_pool,

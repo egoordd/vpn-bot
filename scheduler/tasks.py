@@ -158,6 +158,7 @@ async def traffic_sync(
                 should_deactivate = True
                 status = "LIMITED"
 
+            had_no_traffic = (subscription.traffic_used_bytes or 0) == 0
             await repo.update_subscription(
                 subscription.id,
                 status=status.lower(),
@@ -169,6 +170,10 @@ async def traffic_sync(
                 sub_token=panel_user.short_uuid,
             )
             synced_count += 1
+
+            # Funnel: the first bytes through the panel mean the user actually connected.
+            if had_no_traffic and used_traffic_bytes > 0:
+                await repo.record_funnel_event(subscription.user_id, "first_connect")
 
             if should_deactivate:
                 if subscription.tier == "premium":
