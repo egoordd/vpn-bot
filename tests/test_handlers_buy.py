@@ -51,6 +51,29 @@ async def test_buy_plan_standard_without_balance_offers_topup(session_pool, fake
 
 
 @pytest.mark.integration
+async def test_buy_plan_standard_shows_card_button_when_tribute_link_set(session_pool, fake_bot, monkeypatch):
+    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
+    monkeypatch.setattr(
+        buy.settings,
+        "TRIBUTE_PAY_LINKS",
+        '{"standard_1m": "https://t.me/tribute/app?startapp=pyhh"}',
+    )
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data="buy:standard_1m",
+        from_user=SimpleNamespace(id=930, username="carduser"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.buy_plan_handler(callback, fake_bot, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    urls = [btn.url for row in keyboard.inline_keyboard for btn in row if getattr(btn, "url", None)]
+    assert "https://t.me/tribute/app?startapp=pyhh" in urls
+
+
+@pytest.mark.integration
 async def test_pay_crypto_handler_creates_invoice_and_payment(session_pool, fake_bot, monkeypatch):
     monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: True)
     async def create_invoice(**kwargs):
