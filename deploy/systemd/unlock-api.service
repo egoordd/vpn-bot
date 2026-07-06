@@ -8,7 +8,9 @@ Requires=docker.service
 Type=simple
 WorkingDirectory=/opt/vpn-bot
 Environment=DATABASE_URL=postgresql+asyncpg://vpn_bot:vpn_bot_password@127.0.0.1:5432/vpn_bot
-ExecStart=/opt/vpn-bot/.venv/bin/uvicorn services.http_api:app --host 0.0.0.0 --port 8080
+# Bind loopback only — Caddy fronts this on 127.0.0.1:8080 with TLS. Never expose
+# the billing/admin API directly on a public interface (plaintext + extra surface).
+ExecStart=/opt/vpn-bot/.venv/bin/uvicorn services.http_api:app --host 127.0.0.1 --port 8080
 Restart=always
 RestartSec=5
 StandardOutput=append:/var/log/unlock-api.log

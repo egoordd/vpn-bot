@@ -10,12 +10,44 @@ from services.promo import PROMO_BALANCE_BONUS, PROMO_PERCENT_DISCOUNT
 
 @pytest_asyncio.fixture
 async def api_client(session_pool):
+    # Authed-by-default client: the API now fails closed, so a token must be set
+    # and sent. Auth-specific behaviour (401/503) is covered by dedicated tests.
+    app = create_app()
+    app.state.session_pool = session_pool
+    app.state.api_token = "secret-token"
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://billing",
+        headers={"Authorization": "Bearer secret-token"},
+    ) as client:
+        yield client
+
+
+@pytest_asyncio.fixture
+async def open_client(session_pool):
+    # No token configured -> the API must fail CLOSED (503), never open.
     app = create_app()
     app.state.session_pool = session_pool
     app.state.api_token = ""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://billing") as client:
         yield client
+
+
+@pytest.mark.asyncio
+async def test_missing_token_fails_closed(open_client):
+    # Every route (except the HMAC-signed webhook) must be denied when unset.
+    for path in ("/health", "/plans", "/account/1", "/admin/stats"):
+        resp = await open_client.get(path)
+        assert resp.status_code == 503, path
+
+
+@pytest.mark.asyncio
+async def test_wrong_or_missing_bearer_is_401(secured_client):
+    assert (await secured_client.get("/plans")).status_code == 401
+    bad = await secured_client.get("/plans", headers={"Authorization": "Bearer nope"})
+    assert bad.status_code == 401
 
 
 @pytest_asyncio.fixture

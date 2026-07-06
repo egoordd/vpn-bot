@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -177,8 +178,11 @@ async def _require_auth(
         return
     expected = getattr(request.app.state, "api_token", "")
     if not expected:
-        return
-    if authorization != f"Bearer {expected}":
+        # Fail CLOSED: a missing/empty token must never expose every account,
+        # subscription link, balance and /admin route to the public. (An empty
+        # .env has clobbered other vars before — never let that open the API.)
+        raise HTTPException(status_code=503, detail="api auth not configured")
+    if not authorization or not hmac.compare_digest(authorization, f"Bearer {expected}"):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 

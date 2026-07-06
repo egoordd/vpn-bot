@@ -1,24 +1,35 @@
 import { NextResponse } from "next/server";
 
-import { getAccountOverview } from "@/lib/billing/client";
+import { verifyTelegramInitData } from "@/lib/telegram-auth";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Account overview for the cabinet. `userId` is a placeholder until session
- * auth (Telegram Login / email) resolves the real identity server-side.
+ * Account overview for the cabinet.
+ *
+ * SECURITY: identity MUST come from a signed Telegram Mini App `initData`
+ * (validated server-side), never from a client-supplied user id — trusting a
+ * client id here is an IDOR that would leak every user's subscription link and
+ * balance. The endpoint refuses any request without a valid signature.
+ *
+ * The billing lookup keys on the internal account id; binding the authenticated
+ * Telegram id to that account is not wired yet, so authenticated calls return
+ * 501 until the cabinet mini-app + identity binding lands. This guarantees no
+ * account data can ever be read for an attacker-chosen id.
  */
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const userId = Number(searchParams.get("userId") ?? "1");
-  if (!Number.isInteger(userId) || userId <= 0) {
-    return NextResponse.json({ error: "invalid userId" }, { status: 400 });
+  const initData =
+    request.headers.get("x-telegram-init-data") ??
+    new URL(request.url).searchParams.get("initData") ??
+    "";
+
+  const telegramId = verifyTelegramInitData(initData);
+  if (!telegramId) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  try {
-    const account = await getAccountOverview(userId);
-    return NextResponse.json({ account });
-  } catch {
-    return NextResponse.json({ error: "account unavailable" }, { status: 502 });
-  }
+  return NextResponse.json(
+    { error: "account lookup not enabled yet" },
+    { status: 501 },
+  );
 }

@@ -7,9 +7,25 @@ const nextConfig = {
   // flip this off when the lint config lands.
   eslint: { ignoreDuringBuilds: true },
   async headers() {
-    // Baseline security headers. The production CSP is intentionally strict;
-    // tighten connect-src to the real billing API origin when wired.
+    // Content-Security-Policy: 'unsafe-inline' is required for the inline theme
+    // script + Next's inline styles; everything else is locked to same-origin.
+    // fonts are self-hosted (next/font). Upgrade script-src to a nonce (via
+    // middleware) to drop 'unsafe-inline' when there's time.
+    const csp = [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+      "object-src 'none'",
+      "form-action 'self'",
+      "img-src 'self' data: https:",
+      "font-src 'self' data:",
+      "style-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline'",
+      "connect-src 'self'",
+      "manifest-src 'self'",
+    ].join("; ");
     const securityHeaders = [
+      { key: "Content-Security-Policy", value: csp },
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "X-Frame-Options", value: "DENY" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
