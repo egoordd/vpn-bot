@@ -26,15 +26,54 @@ export interface AdminRecentSubscription {
   expiresAt: string | null;
 }
 
-/** Opaque session value stored in the admin cookie (never the raw password). */
-export function adminSessionToken(): string {
+export const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 12;
+
+/**
+ * HMAC key for session tokens. Prefers ADMIN_SESSION_SECRET; falls back to a
+ * key derived from ADMIN_PASSWORD so rotating the password revokes sessions.
+ */
+function sessionKey(): Buffer | null {
+  const secret = process.env.ADMIN_SESSION_SECRET ?? "";
+  if (secret.length > 0) return crypto.createHash("sha256").update(secret).digest();
   const password = process.env.ADMIN_PASSWORD ?? "";
-  return crypto.createHash("sha256").update(`unlock-admin:${password}`).digest("hex");
+  if (password.length === 0) return null;
+  return crypto.createHash("sha256").update(`unlock-admin-session:${password}`).digest();
+}
+
+function signPayload(key: Buffer, payload: string): string {
+  return crypto.createHmac("sha256", key).update(payload).digest("hex");
+}
+
+/** Random, expiring, HMAC-signed session token: `<expiresAtMs>.<nonce>.<sig>`. */
+export function createAdminSession(): string | null {
+  const key = sessionKey();
+  if (!key) return null;
+  const expiresAt = Date.now() + ADMIN_SESSION_TTL_SECONDS * 1000;
+  const payload = `${expiresAt}.${crypto.randomBytes(16).toString("hex")}`;
+  return `${payload}.${signPayload(key, payload)}`;
+}
+
+export function isValidAdminSession(token: string | undefined): boolean {
+  if (!token) return false;
+  const key = sessionKey();
+  if (!key) return false;
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  const [expiresAtRaw, nonce, sig] = parts;
+  const expiresAt = Number(expiresAtRaw);
+  if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) return false;
+  const expected = signPayload(key, `${expiresAtRaw}.${nonce}`);
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expected);
+  return sigBuf.length === expectedBuf.length && crypto.timingSafeEqual(sigBuf, expectedBuf);
 }
 
 export function isAdminPassword(candidate: string): boolean {
   const expected = process.env.ADMIN_PASSWORD ?? "";
-  return expected.length > 0 && candidate === expected;
+  if (expected.length === 0) return false;
+  const candidateDigest = crypto.createHash("sha256").update(candidate).digest();
+  const expectedDigest = crypto.createHash("sha256").update(expected).digest();
+  return crypto.timingSafeEqual(candidateDigest, expectedDigest);
 }
 
 export async function fetchAdminStats(): Promise<AdminStats | null> {

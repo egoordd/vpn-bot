@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { adminSessionToken, fetchAdminStats, type AdminStats } from "@/lib/admin";
+import { fetchAdminStats, isValidAdminSession, type AdminStats } from "@/lib/admin";
 import { AdminLogin } from "./AdminLogin";
 import "./admin.css";
 
@@ -23,7 +23,7 @@ function fmtDate(iso: string | null): string {
 }
 
 export default async function AdminPage() {
-  const authed = cookies().get("admin_auth")?.value === adminSessionToken();
+  const authed = isValidAdminSession(cookies().get("admin_auth")?.value);
   if (!authed) return <AdminLogin />;
 
   const stats = await fetchAdminStats();
