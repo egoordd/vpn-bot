@@ -1,0 +1,12 @@
+[Unit]
+Description=Block outbound service ports (SSH/RDP/PgSQL) for VPN abuse prevention
+After=network-online.target ufw.service docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vpn-egress-block.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
