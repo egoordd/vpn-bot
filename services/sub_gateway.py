@@ -11,8 +11,13 @@ Trojan + Hysteria2, 🇳🇱 Нидерланды VLESS + Trojan + Hysteria2.
 
 Runs on the main server next to Marzban. Stdlib only (no pip deps).
 
+Provider-agnostic upstream: when REMNAWAVE_SUB_BASE is set the gateway fetches
+the per-user config from the Remnawave panel first and falls back to Marzban,
+so both panels can be served through one subscription host during the cutover.
+
 Env:
-  MARZBAN_BASE   e.g. https://144.172.101.217.sslip.io:8443
+  REMNAWAVE_SUB_BASE  e.g. https://panel.23.95.3.18.sslip.io/api/sub (tried first)
+  MARZBAN_BASE   e.g. https://144.172.101.217.sslip.io:8443 (fallback)
   US_HY2_PASS    Hysteria2 password on the US node
   NL_HY2_PASS    Hysteria2 password on the NL node
   LISTEN_PORT    default 8090 (bind 127.0.0.1; nginx proxies a public path)
@@ -30,6 +35,8 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://144.172.101.217.sslip.io:8443").rstrip("/")
+# When set, the gateway serves Remnawave subscriptions (tried before Marzban).
+REMNAWAVE_SUB_BASE = os.environ.get("REMNAWAVE_SUB_BASE", "").rstrip("/")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8090"))
 BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 CERT_FILE = os.environ.get("CERT_FILE", "")  # when set -> serve HTTPS on BIND_HOST
@@ -101,9 +108,9 @@ def _trojan_uri(node: dict) -> str:
     )
 
 
-def _fetch_marzban_sub(token: str) -> tuple[str, str | None] | None:
-    """Returns (decoded_uris_text, userinfo_header) or None if invalid."""
-    url = f"{MARZBAN_BASE}/sub/{token}"
+def _http_get_sub(url: str) -> tuple[str, str | None] | None:
+    """Fetch a base64 (or raw) subscription body. Returns (decoded_uris_text,
+    userinfo_header), or None on any transport error / empty body."""
     req = urllib.request.Request(url, headers={"User-Agent": "v2rayNG/1.8.5"})
     try:
         with urllib.request.urlopen(req, timeout=15, context=_SSL) as resp:
@@ -111,11 +118,27 @@ def _fetch_marzban_sub(token: str) -> tuple[str, str | None] | None:
             userinfo = resp.headers.get("subscription-userinfo")
     except Exception:
         return None
+    if not raw:
+        return None
     try:
         decoded = base64.b64decode(raw + "===").decode("utf-8", "replace")
     except Exception:
         decoded = raw
     return decoded, userinfo
+
+
+def _fetch_upstream_sub(token: str) -> tuple[str, str | None] | None:
+    """Resolve a per-user subscription, Remnawave first then Marzban.
+
+    A single token belongs to exactly one panel; trying Remnawave first and
+    falling back to Marzban lets both coexist during the cutover without the
+    gateway needing to know which panel issued a given token.
+    """
+    if REMNAWAVE_SUB_BASE:
+        result = _http_get_sub(f"{REMNAWAVE_SUB_BASE}/{token}")
+        if result is not None and any("://" in line for line in result[0].splitlines()):
+            return result
+    return _http_get_sub(f"{MARZBAN_BASE}/sub/{token}")
 
 
 def combine_links(decoded: str) -> list[str]:
@@ -145,7 +168,7 @@ def combine_links(decoded: str) -> list[str]:
 
 
 def build_combined(token: str) -> tuple[str, str | None] | None:
-    fetched = _fetch_marzban_sub(token)
+    fetched = _fetch_upstream_sub(token)
     if fetched is None:
         return None
     decoded, userinfo = fetched

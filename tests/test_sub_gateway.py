@@ -110,3 +110,57 @@ def test_happ_redirect_page_is_valid_html_document():
     assert page.startswith("<!doctype html>")
     assert "<a href=" in page
     assert 'http-equiv="refresh"' in page
+
+
+def test_fetch_upstream_prefers_remnawave_when_configured(monkeypatch):
+    calls: list[str] = []
+
+    def fake_get(url: str):
+        calls.append(url)
+        return ("vless://uuid@78.17.154.225.sslip.io:2088?security=reality#PL", None)
+
+    monkeypatch.setattr(sub_gateway, "REMNAWAVE_SUB_BASE", "https://panel.example/api/sub")
+    monkeypatch.setattr(sub_gateway, "_http_get_sub", fake_get)
+
+    result = sub_gateway._fetch_upstream_sub("tok123")
+
+    assert result is not None
+    assert calls == ["https://panel.example/api/sub/tok123"]
+
+
+def test_fetch_upstream_falls_back_to_marzban_on_empty_remnawave(monkeypatch):
+    calls: list[str] = []
+
+    def fake_get(url: str):
+        calls.append(url)
+        if "panel.example" in url:
+            return None  # token not on Remnawave yet (mid-migration)
+        return ("vless://uuid@144.172.101.217.sslip.io:443?security=reality#US", None)
+
+    monkeypatch.setattr(sub_gateway, "REMNAWAVE_SUB_BASE", "https://panel.example/api/sub")
+    monkeypatch.setattr(sub_gateway, "MARZBAN_BASE", "https://mz.example:8443")
+    monkeypatch.setattr(sub_gateway, "_http_get_sub", fake_get)
+
+    result = sub_gateway._fetch_upstream_sub("tok123")
+
+    assert result is not None
+    assert calls == [
+        "https://panel.example/api/sub/tok123",
+        "https://mz.example:8443/sub/tok123",
+    ]
+
+
+def test_fetch_upstream_uses_marzban_when_remnawave_unset(monkeypatch):
+    calls: list[str] = []
+
+    def fake_get(url: str):
+        calls.append(url)
+        return ("vless://uuid@144.172.101.217.sslip.io:443#US", None)
+
+    monkeypatch.setattr(sub_gateway, "REMNAWAVE_SUB_BASE", "")
+    monkeypatch.setattr(sub_gateway, "MARZBAN_BASE", "https://mz.example:8443")
+    monkeypatch.setattr(sub_gateway, "_http_get_sub", fake_get)
+
+    sub_gateway._fetch_upstream_sub("tok123")
+
+    assert calls == ["https://mz.example:8443/sub/tok123"]
