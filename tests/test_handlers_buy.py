@@ -51,32 +51,9 @@ async def test_buy_plan_standard_without_balance_offers_topup(session_pool, fake
 
 
 @pytest.mark.integration
-async def test_buy_plan_standard_shows_card_button_when_tribute_link_set(session_pool, fake_bot, monkeypatch):
+async def test_buy_plan_standard_shows_card_first_when_yookassa_configured(session_pool, fake_bot, monkeypatch):
+    # Card (YooKassa) must be the FIRST button; crypto off, balance zero.
     monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
-    monkeypatch.setattr(
-        buy.settings,
-        "TRIBUTE_PAY_LINKS",
-        '{"standard_1m": "https://t.me/tribute/app?startapp=pyhh"}',
-    )
-    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        data="buy:standard_1m",
-        from_user=SimpleNamespace(id=930, username="carduser"),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await buy.buy_plan_handler(callback, fake_bot, session_pool)
-
-    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    urls = [btn.url for row in keyboard.inline_keyboard for btn in row if getattr(btn, "url", None)]
-    assert "https://t.me/tribute/app?startapp=pyhh" in urls
-
-
-@pytest.mark.integration
-async def test_buy_plan_standard_shows_yookassa_button_when_configured(session_pool, fake_bot, monkeypatch):
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
-    monkeypatch.setattr(buy.settings, "TRIBUTE_PAY_LINKS", "{}")
     monkeypatch.setattr(buy.yookassa, "is_configured", lambda: True)
     message = SimpleNamespace(photo=None, edit_text=AsyncMock())
     callback = SimpleNamespace(
@@ -89,8 +66,9 @@ async def test_buy_plan_standard_shows_yookassa_button_when_configured(session_p
     await buy.buy_plan_handler(callback, fake_bot, session_pool)
 
     keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row if getattr(btn, "callback_data", None)]
-    assert any(cb.startswith("payyk:standard_1m") for cb in callbacks)
+    first_button = keyboard.inline_keyboard[0][0]
+    assert first_button.callback_data == "payyk:standard_1m"
+    assert first_button.text == "💳 Оплатить картой"
 
 
 @pytest.mark.integration

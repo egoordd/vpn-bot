@@ -81,11 +81,21 @@ def _checkout_keyboard(
     balance_ok: bool,
     crypto_ok: bool,
     price_kopecks: int,
-    tribute_url: str | None = None,
     yookassa_ok: bool = False,
 ) -> InlineKeyboardMarkup:
     suffix = f":{region}" if region else ""
     rows: list[list[InlineKeyboardButton]] = []
+    if yookassa_ok:
+        # Card is the primary method → first button. Creates a YooKassa payment on
+        # tap, then shows its confirmation URL.
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="💳 Оплатить картой",
+                    callback_data=f"payyk:{plan}{suffix}",
+                )
+            ]
+        )
     if balance_ok:
         rows.append(
             [
@@ -95,20 +105,6 @@ def _checkout_keyboard(
                 )
             ]
         )
-    if yookassa_ok:
-        # Creates a YooKassa payment on tap, then shows its confirmation URL.
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="💳 Оплатить картой (ЮKassa)",
-                    callback_data=f"payyk:{plan}{suffix}",
-                )
-            ]
-        )
-    if tribute_url:
-        # URL button opens Tribute inside Telegram → buyer is Telegram-identified →
-        # the new_digital_product webhook delivers the subscription automatically.
-        rows.append([InlineKeyboardButton(text="💳 Оплатить картой", url=tribute_url)])
     if crypto_ok:
         rows.append(
             [
@@ -148,7 +144,6 @@ async def _show_checkout(
     premium_static = tariff.tier == "premium" and settings.marzban_inbounds_for_region(region) is not None
     balance_ok = balance >= price_kopecks and (tariff.tier == "standard" or premium_static)
     crypto_ok = is_cryptobot_configured()
-    tribute_url = settings.tribute_pay_links_dict.get(plan)
     # YooKassa card path: standard plans only for now (premium needs region/node
     # assignment which the redirect webhook does not perform).
     yookassa_ok = yookassa.is_configured() and tariff.tier == "standard"
@@ -162,12 +157,12 @@ async def _show_checkout(
     card_lines.append(f"💳 Ваш баланс: {format_rub(balance)}")
 
     sections = ["💳 <b>Оплата тарифа</b>\n\n" + bq(*card_lines)]
-    if balance_ok or crypto_ok or tribute_url or yookassa_ok:
+    if yookassa_ok or balance_ok or crypto_ok:
         sections.append("Выберите способ оплаты:")
-        if tribute_url:
+        if yookassa_ok:
             sections.append(
-                "💳 <i>Картой:</i> на странице оплаты войдите <b>через Telegram</b> — "
-                "тогда подписка придёт сюда автоматически после оплаты."
+                "💳 <i>Картой (рекомендуем):</i> нажмите «Оплатить картой» — откроется "
+                "защищённая страница оплаты. После оплаты подписка придёт сюда автоматически."
             )
     elif tariff.tier == "premium":
         sections.append("⚠️ Оплата Premium временно доступна только криптовалютой, а она сейчас недоступна. Попробуйте позже.")
@@ -184,7 +179,6 @@ async def _show_checkout(
             balance_ok=balance_ok,
             crypto_ok=crypto_ok,
             price_kopecks=price_kopecks,
-            tribute_url=tribute_url,
             yookassa_ok=yookassa_ok,
         ),
     )
