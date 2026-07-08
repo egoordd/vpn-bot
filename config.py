@@ -54,6 +54,18 @@ class Settings(BaseSettings):
     # TODO: replace with a rate feed before card payments launch.
     RUB_PER_USDT: str = "90"
 
+    # YooKassa card payments (API + webhook). Charged in RUB.
+    # SHOP_ID + SECRET_KEY come from the YooKassa merchant panel (Настройки → Ключи API).
+    YOOKASSA_SHOP_ID: str = ""
+    YOOKASSA_SECRET_KEY: SecretStr = SecretStr("")
+    YOOKASSA_API_URL: str = "https://api.yookassa.ru/v3"
+    # Where YooKassa returns the buyer after payment (a Telegram deep link to the bot).
+    YOOKASSA_RETURN_URL: str = ""
+    # 54-ФЗ receipts (самозанятый/НПД): when True, attach a receipt object so
+    # YooKassa issues the чек. Needs a buyer contact — RECEIPT_EMAIL is the fallback.
+    YOOKASSA_RECEIPT_ENABLED: bool = False
+    YOOKASSA_RECEIPT_EMAIL: str = ""
+
     PANEL_PROVIDER: str = "remnawave"
 
     BILLING_API_TOKEN: SecretStr = SecretStr("")
@@ -164,6 +176,10 @@ class Settings(BaseSettings):
         if not username:
             return "не указан"
         return username if username.startswith("@") else f"@{username}"
+
+    @property
+    def yookassa_secret_key(self) -> str:
+        return self.YOOKASSA_SECRET_KEY.get_secret_value()
 
     @property
     def remnawave_api_token(self) -> str:

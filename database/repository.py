@@ -570,6 +570,26 @@ class Repository:
         self.session.add(payment)
         return await self._commit_refresh(payment)
 
+    async def create_yookassa_payment(
+        self,
+        user_id: int,
+        amount: int,
+        external_invoice_id: str,
+        invoice_payload: str,
+        plan: str,
+    ) -> Payment:
+        payment = Payment(
+            user_id=user_id,
+            amount=amount,
+            currency="RUB",
+            provider="yookassa",
+            external_invoice_id=str(external_invoice_id),
+            invoice_payload=invoice_payload,
+            status="pending",
+        )
+        self.session.add(payment)
+        return await self._commit_refresh(payment)
+
     async def get_payment(self, payment_id: int) -> Payment | None:
         return await self.session.get(Payment, payment_id)
 
@@ -605,12 +625,14 @@ class Repository:
         await self.record_funnel_event(completed.user_id, "payment", meta={"provider": completed.provider})
         return completed
 
-    async def complete_payment_by_external_id(self, external_invoice_id: str) -> Payment | None:
+    async def complete_payment_by_external_id(
+        self, external_invoice_id: str, provider: str = "cryptobot"
+    ) -> Payment | None:
         result = await self.session.execute(
             update(Payment)
             .where(
                 Payment.external_invoice_id == str(external_invoice_id),
-                Payment.provider == "cryptobot",
+                Payment.provider == provider,
                 Payment.status.in_(("pending", "processing")),
             )
             .values(

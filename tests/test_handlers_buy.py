@@ -74,6 +74,64 @@ async def test_buy_plan_standard_shows_card_button_when_tribute_link_set(session
 
 
 @pytest.mark.integration
+async def test_buy_plan_standard_shows_yookassa_button_when_configured(session_pool, fake_bot, monkeypatch):
+    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
+    monkeypatch.setattr(buy.settings, "TRIBUTE_PAY_LINKS", "{}")
+    monkeypatch.setattr(buy.yookassa, "is_configured", lambda: True)
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data="buy:standard_1m",
+        from_user=SimpleNamespace(id=931, username="ykuser"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.buy_plan_handler(callback, fake_bot, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row if getattr(btn, "callback_data", None)]
+    assert any(cb.startswith("payyk:standard_1m") for cb in callbacks)
+
+
+@pytest.mark.integration
+async def test_pay_yookassa_handler_creates_payment_and_shows_link(session_pool, fake_bot, monkeypatch):
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    monkeypatch.setattr(buy.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        buy.yookassa,
+        "create_payment",
+        _AsyncMock(return_value={"id": "yk-buy-1", "confirmation": {"confirmation_url": "https://yoomoney.ru/pay/z"}}),
+    )
+    sent = {}
+
+    async def send(callback, bot, text, reply_markup=None):
+        sent["markup"] = reply_markup
+
+    monkeypatch.setattr(buy, "_send_callback_message", send)
+
+    callback = SimpleNamespace(
+        data="payyk:standard_1m",
+        from_user=SimpleNamespace(id=932, username="ykbuyer"),
+        message=SimpleNamespace(),
+        answer=AsyncMock(),
+    )
+
+    await buy.pay_yookassa_handler(callback, fake_bot, session_pool)
+
+    urls = [btn.url for row in sent["markup"].inline_keyboard for btn in row if getattr(btn, "url", None)]
+    assert "https://yoomoney.ru/pay/z" in urls
+    async with session_pool() as session:
+        from database.repository import Repository
+
+        user = await Repository(session).get_user_by_telegram_id(932)
+        payment = await Repository(session).get_payment_by_external_id("yk-buy-1")
+    assert payment is not None
+    assert payment.provider == "yookassa"
+    assert payment.user_id == user.id
+
+
+@pytest.mark.integration
 async def test_pay_crypto_handler_creates_invoice_and_payment(session_pool, fake_bot, monkeypatch):
     monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: True)
     async def create_invoice(**kwargs):

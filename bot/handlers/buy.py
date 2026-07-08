@@ -16,12 +16,18 @@ from bot.navigation import show_screen
 from bot.texts import bq
 from config import settings
 from database.repository import Repository
-from services.billing_api import build_payment_intent, crypto_minor_units, register_cryptobot_payment
+from services.billing_api import (
+    build_payment_intent,
+    crypto_minor_units,
+    register_cryptobot_payment,
+    register_yookassa_payment,
+)
 from services.cryptobot import CryptoBotError, create_invoice
 from services.cryptobot import is_configured as is_cryptobot_configured
 from services.money import format_rub
 from services.payment import PLANS, normalize_payment_plan_code
 from services.tariffs import country_flag, resolve_premium_region, resolve_tariff
+from services import yookassa
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -76,6 +82,7 @@ def _checkout_keyboard(
     crypto_ok: bool,
     price_kopecks: int,
     tribute_url: str | None = None,
+    yookassa_ok: bool = False,
 ) -> InlineKeyboardMarkup:
     suffix = f":{region}" if region else ""
     rows: list[list[InlineKeyboardButton]] = []
@@ -85,6 +92,16 @@ def _checkout_keyboard(
                 InlineKeyboardButton(
                     text=f"💰 Оплатить с баланса — {price_kopecks // 100}₽",
                     callback_data=f"paybal:{plan}{suffix}",
+                )
+            ]
+        )
+    if yookassa_ok:
+        # Creates a YooKassa payment on tap, then shows its confirmation URL.
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="💳 Оплатить картой (ЮKassa)",
+                    callback_data=f"payyk:{plan}{suffix}",
                 )
             ]
         )
@@ -132,6 +149,9 @@ async def _show_checkout(
     balance_ok = balance >= price_kopecks and (tariff.tier == "standard" or premium_static)
     crypto_ok = is_cryptobot_configured()
     tribute_url = settings.tribute_pay_links_dict.get(plan)
+    # YooKassa card path: standard plans only for now (premium needs region/node
+    # assignment which the redirect webhook does not perform).
+    yookassa_ok = yookassa.is_configured() and tariff.tier == "standard"
 
     card_lines = [
         f"💎 Тариф: {tariff.title}",
@@ -142,7 +162,7 @@ async def _show_checkout(
     card_lines.append(f"💳 Ваш баланс: {format_rub(balance)}")
 
     sections = ["💳 <b>Оплата тарифа</b>\n\n" + bq(*card_lines)]
-    if balance_ok or crypto_ok or tribute_url:
+    if balance_ok or crypto_ok or tribute_url or yookassa_ok:
         sections.append("Выберите способ оплаты:")
         if tribute_url:
             sections.append(
@@ -165,6 +185,7 @@ async def _show_checkout(
             crypto_ok=crypto_ok,
             price_kopecks=price_kopecks,
             tribute_url=tribute_url,
+            yookassa_ok=yookassa_ok,
         ),
     )
     await callback.answer()
@@ -233,6 +254,65 @@ async def _create_payment_invoice(
 
     keyboard = _payment_keyboard(str(pay_url), intent.amount)
     await _send_callback_message(callback, bot, text, keyboard)
+
+
+def _yookassa_pay_keyboard(pay_url: str, price_rub: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"💳 Оплатить — {price_rub}₽", url=pay_url)],
+            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
+        ]
+    )
+
+
+async def _create_yookassa_invoice(
+    callback: CallbackQuery,
+    bot: Bot,
+    session_pool: async_sessionmaker[AsyncSession],
+    *,
+    plan: str,
+    region: str | None = None,
+) -> None:
+    async with session_pool() as session:
+        intent = await build_payment_intent(
+            session,
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            plan=plan,
+            region=region,
+        )
+
+    try:
+        payment = await yookassa.create_payment(
+            amount_kopecks=intent.plan.price_rub * 100,
+            description=intent.description,
+            metadata={"user_id": intent.user_id, "plan": intent.plan.code},
+        )
+    except yookassa.YooKassaError:
+        logger.exception("Failed to create YooKassa payment for user_id=%s plan=%s", intent.user_id, plan)
+        await _send_callback_message(callback, bot, "Не удалось создать платёж. Попробуйте позже.")
+        return
+
+    payment_id = payment.get("id")
+    pay_url = yookassa.confirmation_url(payment)
+    if not payment_id or not pay_url:
+        logger.error("YooKassa payment missing id or confirmation_url: %s", payment)
+        await _send_callback_message(callback, bot, "ЮKassa вернула некорректный платёж. Напишите в поддержку.")
+        return
+
+    async with session_pool() as session:
+        await register_yookassa_payment(session, intent=intent, external_payment_id=str(payment_id))
+
+    text = (
+        "💳 <b>Оплата картой (ЮKassa)</b>\n\n"
+        + bq(
+            f"💎 Тариф: {intent.plan.title}",
+            f"💵 Стоимость: {intent.plan.price_rub}₽",
+        )
+        + "\n\nНажмите кнопку ниже и оплатите на защищённой странице ЮKassa.\n"
+        "Ссылка-подписка придёт автоматически в течение минуты после оплаты."
+    )
+    await _send_callback_message(callback, bot, text, _yookassa_pay_keyboard(pay_url, intent.plan.price_rub))
 
 
 BUY_MENU_TEXT = (
@@ -416,3 +496,34 @@ async def pay_crypto_handler(
 
     await callback.answer()
     await _create_payment_invoice(callback, bot, session_pool, plan=plan, region=region)
+
+
+@router.callback_query(F.data.startswith("payyk:"))
+async def pay_yookassa_handler(
+    callback: CallbackQuery,
+    bot: Bot,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    parts = callback.data.split(":", maxsplit=2) if callback.data else []
+    raw_plan = parts[1] if len(parts) >= 2 else ""
+    raw_region = parts[2] if len(parts) == 3 else None
+    try:
+        plan = normalize_payment_plan_code(raw_plan)
+    except ValueError:
+        await callback.answer("Тариф не найден", show_alert=True)
+        return
+
+    region: str | None = None
+    if raw_region is not None:
+        try:
+            region = resolve_premium_region(raw_region).code
+        except ValueError:
+            await callback.answer("Локация не найдена", show_alert=True)
+            return
+
+    if not yookassa.is_configured():
+        await callback.answer("Оплата картой сейчас недоступна.", show_alert=True)
+        return
+
+    await callback.answer()
+    await _create_yookassa_invoice(callback, bot, session_pool, plan=plan, region=region)

@@ -246,3 +246,80 @@ async def test_tribute_webhook_rejects_bad_signature(api_client, monkeypatch):
     monkeypatch.setattr(api_mod.tribute, "verify_signature", lambda raw, sig: False)
     response = await api_client.post("/tribute/webhook", json={"name": "x"}, headers={"trbt-signature": "bad"})
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_yookassa_webhook_provisions_and_delivers(api_client, session_pool, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from database.repository import Repository
+    from services import http_api as api_mod
+    from services.payment import create_invoice_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=7777)
+        payload = create_invoice_payload(user_id=user.id, plan="standard_1m")
+        await repo.create_yookassa_payment(
+            user_id=user.id,
+            amount=14900,
+            external_invoice_id="yk-1",
+            invoice_payload=payload,
+            plan="standard_1m",
+        )
+
+    monkeypatch.setattr(
+        api_mod.yookassa, "get_payment", AsyncMock(return_value={"id": "yk-1", "status": "succeeded"})
+    )
+
+    class _Sub:
+        subscription_url = "https://sub.example/sub/abc"
+
+    monkeypatch.setattr(api_mod, "activate_panel_subscription", AsyncMock(return_value=_Sub()))
+    monkeypatch.setattr(api_mod, "reward_referrer_for_payment", AsyncMock())
+    deliver = AsyncMock(return_value=True)
+    monkeypatch.setattr(api_mod.tribute, "deliver_subscription", deliver)
+
+    response = await api_client.post(
+        "/yookassa/webhook", json={"event": "payment.succeeded", "object": {"id": "yk-1"}}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["plan"] == "standard_1m"
+    deliver.assert_awaited_once()
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        payment = await repo.get_payment_by_external_id("yk-1")
+        assert payment.status == "completed"
+        counts = await repo.funnel_counts()
+        assert counts.get("payment") == 1
+
+
+@pytest.mark.asyncio
+async def test_yookassa_webhook_ignores_unpaid(api_client, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(
+        api_mod.yookassa, "get_payment", AsyncMock(return_value={"id": "yk-2", "status": "pending"})
+    )
+    response = await api_client.post("/yookassa/webhook", json={"object": {"id": "yk-2"}})
+
+    assert response.status_code == 200
+    assert response.json()["ignored"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_yookassa_webhook_needs_no_bearer(secured_client, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from services import http_api as api_mod
+
+    # exempt from the app-wide bearer check; unpaid status short-circuits before delivery
+    monkeypatch.setattr(
+        api_mod.yookassa, "get_payment", AsyncMock(return_value={"id": "yk-3", "status": "canceled"})
+    )
+    response = await secured_client.post("/yookassa/webhook", json={"object": {"id": "yk-3"}})
+    assert response.status_code == 200

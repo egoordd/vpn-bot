@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, AsyncIterator
@@ -11,9 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from database.repository import Repository
-from services import billing_api, promo, tribute, wallet
+from services import billing_api, promo, tribute, wallet, yookassa
 from services.billing_api import AccountOverview, BillingPlan, BillingRegion, SubscriptionSnapshot
-from services.referral import ReferralStats
+from services.payment import parse_invoice_payload_details
+from services.referral import reward_referrer_for_payment, ReferralStats
 from services.subscription import activate_panel_subscription, to_gateway_subscription_url
 from services.tariffs import resolve_tariff
 from services.wallet import UnknownWalletUserError, WalletEntry, WalletSnapshot
@@ -172,9 +174,10 @@ async def _require_auth(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:
-    # The Tribute webhook authenticates via its own HMAC signature, not the
-    # bearer token, so it is exempt from this app-wide check.
-    if request.url.path == "/tribute/webhook":
+    # Payment webhooks authenticate on their own terms, not the bearer token:
+    # Tribute via its HMAC signature, YooKassa by re-fetching the payment from
+    # the YooKassa API. Both are exempt from this app-wide bearer check.
+    if request.url.path in ("/tribute/webhook", "/yookassa/webhook"):
         return
     expected = getattr(request.app.state, "api_token", "")
     if not expected:
@@ -326,6 +329,85 @@ def create_app() -> FastAPI:
         sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
         await tribute.deliver_subscription(int(telegram_id), sub_url)
         return {"ok": True, "plan": plan}
+
+    @application.post("/yookassa/webhook")
+    async def yookassa_webhook(request: Request, session: SessionDep) -> dict[str, Any]:
+        log = logging.getLogger("yookassa")
+        try:
+            data = json.loads(await request.body())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid json")
+
+        obj = data.get("object") if isinstance(data, dict) else None
+        payment_id = (obj or {}).get("id")
+        if not payment_id:
+            raise HTTPException(status_code=400, detail="no payment id")
+
+        # YooKassa does not sign webhooks: treat the body as a hint and re-fetch
+        # the payment from the API (authenticated with our secret) as the source
+        # of truth before delivering anything.
+        try:
+            payment = await yookassa.get_payment(str(payment_id))
+        except yookassa.YooKassaError as exc:
+            log.exception("Failed to verify YooKassa payment %s", payment_id)
+            # 5xx so YooKassa retries the webhook later.
+            raise HTTPException(status_code=502, detail="verify failed") from exc
+
+        if payment.get("status") != "succeeded":
+            return {"ok": True, "ignored": payment.get("status")}
+
+        # Idempotency: YooKassa retries. Dedupe on the payment id.
+        redis = getattr(request.app.state, "redis", None)
+        if redis is not None:
+            fresh = await redis.set(f"yookassa:evt:{payment_id}", "1", nx=True, ex=60 * 60 * 24 * 7)
+            if not fresh:
+                return {"ok": True, "deduped": True}
+
+        repo = Repository(session)
+        completed = await repo.complete_payment_by_external_id(str(payment_id), provider="yookassa")
+        if completed is None:
+            # Unknown id or already completed (a lost dedupe) — nothing to deliver.
+            return {"ok": True, "already": True}
+
+        try:
+            details = parse_invoice_payload_details(completed.invoice_payload or "")
+        except ValueError:
+            log.error("Bad YooKassa payload for payment %s: %r", payment_id, completed.invoice_payload)
+            return {"ok": False, "error": "bad_payload"}
+
+        if details.user_id != completed.user_id:
+            log.error(
+                "YooKassa payment user mismatch payment=%s payload_user=%s payment_user=%s",
+                payment_id,
+                details.user_id,
+                completed.user_id,
+            )
+            return {"ok": False, "error": "user_mismatch"}
+
+        user = await repo.get_user(completed.user_id)
+        if user is None:
+            return {"ok": False, "error": "no_user"}
+
+        try:
+            subscription = await activate_panel_subscription(
+                session=session, user_id=completed.user_id, plan=details.plan
+            )
+        except Exception as exc:  # noqa: BLE001 - surface as 500 so YooKassa retries
+            raise HTTPException(status_code=500, detail="provisioning failed") from exc
+
+        try:
+            await reward_referrer_for_payment(
+                session,
+                paid_user_id=completed.user_id,
+                plan_code=details.plan,
+                payment_reference=f"yookassa:{payment_id}",
+            )
+        except Exception:
+            log.exception("Referral reward failed for YooKassa payment %s", payment_id)
+
+        sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
+        await tribute.deliver_subscription(int(user.telegram_id), sub_url)
+        return {"ok": True, "plan": details.plan}
 
     return application
 

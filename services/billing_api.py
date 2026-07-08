@@ -221,6 +221,23 @@ async def register_cryptobot_payment(
     )
 
 
+async def register_yookassa_payment(
+    session: AsyncSession,
+    *,
+    intent: PaymentIntent,
+    external_payment_id: str,
+) -> Payment:
+    """Store a pending YooKassa payment in RUB kopecks, keyed by its payment id."""
+    repo = Repository(session)
+    return await repo.create_yookassa_payment(
+        user_id=intent.user_id,
+        amount=intent.plan.price_rub * 100,
+        external_invoice_id=external_payment_id,
+        invoice_payload=intent.payload,
+        plan=intent.plan.code,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shared account surface (bot + website)
 #
