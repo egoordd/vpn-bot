@@ -111,6 +111,39 @@ async def test_pay_yookassa_handler_creates_payment_when_receipts_off(session_po
 
 
 @pytest.mark.integration
+async def test_pay_yookassa_skips_email_prompt_in_on_page_mode(session_pool, fake_bot, monkeypatch):
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    monkeypatch.setattr(buy.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(buy.settings, "YOOKASSA_RECEIPT_ENABLED", True)
+    monkeypatch.setattr(buy.settings, "YOOKASSA_COLLECT_EMAIL_ON_PAGE", True)
+    create = _AsyncMock(
+        return_value={"id": "yk-onpage-1", "confirmation": {"confirmation_url": "https://yoomoney.ru/pay/op"}}
+    )
+    monkeypatch.setattr(buy.yookassa, "create_payment", create)
+    sent = {}
+
+    async def send(callback, bot, text, reply_markup=None):
+        sent["markup"] = reply_markup
+
+    monkeypatch.setattr(buy, "_send_callback_message", send)
+    state = _AsyncMock()
+    callback = SimpleNamespace(
+        data="payyk:standard_1m",
+        from_user=SimpleNamespace(id=945, username="onpage"),
+        message=SimpleNamespace(),
+        answer=AsyncMock(),
+    )
+
+    await buy.pay_yookassa_handler(callback, fake_bot, session_pool, state)
+
+    state.set_state.assert_not_awaited()  # no email prompt
+    create.assert_awaited_once()
+    urls = [btn.url for row in sent["markup"].inline_keyboard for btn in row if getattr(btn, "url", None)]
+    assert "https://yoomoney.ru/pay/op" in urls
+
+
+@pytest.mark.integration
 async def test_pay_yookassa_asks_email_when_receipts_on(session_pool, fake_bot, monkeypatch):
     from unittest.mock import AsyncMock as _AsyncMock
 

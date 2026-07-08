@@ -110,6 +110,29 @@ async def test_create_payment_attaches_receipt_when_enabled(yk_settings, monkeyp
 
 
 @pytest.mark.unit
+async def test_receipt_on_page_mode_omits_customer(yk_settings, monkeypatch):
+    monkeypatch.setattr(yookassa.settings, "YOOKASSA_RECEIPT_ENABLED", True)
+    monkeypatch.setattr(yookassa.settings, "YOOKASSA_COLLECT_EMAIL_ON_PAGE", True)
+    captured = {}
+
+    with aioresponses() as mocked:
+        def _cb(url, **kwargs):
+            captured["json"] = kwargs.get("json") or {}
+            from aioresponses.core import CallbackResult
+
+            return CallbackResult(status=200, payload={"id": "p1", "confirmation": {"confirmation_url": "https://y/x"}})
+
+        mocked.post("https://api.yookassa.ru/v3/payments", callback=_cb)
+        await yookassa.create_payment(
+            amount_kopecks=14900, description="Standard", metadata={"user_id": 1, "plan": "standard_1m"}
+        )
+
+    receipt = captured["json"]["receipt"]
+    assert "customer" not in receipt  # YooKassa collects the email on its page
+    assert receipt["items"][0]["amount"]["value"] == "149.00"
+
+
+@pytest.mark.unit
 async def test_create_payment_http_error_raises(yk_settings):
     with aioresponses() as mocked:
         mocked.post("https://api.yookassa.ru/v3/payments", status=401, payload={"type": "error"})

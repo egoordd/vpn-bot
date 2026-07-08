@@ -78,27 +78,33 @@ async def _request(
 def _receipt(amount_kopecks: int, description: str, email: str | None = None) -> dict[str, Any] | None:
     """54-ФЗ receipt for самозанятый (НПД). vat_code=1 = без НДС.
 
-    The buyer's ``email`` is preferred (they receive their own чек); the configured
-    ``YOOKASSA_RECEIPT_EMAIL`` is only a fallback.
+    Two modes:
+    - default: we supply the buyer's ``email`` as ``customer`` (they get their чек;
+      ``YOOKASSA_RECEIPT_EMAIL`` is only a fallback).
+    - ``YOOKASSA_COLLECT_EMAIL_ON_PAGE``: omit ``customer`` so YooKassa asks for the
+      email on its own checkout page (needs the matching shop fiscalization setting).
     """
     if not settings.YOOKASSA_RECEIPT_ENABLED:
         return None
+
+    items = [
+        {
+            "description": description[:128],
+            "quantity": "1.00",
+            "amount": {"value": rub_value(amount_kopecks), "currency": "RUB"},
+            "vat_code": 1,
+            "payment_subject": "service",
+            "payment_mode": "full_payment",
+        }
+    ]
+
+    if settings.YOOKASSA_COLLECT_EMAIL_ON_PAGE:
+        return {"items": items}
+
     email = (email or "").strip() or settings.YOOKASSA_RECEIPT_EMAIL.strip()
     if not email:
         return None
-    return {
-        "customer": {"email": email},
-        "items": [
-            {
-                "description": description[:128],
-                "quantity": "1.00",
-                "amount": {"value": rub_value(amount_kopecks), "currency": "RUB"},
-                "vat_code": 1,
-                "payment_subject": "service",
-                "payment_mode": "full_payment",
-            }
-        ],
-    }
+    return {"customer": {"email": email}, "items": items}
 
 
 async def create_payment(

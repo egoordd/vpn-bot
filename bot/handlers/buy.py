@@ -549,8 +549,9 @@ async def pay_yookassa_handler(
         )
         stored_email = user.email
 
-    # 54-ФЗ: if receipts are on and we don't yet have the buyer's email, ask once.
-    if settings.YOOKASSA_RECEIPT_ENABLED and not stored_email:
+    # 54-ФЗ: if receipts are on, we form the чек ourselves, and we don't yet have
+    # the buyer's email, ask once. In on-page mode YooKassa collects it instead.
+    if settings.YOOKASSA_RECEIPT_ENABLED and not settings.YOOKASSA_COLLECT_EMAIL_ON_PAGE and not stored_email:
         await state.set_state(YookassaEmailInput.email)
         await state.update_data(plan=plan, region=region)
         text = (

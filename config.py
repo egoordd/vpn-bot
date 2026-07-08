@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     # YooKassa issues the чек. Needs a buyer contact — RECEIPT_EMAIL is the fallback.
     YOOKASSA_RECEIPT_ENABLED: bool = False
     YOOKASSA_RECEIPT_EMAIL: str = ""
+    # When True, don't ask the buyer for email in the bot and send the receipt
+    # WITHOUT a customer — YooKassa collects the email on its own checkout page.
+    # Requires the shop's fiscalization to be set to "ЮKassa запрашивает контакты".
+    YOOKASSA_COLLECT_EMAIL_ON_PAGE: bool = False
 
     PANEL_PROVIDER: str = "remnawave"
 
