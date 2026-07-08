@@ -72,10 +72,11 @@ async def test_buy_plan_standard_shows_card_first_when_yookassa_configured(sessi
 
 
 @pytest.mark.integration
-async def test_pay_yookassa_handler_creates_payment_and_shows_link(session_pool, fake_bot, monkeypatch):
+async def test_pay_yookassa_handler_creates_payment_when_receipts_off(session_pool, fake_bot, monkeypatch):
     from unittest.mock import AsyncMock as _AsyncMock
 
     monkeypatch.setattr(buy.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(buy.settings, "YOOKASSA_RECEIPT_ENABLED", False)
     monkeypatch.setattr(
         buy.yookassa,
         "create_payment",
@@ -95,7 +96,7 @@ async def test_pay_yookassa_handler_creates_payment_and_shows_link(session_pool,
         answer=AsyncMock(),
     )
 
-    await buy.pay_yookassa_handler(callback, fake_bot, session_pool)
+    await buy.pay_yookassa_handler(callback, fake_bot, session_pool, _AsyncMock())
 
     urls = [btn.url for row in sent["markup"].inline_keyboard for btn in row if getattr(btn, "url", None)]
     assert "https://yoomoney.ru/pay/z" in urls
@@ -107,6 +108,76 @@ async def test_pay_yookassa_handler_creates_payment_and_shows_link(session_pool,
     assert payment is not None
     assert payment.provider == "yookassa"
     assert payment.user_id == user.id
+
+
+@pytest.mark.integration
+async def test_pay_yookassa_asks_email_when_receipts_on(session_pool, fake_bot, monkeypatch):
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    monkeypatch.setattr(buy.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(buy.settings, "YOOKASSA_RECEIPT_ENABLED", True)
+    create = _AsyncMock()
+    monkeypatch.setattr(buy.yookassa, "create_payment", create)
+    prompt = {}
+
+    async def send(callback, bot, text, reply_markup=None):
+        prompt["text"] = text
+
+    monkeypatch.setattr(buy, "_send_callback_message", send)
+    state = _AsyncMock()
+    callback = SimpleNamespace(
+        data="payyk:standard_1m",
+        from_user=SimpleNamespace(id=940, username="needsmail"),
+        message=SimpleNamespace(),
+        answer=AsyncMock(),
+    )
+
+    await buy.pay_yookassa_handler(callback, fake_bot, session_pool, state)
+
+    state.set_state.assert_awaited_once()
+    create.assert_not_awaited()
+    assert "email" in prompt["text"].lower()
+
+
+@pytest.mark.integration
+async def test_yookassa_email_message_stores_and_creates(session_pool, fake_bot, monkeypatch):
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    monkeypatch.setattr(buy.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(buy.settings, "YOOKASSA_RECEIPT_ENABLED", True)
+    create = _AsyncMock(
+        return_value={"id": "yk-em-1", "confirmation": {"confirmation_url": "https://yoomoney.ru/pay/e"}}
+    )
+    monkeypatch.setattr(buy.yookassa, "create_payment", create)
+    state = _AsyncMock()
+    state.get_data = _AsyncMock(return_value={"plan": "standard_1m", "region": None})
+    message = SimpleNamespace(
+        text="buyer@mail.ru", from_user=SimpleNamespace(id=941, username="em"), answer=AsyncMock()
+    )
+
+    await buy.yookassa_email_message_handler(message, state, session_pool)
+
+    assert create.await_args.kwargs["receipt_email"] == "buyer@mail.ru"
+    async with session_pool() as session:
+        from database.repository import Repository
+
+        user = await Repository(session).get_user_by_telegram_id(941)
+    assert user.email == "buyer@mail.ru"
+
+
+@pytest.mark.integration
+async def test_yookassa_email_message_rejects_bad_email(session_pool, monkeypatch):
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    state = _AsyncMock()
+    message = SimpleNamespace(
+        text="not-an-email", from_user=SimpleNamespace(id=942, username="bad"), answer=AsyncMock()
+    )
+
+    await buy.yookassa_email_message_handler(message, state, session_pool)
+
+    message.answer.assert_awaited()
+    state.clear.assert_not_awaited()
 
 
 @pytest.mark.integration

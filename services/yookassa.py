@@ -75,11 +75,15 @@ async def _request(
     return data
 
 
-def _receipt(amount_kopecks: int, description: str) -> dict[str, Any] | None:
-    """54-ФЗ receipt for самозанятый (НПД). vat_code=1 = без НДС."""
+def _receipt(amount_kopecks: int, description: str, email: str | None = None) -> dict[str, Any] | None:
+    """54-ФЗ receipt for самозанятый (НПД). vat_code=1 = без НДС.
+
+    The buyer's ``email`` is preferred (they receive their own чек); the configured
+    ``YOOKASSA_RECEIPT_EMAIL`` is only a fallback.
+    """
     if not settings.YOOKASSA_RECEIPT_ENABLED:
         return None
-    email = settings.YOOKASSA_RECEIPT_EMAIL.strip()
+    email = (email or "").strip() or settings.YOOKASSA_RECEIPT_EMAIL.strip()
     if not email:
         return None
     return {
@@ -104,6 +108,7 @@ async def create_payment(
     metadata: dict[str, Any],
     return_url: str | None = None,
     idempotence_key: str | None = None,
+    receipt_email: str | None = None,
 ) -> dict[str, Any]:
     """Create a redirect payment; returns the YooKassa payment object."""
     payload: dict[str, Any] = {
@@ -116,7 +121,7 @@ async def create_payment(
         "description": description[:128],
         "metadata": metadata,
     }
-    receipt = _receipt(amount_kopecks, description)
+    receipt = _receipt(amount_kopecks, description, receipt_email)
     if receipt is not None:
         payload["receipt"] = receipt
 

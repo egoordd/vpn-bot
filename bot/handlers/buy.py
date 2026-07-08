@@ -1,7 +1,10 @@
 import logging
+import re
 
 from aiogram import Bot, F, Router
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.handlers.start import _menu_state
@@ -259,19 +262,32 @@ def _yookassa_pay_keyboard(pay_url: str, price_rub: int) -> InlineKeyboardMarkup
     )
 
 
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class YookassaEmailInput(StatesGroup):
+    email = State()
+
+
+def _email_prompt_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Отмена", callback_data="buy_menu")]])
+
+
 async def _create_yookassa_invoice(
-    callback: CallbackQuery,
-    bot: Bot,
-    session_pool: async_sessionmaker[AsyncSession],
     *,
+    telegram_id: int,
+    username: str | None,
+    session_pool: async_sessionmaker[AsyncSession],
     plan: str,
-    region: str | None = None,
+    region: str | None,
+    email: str | None,
+    send,
 ) -> None:
     async with session_pool() as session:
         intent = await build_payment_intent(
             session,
-            telegram_id=callback.from_user.id,
-            username=callback.from_user.username,
+            telegram_id=telegram_id,
+            username=username,
             plan=plan,
             region=region,
         )
@@ -281,32 +297,35 @@ async def _create_yookassa_invoice(
             amount_kopecks=intent.plan.price_rub * 100,
             description=intent.description,
             metadata={"user_id": intent.user_id, "plan": intent.plan.code},
+            receipt_email=email,
         )
     except yookassa.YooKassaError:
         logger.exception("Failed to create YooKassa payment for user_id=%s plan=%s", intent.user_id, plan)
-        await _send_callback_message(callback, bot, "Не удалось создать платёж. Попробуйте позже.")
+        await send("Не удалось создать платёж. Попробуйте позже.", None)
         return
 
     payment_id = payment.get("id")
     pay_url = yookassa.confirmation_url(payment)
     if not payment_id or not pay_url:
         logger.error("YooKassa payment missing id or confirmation_url: %s", payment)
-        await _send_callback_message(callback, bot, "ЮKassa вернула некорректный платёж. Напишите в поддержку.")
+        await send("ЮKassa вернула некорректный платёж. Напишите в поддержку.", None)
         return
 
     async with session_pool() as session:
         await register_yookassa_payment(session, intent=intent, external_payment_id=str(payment_id))
 
+    receipt_line = f"🧾 Чек придёт на {email}\n" if email else ""
     text = (
-        "💳 <b>Оплата картой (ЮKassa)</b>\n\n"
+        "💳 <b>Оплата картой</b>\n\n"
         + bq(
             f"💎 Тариф: {intent.plan.title}",
             f"💵 Стоимость: {intent.plan.price_rub}₽",
         )
-        + "\n\nНажмите кнопку ниже и оплатите на защищённой странице ЮKassa.\n"
-        "Ссылка-подписка придёт автоматически в течение минуты после оплаты."
+        + "\n\nНажмите кнопку ниже и оплатите на защищённой странице.\n"
+        + receipt_line
+        + "Ссылка-подписка придёт автоматически в течение минуты после оплаты."
     )
-    await _send_callback_message(callback, bot, text, _yookassa_pay_keyboard(pay_url, intent.plan.price_rub))
+    await send(text, _yookassa_pay_keyboard(pay_url, intent.plan.price_rub))
 
 
 BUY_MENU_TEXT = (
@@ -344,7 +363,8 @@ TIER_TEXTS = {
 
 
 @router.callback_query(F.data == "buy_menu")
-async def buy_menu_handler(callback: CallbackQuery) -> None:
+async def buy_menu_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()  # drop any pending email-input state
     await _edit_current_message(callback, BUY_MENU_TEXT, tier_select_keyboard())
     await callback.answer()
 
@@ -497,6 +517,7 @@ async def pay_yookassa_handler(
     callback: CallbackQuery,
     bot: Bot,
     session_pool: async_sessionmaker[AsyncSession],
+    state: FSMContext,
 ) -> None:
     parts = callback.data.split(":", maxsplit=2) if callback.data else []
     raw_plan = parts[1] if len(parts) >= 2 else ""
@@ -520,4 +541,75 @@ async def pay_yookassa_handler(
         return
 
     await callback.answer()
-    await _create_yookassa_invoice(callback, bot, session_pool, plan=plan, region=region)
+
+    async with session_pool() as session:
+        user = await Repository(session).get_or_create_user(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+        )
+        stored_email = user.email
+
+    # 54-ФЗ: if receipts are on and we don't yet have the buyer's email, ask once.
+    if settings.YOOKASSA_RECEIPT_ENABLED and not stored_email:
+        await state.set_state(YookassaEmailInput.email)
+        await state.update_data(plan=plan, region=region)
+        text = (
+            "📧 <b>Email для чека</b>\n\n"
+            + bq(
+                "По закону (54-ФЗ) на оплату картой формируется чек.",
+                "Он придёт вам на email.",
+            )
+            + "\n\nОтправьте ваш email одним сообщением (например, <code>name@mail.ru</code>)."
+        )
+        await _send_callback_message(callback, bot, text, _email_prompt_keyboard())
+        return
+
+    await _create_yookassa_invoice(
+        telegram_id=callback.from_user.id,
+        username=callback.from_user.username,
+        session_pool=session_pool,
+        plan=plan,
+        region=region,
+        email=stored_email,
+        send=lambda text, kb: _send_callback_message(callback, bot, text, kb),
+    )
+
+
+@router.message(YookassaEmailInput.email)
+async def yookassa_email_message_handler(
+    message: Message,
+    state: FSMContext,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    email = (message.text or "").strip()
+    if not _EMAIL_RE.match(email) or len(email) > 320:
+        await message.answer(
+            "Это не похоже на email. Отправьте адрес вида <code>name@mail.ru</code>.",
+            reply_markup=_email_prompt_keyboard(),
+        )
+        return
+
+    data = await state.get_data()
+    await state.clear()
+    plan = data.get("plan")
+    region = data.get("region")
+    if not plan:
+        await message.answer("Сессия оплаты истекла. Откройте тариф заново через «🛒 Купить».")
+        return
+
+    async with session_pool() as session:
+        user = await Repository(session).get_or_create_user(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+        )
+        await Repository(session).update_user(user.id, email=email)
+
+    await _create_yookassa_invoice(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+        session_pool=session_pool,
+        plan=plan,
+        region=region,
+        email=email,
+        send=lambda text, kb: message.answer(text, reply_markup=kb),
+    )
