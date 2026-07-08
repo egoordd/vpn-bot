@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # ЛКФЛ inn + password. Empty = disabled (no auto receipt).
     MOYNALOG_INN: str = ""
     MOYNALOG_PASSWORD: SecretStr = SecretStr("")
+    # Alternative to inn+password for PIN/phone users: a long-lived refresh token
+    # (minted once via the SMS challenge, see scripts/moynalog_login.py) plus the
+    # device id it was bound to. Preferred over password when set.
+    MOYNALOG_REFRESH_TOKEN: SecretStr = SecretStr("")
+    MOYNALOG_DEVICE_ID: str = ""
     MOYNALOG_API_URL: str = "https://lknpd.nalog.ru/api/v1"
     # Наименование услуги в чеке.
     MOYNALOG_SERVICE_NAME: str = "Оплата подписки UnLock VPN"
@@ -197,6 +202,10 @@ class Settings(BaseSettings):
     @property
     def moynalog_password(self) -> str:
         return self.MOYNALOG_PASSWORD.get_secret_value()
+
+    @property
+    def moynalog_refresh_token(self) -> str:
+        return self.MOYNALOG_REFRESH_TOKEN.get_secret_value()
 
     @property
     def remnawave_api_token(self) -> str:

@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _MSK = timezone(timedelta(hours=3))
 _token: str | None = None
 _token_expires_at: float = 0.0
+_refresh_token: str | None = None  # in-process, seeded from settings, may rotate
 _auth_lock = asyncio.Lock()
 
 
@@ -36,12 +37,26 @@ class MoyNalogError(RuntimeError):
 
 
 def is_configured() -> bool:
-    return bool(settings.MOYNALOG_INN.strip() and settings.moynalog_password.strip())
+    if not settings.MOYNALOG_INN.strip():
+        return False
+    return bool(settings.moynalog_refresh_token.strip() or settings.moynalog_password.strip())
 
 
 def _device_id() -> str:
-    # Stable device id per INN (lknpd ties refresh tokens to it).
+    # Must match the id the refresh token was bound to; otherwise derive per INN.
+    configured = settings.MOYNALOG_DEVICE_ID.strip()
+    if configured:
+        return configured
     return hashlib.sha256(f"unlock-{settings.MOYNALOG_INN.strip()}".encode()).hexdigest()[:21]
+
+
+def _device_info() -> dict[str, Any]:
+    return {
+        "sourceDeviceId": _device_id(),
+        "sourceType": "WEB",
+        "appVersion": "1.0.0",
+        "metaDetails": {"userAgent": "Mozilla/5.0 (UnLock VPN receipts)"},
+    }
 
 
 def _rub(amount_kopecks: int) -> float:
@@ -72,23 +87,34 @@ async def _request(
 
 
 async def _authenticate(session: aiohttp.ClientSession) -> None:
-    global _token, _token_expires_at
-    payload = {
-        "username": settings.MOYNALOG_INN.strip(),
-        "password": settings.moynalog_password.strip(),
-        "deviceInfo": {
-            "sourceDeviceId": _device_id(),
-            "sourceType": "WEB",
-            "appVersion": "1.0.0",
-            "metaDetails": {"userAgent": "Mozilla/5.0 (UnLock VPN receipts)"},
-        },
-    }
-    data = await _request(session, "POST", "/auth/lkfl", token=None, json=payload)
+    global _token, _token_expires_at, _refresh_token
+
+    seed_refresh = _refresh_token or settings.moynalog_refresh_token.strip()
+    if seed_refresh:
+        # Preferred: refresh-token grant (no password / SMS needed).
+        data = await _request(
+            session, "POST", "/auth/token", token=None,
+            json={"deviceInfo": _device_info(), "refreshToken": seed_refresh},
+        )
+    else:
+        # Fallback: ЛКФЛ inn + password.
+        data = await _request(
+            session, "POST", "/auth/lkfl", token=None,
+            json={
+                "username": settings.MOYNALOG_INN.strip(),
+                "password": settings.moynalog_password.strip(),
+                "deviceInfo": _device_info(),
+            },
+        )
+
     token = data.get("token")
     if not token:
         raise MoyNalogError(f"auth response has no token: {list(data.keys())}")
     _token = str(token)
-    # tokenExpireIn is an ISO datetime; refresh a bit early. Fall back to 5 min.
+    # lknpd may rotate the refresh token; keep the freshest one in-process.
+    if data.get("refreshToken"):
+        _refresh_token = str(data["refreshToken"])
+    # Access token is short-lived; refresh a bit early.
     _token_expires_at = time.time() + 240
 
 
