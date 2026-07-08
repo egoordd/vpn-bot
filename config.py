@@ -70,6 +70,15 @@ class Settings(BaseSettings):
     # Requires the shop's fiscalization to be set to "ЮKassa запрашивает контакты".
     YOOKASSA_COLLECT_EMAIL_ON_PAGE: bool = False
 
+    # «Мой налог» (lknpd.nalog.ru) — auto-issue self-employed receipts after each
+    # paid order (YooKassa stopped forming НПД чеки on 2025-12-29). Login is the
+    # ЛКФЛ inn + password. Empty = disabled (no auto receipt).
+    MOYNALOG_INN: str = ""
+    MOYNALOG_PASSWORD: SecretStr = SecretStr("")
+    MOYNALOG_API_URL: str = "https://lknpd.nalog.ru/api/v1"
+    # Наименование услуги в чеке.
+    MOYNALOG_SERVICE_NAME: str = "Оплата подписки UnLock VPN"
+
     PANEL_PROVIDER: str = "remnawave"
 
     BILLING_API_TOKEN: SecretStr = SecretStr("")
@@ -184,6 +193,10 @@ class Settings(BaseSettings):
     @property
     def yookassa_secret_key(self) -> str:
         return self.YOOKASSA_SECRET_KEY.get_secret_value()
+
+    @property
+    def moynalog_password(self) -> str:
+        return self.MOYNALOG_PASSWORD.get_secret_value()
 
     @property
     def remnawave_api_token(self) -> str:

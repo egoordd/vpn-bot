@@ -312,6 +312,45 @@ async def test_yookassa_webhook_ignores_unpaid(api_client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_yookassa_webhook_issues_moynalog_receipt(api_client, session_pool, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from database.repository import Repository
+    from services import http_api as api_mod
+    from services.payment import create_invoice_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=7788)
+        payload = create_invoice_payload(user_id=user.id, plan="standard_1m")
+        await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-r1",
+            invoice_payload=payload, plan="standard_1m",
+        )
+
+    monkeypatch.setattr(api_mod.yookassa, "get_payment", AsyncMock(return_value={"id": "yk-r1", "status": "succeeded"}))
+
+    class _Sub:
+        subscription_url = "https://sub.example/sub/abc"
+
+    monkeypatch.setattr(api_mod, "activate_panel_subscription", AsyncMock(return_value=_Sub()))
+    monkeypatch.setattr(api_mod, "reward_referrer_for_payment", AsyncMock())
+    monkeypatch.setattr(api_mod.tribute, "deliver_subscription", AsyncMock(return_value=True))
+    monkeypatch.setattr(api_mod.moynalog, "is_configured", lambda: True)
+    issue = AsyncMock(return_value="https://lknpd.nalog.ru/api/v1/receipt/x/rcpt/print")
+    deliver = AsyncMock(return_value=True)
+    monkeypatch.setattr(api_mod.moynalog, "issue_receipt", issue)
+    monkeypatch.setattr(api_mod.moynalog, "deliver_receipt", deliver)
+
+    response = await api_client.post("/yookassa/webhook", json={"object": {"id": "yk-r1"}})
+
+    assert response.status_code == 200
+    issue.assert_awaited_once()
+    assert issue.await_args.args[0] == 14900  # full amount in kopecks
+    deliver.assert_awaited_once_with(7788, "https://lknpd.nalog.ru/api/v1/receipt/x/rcpt/print")
+
+
+@pytest.mark.asyncio
 async def test_yookassa_webhook_needs_no_bearer(secured_client, monkeypatch):
     from unittest.mock import AsyncMock
 

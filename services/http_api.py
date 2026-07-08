@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from database.repository import Repository
-from services import billing_api, promo, tribute, wallet, yookassa
+from services import billing_api, moynalog, promo, tribute, wallet, yookassa
 from services.billing_api import AccountOverview, BillingPlan, BillingRegion, SubscriptionSnapshot
 from services.payment import parse_invoice_payload_details
 from services.referral import reward_referrer_for_payment, ReferralStats
@@ -407,6 +407,15 @@ def create_app() -> FastAPI:
 
         sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
         await tribute.deliver_subscription(int(user.telegram_id), sub_url)
+
+        # Auto-issue the self-employed чек in «Мой налог» and DM its link (best-effort;
+        # YooKassa no longer forms НПД чеки, so we register the income ourselves).
+        if moynalog.is_configured():
+            plan_title = billing_api.get_billing_plan(details.plan).title
+            receipt = await moynalog.issue_receipt(completed.amount, name=f"Оплата подписки: {plan_title}")
+            if receipt:
+                await moynalog.deliver_receipt(int(user.telegram_id), receipt)
+
         return {"ok": True, "plan": details.plan}
 
     return application
