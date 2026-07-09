@@ -121,10 +121,10 @@ async def _menu_state(
         repo = Repository(session)
         user = await repo.get_or_create_user(telegram_id=telegram_id, username=username)
         subscriptions = await repo.list_active_subscriptions(user.id)
-        latest = await repo.get_latest_subscription(user.id)
-        # A brand-new user who never had any subscription can claim the free trial
-        # via the visible button (no silent auto-grant, so it survives panel hiccups).
-        trial_available = not subscriptions and latest is None
+        # Anyone who never took the trial can claim it via the visible button — as
+        # long as they have no active subscription right now (activating a trial
+        # would otherwise replace an active plan in the same lane).
+        trial_available = not subscriptions and not await repo.has_used_trial(user.id)
 
         text = _menu_text(user, subscriptions, display_name, trial_available=trial_available)
         has_subscription = bool(subscriptions)
@@ -199,8 +199,11 @@ async def activate_trial_handler(callback: CallbackQuery, session_pool: async_se
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.get_or_create_user(telegram_id=telegram_id, username=callback.from_user.username)
-        if await repo.list_active_subscriptions(user.id) or await repo.get_latest_subscription(user.id) is not None:
-            await callback.answer("Пробный период уже был активирован.", show_alert=True)
+        if await repo.list_active_subscriptions(user.id):
+            await callback.answer("У вас уже есть активная подписка.", show_alert=True)
+            return
+        if await repo.has_used_trial(user.id):
+            await callback.answer("Пробный период уже был активирован ранее.", show_alert=True)
             return
         try:
             await activate_panel_subscription(session=session, user_id=user.id, plan="trial")

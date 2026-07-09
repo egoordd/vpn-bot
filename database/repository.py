@@ -147,6 +147,15 @@ class Repository:
         )
         return result.scalar_one_or_none()
 
+    async def has_used_trial(self, user_id: int) -> bool:
+        """True if the user has ever had a trial subscription (active or past)."""
+        result = await self.session.execute(
+            select(Subscription.id)
+            .where(Subscription.user_id == user_id, Subscription.tier == "trial")
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def get_active_subscription(self, user_id: int) -> Subscription | None:
         result = await self.session.execute(
             select(Subscription)

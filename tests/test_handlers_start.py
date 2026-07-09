@@ -124,6 +124,47 @@ async def test_activate_trial_handler_blocks_when_already_used(session_pool, mon
     activate.assert_not_awaited()  # already had a trial
 
 
+@pytest.mark.integration
+async def test_menu_state_offers_trial_to_lapsed_user_who_never_trialed(session_pool):
+    # expired PAID sub, never took a trial -> the trial button is still offered
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=927, username="lapsed")
+        await repo.create_subscription(
+            user_id=user.id, plan="standard_1m", tier="standard", panel_username="tg_927",
+            sub_token="t", subscription_url="https://sub.example/sub/t",
+            started_at=datetime.now(timezone.utc) - timedelta(days=40),
+            expires_at=datetime.now(timezone.utc) - timedelta(days=10),
+            is_active=False,
+        )
+
+    _, keyboard, has_sub = await start._menu_state(session_pool, 927, "lapsed")
+
+    cbs = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    assert has_sub is False
+    assert "activate_trial" in cbs
+
+
+@pytest.mark.integration
+async def test_menu_state_hides_trial_for_user_who_used_it(session_pool):
+    # a past (expired) trial -> the button is hidden even without an active sub
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=928, username="used")
+        await repo.create_subscription(
+            user_id=user.id, plan="trial", tier="trial", panel_username="tg_928",
+            sub_token="t", subscription_url="https://sub.example/sub/t",
+            started_at=datetime.now(timezone.utc) - timedelta(days=10),
+            expires_at=datetime.now(timezone.utc) - timedelta(days=7),
+            is_active=False,
+        )
+
+    _, keyboard, _ = await start._menu_state(session_pool, 928, "used")
+
+    cbs = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    assert "activate_trial" not in cbs
+
+
 @pytest.mark.unit
 def test_start_aware_and_msk_formatting():
     naive = datetime(2026, 1, 1, 12, 0, 0)
