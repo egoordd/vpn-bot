@@ -13,7 +13,6 @@ from bot.texts import aware as _aware, bq, format_gb as _format_gb, format_msk a
 from database.models import Subscription, User
 from database.repository import Repository
 from services.money import format_rub
-from services.panel_gateway import PanelGatewayError
 from services.referral import ReferralError, attach_referrer, parse_referral_start_payload
 from services.subscription import activate_panel_subscription
 from services.tariffs import resolve_premium_region, resolve_tariff
@@ -61,15 +60,26 @@ def _subscription_card(subscription: Subscription) -> str:
     return f"📦 <b>{label}</b>\n" + bq(*lines)
 
 
-def _menu_text(user: User, subscriptions: list[Subscription], display_name: str | None) -> str:
+def _menu_text(
+    user: User,
+    subscriptions: list[Subscription],
+    display_name: str | None,
+    trial_available: bool = False,
+) -> str:
     """Short home screen: profile + one-line subscription status. Detailed
     subscription cards live under «Мои подписки»."""
     sections = [_profile_block(user, display_name)]
     if not subscriptions:
-        sections.append(
-            "🔑 Активной подписки нет.\n"
-            "Нажмите «🛒 Купить подписку» — ссылка придёт автоматически после оплаты."
-        )
+        if trial_available:
+            sections.append(
+                "🎁 Вам доступен <b>бесплатный пробный период — 3 дня</b>.\n"
+                "Нажмите «🎁 Активировать пробный период» — ссылка придёт сразу, без оплаты."
+            )
+        else:
+            sections.append(
+                "🔑 Активной подписки нет.\n"
+                "Нажмите «🛒 Купить подписку» — ссылка придёт автоматически после оплаты."
+            )
     else:
         nearest = min(subscriptions, key=lambda s: s.expires_at)
         word = _plural_subs(len(subscriptions))
@@ -105,7 +115,6 @@ async def _menu_state(
     session_pool: async_sessionmaker[AsyncSession],
     telegram_id: int,
     username: str | None,
-    panel_client: object | None = None,
     display_name: str | None = None,
 ) -> tuple[str, InlineKeyboardMarkup, bool]:
     async with session_pool() as session:
@@ -113,22 +122,15 @@ async def _menu_state(
         user = await repo.get_or_create_user(telegram_id=telegram_id, username=username)
         subscriptions = await repo.list_active_subscriptions(user.id)
         latest = await repo.get_latest_subscription(user.id)
-        if not subscriptions and latest is None and panel_client is not None:
-            try:
-                trial = await activate_panel_subscription(
-                    session=session,
-                    user_id=user.id,
-                    plan="trial",
-                    panel_client=panel_client,
-                )
-                subscriptions = [trial]
-            except PanelGatewayError:
-                logger.exception("Failed to auto-activate trial for user_id=%s", user.id)
+        # A brand-new user who never had any subscription can claim the free trial
+        # via the visible button (no silent auto-grant, so it survives panel hiccups).
+        trial_available = not subscriptions and latest is None
 
-        text = _menu_text(user, subscriptions, display_name)
+        text = _menu_text(user, subscriptions, display_name, trial_available=trial_available)
         has_subscription = bool(subscriptions)
 
-    return text, main_menu_keyboard(has_subscription=has_subscription), has_subscription
+    keyboard = main_menu_keyboard(has_subscription=has_subscription, trial_available=trial_available)
+    return text, keyboard, has_subscription
 
 
 async def _attach_referrer_from_start(
@@ -169,29 +171,6 @@ async def _record_start_event(
         logger.exception("Failed to record start funnel event for telegram_id=%s", message.from_user.id)
 
 
-async def _maybe_grant_trial(
-    session_pool: async_sessionmaker[AsyncSession],
-    message: Message,
-) -> None:
-    """Best-effort: give a brand-new user a free trial subscription on first
-    /start. Skipped if the user already has any subscription (active or past).
-    Provisioning failures must never break /start, so they are logged, not raised."""
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.get_or_create_user(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-        )
-        if await repo.list_active_subscriptions(user.id):
-            return
-        if await repo.get_latest_subscription(user.id) is not None:
-            return
-        try:
-            await activate_panel_subscription(session=session, user_id=user.id, plan="trial")
-        except Exception:  # noqa: BLE001 - trial is best-effort; never block /start
-            logger.exception("Failed to grant trial for user_id=%s", user.id)
-
-
 @router.message(CommandStart())
 async def start_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
     # Determine first-touch BEFORE the helpers below create the user record.
@@ -199,7 +178,6 @@ async def start_handler(message: Message, session_pool: async_sessionmaker[Async
         is_new_user = await Repository(session).get_user_by_telegram_id(message.from_user.id) is None
     await _attach_referrer_from_start(session_pool, message)
     await _record_start_event(session_pool, message)
-    await _maybe_grant_trial(session_pool, message)
     text, keyboard, _ = await _menu_state(
         session_pool=session_pool,
         telegram_id=message.from_user.id,
@@ -213,6 +191,35 @@ async def start_handler(message: Message, session_pool: async_sessionmaker[Async
         caption=text,
         reply_markup=keyboard,
     )
+
+
+@router.callback_query(F.data == "activate_trial")
+async def activate_trial_handler(callback: CallbackQuery, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    telegram_id = callback.from_user.id
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(telegram_id=telegram_id, username=callback.from_user.username)
+        if await repo.list_active_subscriptions(user.id) or await repo.get_latest_subscription(user.id) is not None:
+            await callback.answer("Пробный период уже был активирован.", show_alert=True)
+            return
+        try:
+            await activate_panel_subscription(session=session, user_id=user.id, plan="trial")
+        except Exception:  # noqa: BLE001 - surface a friendly retry, don't crash
+            logger.exception("Failed to activate trial on button for telegram_id=%s", telegram_id)
+            await callback.answer(
+                "Не удалось активировать пробный период. Попробуйте через минуту или напишите в поддержку.",
+                show_alert=True,
+            )
+            return
+
+    text, keyboard, _ = await _menu_state(
+        session_pool=session_pool,
+        telegram_id=telegram_id,
+        username=callback.from_user.username,
+        display_name=getattr(callback.from_user, "full_name", None),
+    )
+    await show_screen(callback, text, keyboard)
+    await callback.answer("Пробный период активирован! 🎉")
 
 
 @router.callback_query(F.data == "profile")

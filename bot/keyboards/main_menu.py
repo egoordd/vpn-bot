@@ -34,10 +34,15 @@ def _tier_buttons() -> list[list[InlineKeyboardButton]]:
     ]
 
 
-def main_menu_keyboard(has_subscription: bool = False) -> InlineKeyboardMarkup:
+def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = False) -> InlineKeyboardMarkup:
     """Single compact main menu shown after /start. Wallet, invite and help live
     in the quick-access command menu (/wallet, /invite, /help)."""
-    rows = [[InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_menu")]]
+    rows: list[list[InlineKeyboardButton]] = []
+    if trial_available:
+        rows.append(
+            [InlineKeyboardButton(text="🎁 Активировать пробный период — 3 дня", callback_data="activate_trial")]
+        )
+    rows.append([InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_menu")])
     if has_subscription:
         rows.append(
             [

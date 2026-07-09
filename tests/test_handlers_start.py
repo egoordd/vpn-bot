@@ -6,26 +6,6 @@ import pytest
 
 from bot.handlers import start
 from database.repository import Repository
-from services.panel_client import PanelUsage, PanelUser, RemnawaveNotFoundError
-
-
-class FakePanelClient:
-    async def get_user(self, username: str) -> PanelUser:
-        raise RemnawaveNotFoundError("missing")
-
-    async def create_user(self, **kwargs) -> PanelUser:
-        return PanelUser(
-            uuid="uuid",
-            username=str(kwargs["username"]),
-            short_uuid="trial-short",
-            subscription_url="https://sub.example/api/sub/trial-short",
-            status="ACTIVE",
-            expire_at="2026-07-03T00:00:00Z",
-            traffic_limit_bytes=10 * 1024**3,
-            traffic_limit_strategy="NO_RESET",
-            hwid_device_limit=1,
-            usage=PanelUsage(used_traffic_bytes=0, lifetime_used_traffic_bytes=0),
-        )
 
 
 @pytest.mark.integration
@@ -70,30 +50,78 @@ async def test_menu_state_returns_active_subscription_menu(session_pool):
 
 
 @pytest.mark.integration
-async def test_menu_state_does_not_auto_activate_trial_without_explicit_panel_client(session_pool):
-    text, keyboard, has_subscription = await start._menu_state(session_pool, 924, "no_trial")
+async def test_menu_state_shows_trial_button_for_new_user(session_pool):
+    text, keyboard, has_subscription = await start._menu_state(session_pool, 924, "newbie")
 
     assert has_subscription is False
-    assert "Активной подписки нет" in text
+    assert "пробный период" in text.lower()
     cbs = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+    assert cbs[0] == "activate_trial"  # trial button is first
     assert "my_subs" not in cbs
+    # no silent auto-grant: the user still has no subscription
     async with session_pool() as session:
         user = await Repository(session).get_user_by_telegram_id(924)
         assert await Repository(session).get_latest_subscription(user.id) is None
 
 
 @pytest.mark.integration
-async def test_menu_state_auto_activates_trial_when_panel_client_is_available(session_pool):
-    text, keyboard, _ = await start._menu_state(session_pool, 922, "trial", panel_client=FakePanelClient())
+async def test_activate_trial_handler_grants_and_refreshes(session_pool, monkeypatch):
+    async def fake_activate(*, session, user_id, plan, **kwargs):
+        repo = Repository(session)
+        return await repo.create_subscription(
+            user_id=user_id, plan="trial", tier="trial",
+            panel_username=f"tg_{user_id}", sub_token="t",
+            subscription_url="https://sub.example/api/sub/t",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=3),
+            is_active=True,
+        )
 
-    assert "Активных подписок" in text
-    assert keyboard.inline_keyboard[0][0].callback_data == "buy_menu"
+    monkeypatch.setattr(start, "activate_panel_subscription", fake_activate)
+
+    async def fake_show(callback, text, keyboard):
+        return None
+
+    monkeypatch.setattr(start, "show_screen", fake_show)
+    callback = SimpleNamespace(
+        data="activate_trial",
+        from_user=SimpleNamespace(id=925, username="newbie", full_name="New"),
+        message=SimpleNamespace(),
+        answer=AsyncMock(),
+    )
+
+    await start.activate_trial_handler(callback, session_pool)
+
+    async with session_pool() as session:
+        user = await Repository(session).get_user_by_telegram_id(925)
+        sub = await Repository(session).get_active_subscription(user.id)
+    assert sub is not None and sub.plan == "trial"
+    callback.answer.assert_awaited()
+
+
+@pytest.mark.integration
+async def test_activate_trial_handler_blocks_when_already_used(session_pool, monkeypatch):
     async with session_pool() as session:
         repo = Repository(session)
-        user = await repo.get_user_by_telegram_id(922)
-        subscription = await repo.get_active_subscription(user.id)
-    assert subscription.plan == "trial"
-    assert subscription.subscription_url == "https://sub.example/api/sub/trial-short"
+        user = await repo.create_user(telegram_id=926, username="repeat")
+        await repo.create_subscription(
+            user_id=user.id, plan="trial", tier="trial", panel_username="tg_926",
+            sub_token="t", subscription_url="https://sub.example/api/sub/t",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=3), is_active=True,
+        )
+    activate = AsyncMock()
+    monkeypatch.setattr(start, "activate_panel_subscription", activate)
+    callback = SimpleNamespace(
+        data="activate_trial",
+        from_user=SimpleNamespace(id=926, username="repeat", full_name="R"),
+        message=SimpleNamespace(),
+        answer=AsyncMock(),
+    )
+
+    await start.activate_trial_handler(callback, session_pool)
+
+    activate.assert_not_awaited()  # already had a trial
 
 
 @pytest.mark.unit
@@ -172,35 +200,3 @@ async def test_my_subs_handler_lists_cards(session_pool):
     assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"
 
 
-@pytest.mark.integration
-async def test_maybe_grant_trial_activates_for_new_user(session_pool, monkeypatch):
-    activate = AsyncMock()
-    monkeypatch.setattr(start, "activate_panel_subscription", activate)
-    message = SimpleNamespace(from_user=SimpleNamespace(id=980, username="newbie"))
-
-    await start._maybe_grant_trial(session_pool, message)
-
-    activate.assert_awaited_once()
-    assert activate.await_args.kwargs["plan"] == "trial"
-
-
-@pytest.mark.integration
-async def test_maybe_grant_trial_skips_user_with_subscription(session_pool, monkeypatch):
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.create_user(telegram_id=981, username="returning")
-        await repo.create_subscription(
-            user_id=user.id, plan="standard_1m", tier="standard",
-            panel_username="tg_981", sub_token="tok",
-            subscription_url="https://sub.example/sub/tok",
-            started_at=datetime.now(timezone.utc),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-            is_active=True,
-        )
-    activate = AsyncMock()
-    monkeypatch.setattr(start, "activate_panel_subscription", activate)
-    message = SimpleNamespace(from_user=SimpleNamespace(id=981, username="returning"))
-
-    await start._maybe_grant_trial(session_pool, message)
-
-    activate.assert_not_awaited()
