@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -8,6 +9,18 @@ from urllib.parse import quote
 import aiohttp
 
 from config import settings
+
+
+_TAG_INVALID_RE = re.compile(r"[^A-Z0-9_]")
+
+
+def _sanitize_tag(tag: str | None) -> str | None:
+    """Remnawave requires user tags to be UPPERCASE letters, digits, underscores.
+    Tier names come in lowercase (trial/standard/premium), so normalise them."""
+    if not tag:
+        return None
+    cleaned = _TAG_INVALID_RE.sub("_", tag.upper())
+    return cleaned or None
 
 
 class RemnawaveError(RuntimeError):
@@ -239,7 +252,7 @@ class RemnawaveClient:
                 "trafficLimitStrategy": traffic_limit_strategy or settings.REMNAWAVE_DEFAULT_TRAFFIC_RESET_STRATEGY,
                 "expireAt": _format_remnawave_datetime(expire_at),
                 "description": description,
-                "tag": tag,
+                "tag": _sanitize_tag(tag),
                 "telegramId": telegram_id,
                 "hwidDeviceLimit": device_limit,
                 "activeInternalSquads": active_internal_squads,
@@ -291,7 +304,7 @@ class RemnawaveClient:
                 "trafficLimitStrategy": traffic_limit_strategy,
                 "expireAt": _format_remnawave_datetime(expire_at) if expire_at else None,
                 "description": description,
-                "tag": tag,
+                "tag": _sanitize_tag(tag),
                 "telegramId": telegram_id,
                 "hwidDeviceLimit": device_limit,
                 "activeInternalSquads": active_internal_squads,
@@ -398,7 +411,7 @@ class RemnawaveClient:
                 "remark": remark,
                 "address": address,
                 "port": port,
-                "tag": tag,
+                "tag": _sanitize_tag(tag),
                 "inbound": {
                     "configProfileUuid": config_profile_uuid,
                     "configProfileInboundUuid": inbound_uuid,

@@ -95,7 +95,7 @@ async def test_create_user_sends_remnawave_payload():
         "trafficLimitBytes": 10 * 1024**3,
         "trafficLimitStrategy": "NO_RESET",
         "expireAt": "2026-07-03T00:00:00Z",
-        "tag": "standard",
+        "tag": "STANDARD",
         "telegramId": 1001,
         "hwidDeviceLimit": 3,
     }
@@ -264,3 +264,16 @@ async def test_request_requires_token():
 
     with pytest.raises(RemnawaveError):
         await client.get_user("tg_1001")
+
+
+@pytest.mark.unit
+def test_sanitize_tag_uppercases_and_filters():
+    from services.panel_client import _sanitize_tag
+
+    assert _sanitize_tag("trial") == "TRIAL"
+    assert _sanitize_tag("standard") == "STANDARD"
+    assert _sanitize_tag("premium") == "PREMIUM"
+    assert _sanitize_tag("VIP") == "VIP"
+    assert _sanitize_tag("a-b c") == "A_B_C"  # invalid chars -> underscore
+    assert _sanitize_tag(None) is None
+    assert _sanitize_tag("") is None
