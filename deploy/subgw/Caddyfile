@@ -1,0 +1,36 @@
+23.95.3.18.sslip.io {
+	handle /sub/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle /happ/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+		format json
+	}
+}
+
+panel.23.95.3.18.sslip.io {
+	reverse_proxy 127.0.0.1:3000
+}
+
+# Subscription host: works as soon as the domain leaves clientHold and its
+# A-record points here. :8444 kept for links cached by old clients.
+sub.unlockvpn.site, https://sub.unlockvpn.site:8444 {
+	handle /sub/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle /happ/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle {
+		respond "ok" 200
+	}
+}

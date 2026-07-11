@@ -1,0 +1,12 @@
+[Unit]
+Description=UnLock multi-protocol subscription gateway
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/unlock-subgw.env
+ExecStart=/usr/bin/python3 /opt/sub_gateway.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
