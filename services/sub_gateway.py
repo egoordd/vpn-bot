@@ -30,6 +30,7 @@ import json
 import os
 import re
 import ssl
+import time
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -127,18 +128,54 @@ def _http_get_sub(url: str) -> tuple[str, str | None] | None:
     return decoded, userinfo
 
 
-def _fetch_upstream_sub(token: str) -> tuple[str, str | None] | None:
+def _fetch_upstream_sub(token: str) -> tuple[str, str | None, str] | None:
     """Resolve a per-user subscription, Remnawave first then Marzban.
 
     A single token belongs to exactly one panel; trying Remnawave first and
     falling back to Marzban lets both coexist during the cutover without the
-    gateway needing to know which panel issued a given token.
+    gateway needing to know which panel issued a given token. The third tuple
+    element names the panel that served the sub ("remnawave" | "marzban").
     """
     if REMNAWAVE_SUB_BASE:
         result = _http_get_sub(f"{REMNAWAVE_SUB_BASE}/{token}")
         if result is not None and any("://" in line for line in result[0].splitlines()):
-            return result
-    return _http_get_sub(f"{MARZBAN_BASE}/sub/{token}")
+            return result[0], result[1], "remnawave"
+    result = _http_get_sub(f"{MARZBAN_BASE}/sub/{token}")
+    if result is None:
+        return None
+    return result[0], result[1], "marzban"
+
+
+def _userinfo_expired(userinfo: str | None) -> bool:
+    """True when subscription-userinfo carries a past expire timestamp
+    (expire=0 or absent means unlimited and is never treated as expired)."""
+    if not userinfo:
+        return False
+    match = re.search(r"expire=(\d+)", userinfo)
+    if not match:
+        return False
+    expire = int(match.group(1))
+    return 0 < expire < time.time()
+
+
+def _marzban_sub_active(token: str) -> bool:
+    """False when Marzban reports the user as expired/disabled/limited.
+
+    Marzban keeps serving proxy links for such users even though xray already
+    rejects them, and the gateway's hand-added Hysteria2/Trojan extras use
+    node-wide shared secrets that outlive the panel expiry — so the gateway
+    must blank the whole subscription itself. Fails open: a panel hiccup must
+    never wipe a paying user's client config.
+    """
+    req = urllib.request.Request(
+        f"{MARZBAN_BASE}/sub/{token}/info", headers={"Accept": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=_SSL) as resp:
+            info = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception:
+        return True
+    return str(info.get("status", "active")).lower() in ("", "active", "on_hold")
 
 
 def combine_links(decoded: str) -> list[str]:
@@ -171,7 +208,11 @@ def build_combined(token: str) -> tuple[str, str | None] | None:
     fetched = _fetch_upstream_sub(token)
     if fetched is None:
         return None
-    decoded, userinfo = fetched
+    decoded, userinfo, provider = fetched
+    if _userinfo_expired(userinfo) or (
+        provider == "marzban" and not _marzban_sub_active(token)
+    ):
+        return "", userinfo
     combined = combine_links(decoded)
     if not combined:
         return "", userinfo
@@ -211,6 +252,9 @@ def happ_redirect_page(sub_url: str) -> str:
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "unlock-subgw"
+    # A stalled client must die in its own handler thread, not hold a socket
+    # open forever.
+    timeout = 30
 
     def log_message(self, *args):  # silence default logging
         pass
@@ -265,7 +309,12 @@ def main() -> None:
     if CERT_FILE and KEY_FILE:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
-        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        # Handshake must happen in the per-request handler thread; with
+        # do_handshake_on_connect=True one stalled client blocks accept() and
+        # takes the whole gateway down (observed 2026-07-10).
+        server.socket = ctx.wrap_socket(
+            server.socket, server_side=True, do_handshake_on_connect=False
+        )
         scheme = "https"
     print(f"sub-gateway on {scheme}://{BIND_HOST}:{LISTEN_PORT}, marzban={MARZBAN_BASE}")
     server.serve_forever()

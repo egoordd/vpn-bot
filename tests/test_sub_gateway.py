@@ -125,6 +125,7 @@ def test_fetch_upstream_prefers_remnawave_when_configured(monkeypatch):
     result = sub_gateway._fetch_upstream_sub("tok123")
 
     assert result is not None
+    assert result[2] == "remnawave"
     assert calls == ["https://panel.example/api/sub/tok123"]
 
 
@@ -144,6 +145,7 @@ def test_fetch_upstream_falls_back_to_marzban_on_empty_remnawave(monkeypatch):
     result = sub_gateway._fetch_upstream_sub("tok123")
 
     assert result is not None
+    assert result[2] == "marzban"
     assert calls == [
         "https://panel.example/api/sub/tok123",
         "https://mz.example:8443/sub/tok123",
@@ -164,3 +166,98 @@ def test_fetch_upstream_uses_marzban_when_remnawave_unset(monkeypatch):
     sub_gateway._fetch_upstream_sub("tok123")
 
     assert calls == ["https://mz.example:8443/sub/tok123"]
+
+
+# --- expiry enforcement -----------------------------------------------------
+
+def _future_ts() -> int:
+    import time
+
+    return int(time.time()) + 3600
+
+
+def test_userinfo_expired_when_expire_in_past():
+    assert sub_gateway._userinfo_expired("upload=1; download=2; total=0; expire=1000000") is True
+
+
+def test_userinfo_not_expired_when_expire_in_future():
+    assert sub_gateway._userinfo_expired(f"upload=1; download=2; expire={_future_ts()}") is False
+
+
+def test_userinfo_not_expired_when_unlimited_or_absent():
+    assert sub_gateway._userinfo_expired("upload=1; expire=0") is False
+    assert sub_gateway._userinfo_expired("upload=1; download=2") is False
+    assert sub_gateway._userinfo_expired(None) is False
+
+
+def test_build_combined_blanks_sub_when_userinfo_expired(monkeypatch):
+    userinfo = "upload=0; download=0; total=0; expire=1000000"
+    monkeypatch.setattr(
+        sub_gateway,
+        "_fetch_upstream_sub",
+        lambda token: (f"vless://uuid@{US_HOST}:443#US", userinfo, "marzban"),
+    )
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+
+    payload, out_userinfo = sub_gateway.build_combined("tok")
+
+    assert payload == ""
+    assert out_userinfo == userinfo
+
+
+def test_build_combined_blanks_sub_when_marzban_reports_inactive(monkeypatch):
+    monkeypatch.setattr(
+        sub_gateway,
+        "_fetch_upstream_sub",
+        lambda token: (f"vless://uuid@{US_HOST}:443#US", None, "marzban"),
+    )
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: False)
+
+    payload, _ = sub_gateway.build_combined("tok")
+
+    assert payload == ""
+
+
+def test_build_combined_serves_active_marzban_user(monkeypatch):
+    import base64
+
+    vless = f"vless://uuid@{US_HOST}:443#US"
+    monkeypatch.setattr(
+        sub_gateway,
+        "_fetch_upstream_sub",
+        lambda token: (vless, f"expire={_future_ts()}", "marzban"),
+    )
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+
+    payload, _ = sub_gateway.build_combined("tok")
+
+    assert base64.b64decode(payload).decode("utf-8") == vless
+
+
+def test_build_combined_skips_marzban_status_check_for_remnawave(monkeypatch):
+    import base64
+
+    vless = f"vless://uuid@{US_HOST}:443#US"
+    monkeypatch.setattr(
+        sub_gateway,
+        "_fetch_upstream_sub",
+        lambda token: (vless, None, "remnawave"),
+    )
+
+    def boom(token):
+        raise AssertionError("must not query Marzban for a Remnawave sub")
+
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", boom)
+
+    payload, _ = sub_gateway.build_combined("tok")
+
+    assert base64.b64decode(payload).decode("utf-8") == vless
+
+
+def test_marzban_sub_active_fails_open_on_transport_error(monkeypatch):
+    def boom(*args, **kwargs):
+        raise OSError("panel down")
+
+    monkeypatch.setattr(sub_gateway.urllib.request, "urlopen", boom)
+
+    assert sub_gateway._marzban_sub_active("tok") is True

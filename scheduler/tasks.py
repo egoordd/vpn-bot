@@ -73,6 +73,7 @@ async def deactivate_expired_subscriptions(
     async with session_pool() as session:
         repo = Repository(session)
         subscriptions = await repo.get_expired_active_subscriptions()
+        panel = get_panel_gateway() if is_panel_configured() else None
         for subscription in subscriptions:
             key = await repo.get_wireguard_key_by_user_id(subscription.user_id)
             if key is not None:
@@ -88,6 +89,29 @@ async def deactivate_expired_subscriptions(
                     logger.exception("Failed to release premium nodes for subscription_id=%s", subscription.id)
 
             await repo.deactivate_subscription(subscription.id)
+
+            if panel is not None and subscription.panel_username:
+                # A renewal keeps the same panel user under a newer, still
+                # active row — cutting panel access then would kick a payer.
+                still_used = any(
+                    s.panel_username == subscription.panel_username
+                    for s in await repo.list_active_panel_subscriptions()
+                )
+                if not still_used:
+                    try:
+                        await panel.modify_user(
+                            username=subscription.panel_username,
+                            expire_at=subscription.expires_at,
+                            status="disabled",
+                        )
+                    except PanelUserNotFoundError:
+                        pass
+                    except PanelGatewayError:
+                        logger.exception(
+                            "Failed to disable panel user %s for subscription_id=%s",
+                            subscription.panel_username,
+                            subscription.id,
+                        )
             try:
                 await send_banner(
                     bot,

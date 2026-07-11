@@ -730,3 +730,102 @@ async def test_poll_cryptobot_payments_topup_is_idempotent(fake_bot, session_poo
     async with session_pool() as session:
         balance = await Repository(session).get_balance(user.id)
     assert balance == 30000
+
+
+# --- deactivate_expired_subscriptions: panel enforcement ---------------------
+
+class RecordingPanelGateway:
+    def __init__(self):
+        self.modified: list[dict] = []
+
+    async def modify_user(self, **kwargs):
+        self.modified.append(kwargs)
+
+
+async def _make_panel_subscription(session_pool, telegram_id: int, panel_username: str, *, expires_in: timedelta, is_active: bool = True):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(telegram_id=telegram_id) if hasattr(repo, "get_or_create_user") else await repo.create_user(telegram_id=telegram_id)
+        now = datetime.now(timezone.utc)
+        subscription = await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_1m",
+            tier="standard",
+            panel_username=panel_username,
+            sub_token=f"tok-{panel_username}-{now.timestamp()}",
+            subscription_url=f"https://sub.example/{panel_username}",
+            started_at=now - timedelta(days=30),
+            expires_at=now + expires_in,
+            is_active=is_active,
+        )
+    return user, subscription
+
+
+@pytest.mark.integration
+async def test_deactivate_expired_disables_panel_user(fake_bot, session_pool, monkeypatch):
+    _, subscription = await _make_panel_subscription(
+        session_pool, 601, "tg_601", expires_in=timedelta(hours=-1)
+    )
+    panel = RecordingPanelGateway()
+    monkeypatch.setattr(tasks, "is_panel_configured", lambda: True)
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: panel)
+
+    await tasks.deactivate_expired_subscriptions(fake_bot, session_pool)
+
+    assert len(panel.modified) == 1
+    assert panel.modified[0]["username"] == "tg_601"
+    assert panel.modified[0]["status"] == "disabled"
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+    assert refreshed.is_active is False
+
+
+@pytest.mark.integration
+async def test_deactivate_expired_keeps_panel_user_of_renewed_line(fake_bot, session_pool, monkeypatch):
+    # Same panel user: one expired row plus a paid renewal that is still live.
+    user, _ = await _make_panel_subscription(
+        session_pool, 602, "tg_602", expires_in=timedelta(hours=-1)
+    )
+    async with session_pool() as session:
+        repo = Repository(session)
+        now = datetime.now(timezone.utc)
+        await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_1m",
+            tier="standard",
+            panel_username="tg_602",
+            sub_token="tok-renewal-602",
+            subscription_url="https://sub.example/tg_602",
+            started_at=now,
+            expires_at=now + timedelta(days=30),
+            is_active=True,
+        )
+    panel = RecordingPanelGateway()
+    monkeypatch.setattr(tasks, "is_panel_configured", lambda: True)
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: panel)
+
+    await tasks.deactivate_expired_subscriptions(fake_bot, session_pool)
+
+    assert panel.modified == []
+
+
+@pytest.mark.integration
+async def test_deactivate_expired_survives_panel_error(fake_bot, session_pool, monkeypatch):
+    from services.panel_gateway import PanelGatewayError
+
+    _, subscription = await _make_panel_subscription(
+        session_pool, 603, "tg_603", expires_in=timedelta(hours=-1)
+    )
+
+    class FailingPanelGateway:
+        async def modify_user(self, **kwargs):
+            raise PanelGatewayError("panel down")
+
+    monkeypatch.setattr(tasks, "is_panel_configured", lambda: True)
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: FailingPanelGateway())
+
+    await tasks.deactivate_expired_subscriptions(fake_bot, session_pool)
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+    assert refreshed.is_active is False
