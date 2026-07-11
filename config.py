@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     YOOKASSA_API_URL: str = "https://api.yookassa.ru/v3"
     # Where YooKassa returns the buyer after payment (a Telegram deep link to the bot).
     YOOKASSA_RETURN_URL: str = ""
+    # Public origin of the website (no trailing slash) — used as the return
+    # target for site-initiated card payments (/pay/success).
+    WEB_BASE_URL: str = ""
     # 54-ФЗ receipts (самозанятый/НПД): when True, attach a receipt object so
     # YooKassa issues the чек. Needs a buyer contact — RECEIPT_EMAIL is the fallback.
     YOOKASSA_RECEIPT_ENABLED: bool = False

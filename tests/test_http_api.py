@@ -362,3 +362,261 @@ async def test_yookassa_webhook_needs_no_bearer(secured_client, monkeypatch):
     )
     response = await secured_client.post("/yookassa/webhook", json={"object": {"id": "yk-3"}})
     assert response.status_code == 200
+
+
+# --- website checkout / order / account --------------------------------------
+
+def _yk_payment_mock(payment_id: str = "yk-web-1"):
+    from unittest.mock import AsyncMock
+
+    return AsyncMock(
+        return_value={
+            "id": payment_id,
+            "status": "pending",
+            "confirmation": {"confirmation_url": f"https://yoomoney.ru/pay/{payment_id}"},
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_web_checkout_with_telegram_id(api_client, session_pool, monkeypatch):
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: True)
+    create = _yk_payment_mock("yk-web-1")
+    monkeypatch.setattr(api_mod.yookassa, "create_payment", create)
+
+    response = await api_client.post(
+        "/web/checkout", json={"plan": "standard_1m", "telegramId": 9101}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["orderId"] == "yk-web-1"
+    assert body["payUrl"] == "https://yoomoney.ru/pay/yk-web-1"
+    assert body["plan"]["code"] == "standard_1m"
+    assert create.await_args.kwargs["metadata"]["source"] == "web"
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(9101)
+        assert user is not None
+        payment = await repo.get_payment_by_external_id("yk-web-1")
+        assert payment is not None
+        assert payment.provider == "yookassa"
+        assert payment.user_id == user.id
+        assert payment.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_web_checkout_keeps_existing_username(api_client, session_pool, monkeypatch):
+    from services import http_api as api_mod
+
+    async with session_pool() as session:
+        await Repository(session).create_user(telegram_id=9102, username="keepme")
+
+    monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(api_mod.yookassa, "create_payment", _yk_payment_mock("yk-web-2"))
+
+    response = await api_client.post(
+        "/web/checkout", json={"plan": "standard_1m", "telegramId": 9102}
+    )
+
+    assert response.status_code == 200
+    async with session_pool() as session:
+        user = await Repository(session).get_user_by_telegram_id(9102)
+        assert user.username == "keepme"
+
+
+@pytest.mark.asyncio
+async def test_web_checkout_with_email_creates_synthetic_user(api_client, session_pool, monkeypatch):
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: True)
+    create = _yk_payment_mock("yk-web-3")
+    monkeypatch.setattr(api_mod.yookassa, "create_payment", create)
+
+    response = await api_client.post(
+        "/web/checkout", json={"plan": "standard_1m", "email": "  Buyer@Mail.RU "}
+    )
+
+    assert response.status_code == 200
+    assert create.await_args.kwargs["receipt_email"] == "buyer@mail.ru"
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_email("buyer@mail.ru")
+        assert user is not None
+        assert user.telegram_id < 0
+        assert user.email == "buyer@mail.ru"
+
+    # Second purchase with the same email reuses the account.
+    monkeypatch.setattr(api_mod.yookassa, "create_payment", _yk_payment_mock("yk-web-4"))
+    second = await api_client.post(
+        "/web/checkout", json={"plan": "standard_1m", "email": "buyer@mail.ru"}
+    )
+    assert second.status_code == 200
+    async with session_pool() as session:
+        repo = Repository(session)
+        first_payment = await repo.get_payment_by_external_id("yk-web-3")
+        second_payment = await repo.get_payment_by_external_id("yk-web-4")
+        assert first_payment.user_id == second_payment.user_id
+
+
+@pytest.mark.asyncio
+async def test_web_checkout_validation(api_client, monkeypatch):
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: True)
+
+    no_identity = await api_client.post("/web/checkout", json={"plan": "standard_1m"})
+    assert no_identity.status_code == 400
+
+    bad_email = await api_client.post(
+        "/web/checkout", json={"plan": "standard_1m", "email": "not-an-email"}
+    )
+    assert bad_email.status_code == 400
+
+    unknown_plan = await api_client.post(
+        "/web/checkout", json={"plan": "nope_9y", "telegramId": 1}
+    )
+    assert unknown_plan.status_code == 404
+
+    trial = await api_client.post("/web/checkout", json={"plan": "trial", "telegramId": 1})
+    assert trial.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_web_checkout_unavailable_without_yookassa(api_client, monkeypatch):
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: False)
+    response = await api_client.post(
+        "/web/checkout", json={"plan": "standard_1m", "telegramId": 1}
+    )
+    assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_web_order_pending_then_succeeded(api_client, session_pool, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=9103)
+        from services.payment import create_invoice_payload
+
+        payload = create_invoice_payload(user_id=user.id, plan="standard_1m")
+        await repo.create_yookassa_payment(
+            user_id=user.id,
+            amount=14900,
+            external_invoice_id="yk-ord-1",
+            invoice_payload=payload,
+            plan="standard_1m",
+        )
+
+    pending = await api_client.get("/web/order/yk-ord-1")
+    assert pending.status_code == 200
+    assert pending.json() == {"status": "pending"}
+
+    now = datetime.now(timezone.utc)
+    async with session_pool() as session:
+        repo = Repository(session)
+        await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_1m",
+            tier="standard",
+            panel_username="tg_9103",
+            sub_token="tok9103",
+            subscription_url="https://panel.example/sub/tok9103",
+            started_at=now,
+            expires_at=now + timedelta(days=30),
+            is_active=True,
+        )
+        await repo.complete_payment_by_external_id("yk-ord-1", provider="yookassa")
+
+    done = await api_client.get("/web/order/yk-ord-1")
+    assert done.status_code == 200
+    body = done.json()
+    assert body["status"] == "succeeded"
+    assert body["subscription"]["subscriptionUrl"] == "https://panel.example/sub/tok9103"
+    assert body["subscription"]["isActive"] is True
+
+
+@pytest.mark.asyncio
+async def test_web_order_unknown_is_404(api_client):
+    response = await api_client.get("/web/order/nope")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_web_account_by_telegram(api_client, session_pool):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=9104, username="cabinet")
+        await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_1m",
+            tier="standard",
+            panel_username="tg_9104",
+            sub_token="tok9104",
+            subscription_url="https://panel.example/sub/tok9104",
+            started_at=now,
+            expires_at=now + timedelta(days=30),
+            is_active=True,
+        )
+
+    response = await api_client.get("/web/account/by-telegram/9104")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["telegramId"] == 9104
+    assert body["subscription"]["isActive"] is True
+    assert body["subscription"]["subscriptionUrl"] == "https://panel.example/sub/tok9104"
+
+    missing = await api_client.get("/web/account/by-telegram/424242")
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_yookassa_webhook_skips_dm_for_web_email_buyer(api_client, session_pool, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from services import http_api as api_mod
+    from services.payment import create_invoice_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=-424242)
+        payload = create_invoice_payload(user_id=user.id, plan="standard_1m")
+        await repo.create_yookassa_payment(
+            user_id=user.id,
+            amount=14900,
+            external_invoice_id="yk-web-dm",
+            invoice_payload=payload,
+            plan="standard_1m",
+        )
+
+    monkeypatch.setattr(
+        api_mod.yookassa, "get_payment", AsyncMock(return_value={"id": "yk-web-dm", "status": "succeeded"})
+    )
+
+    class _Sub:
+        subscription_url = "https://sub.example/sub/web"
+
+    monkeypatch.setattr(api_mod, "activate_panel_subscription", AsyncMock(return_value=_Sub()))
+    monkeypatch.setattr(api_mod, "reward_referrer_for_payment", AsyncMock())
+    deliver = AsyncMock(return_value=True)
+    monkeypatch.setattr(api_mod.tribute, "deliver_subscription", deliver)
+
+    response = await api_client.post("/yookassa/webhook", json={"object": {"id": "yk-web-dm"}})
+
+    assert response.status_code == 200
+    deliver.assert_not_awaited()
+
+    async with session_pool() as session:
+        payment = await Repository(session).get_payment_by_external_id("yk-web-dm")
+        assert payment.status == "completed"

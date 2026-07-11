@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -203,6 +204,46 @@ async def build_payment_intent(
         asset=asset,
         description=description,
     )
+
+
+async def build_web_payment_intent(
+    session: AsyncSession,
+    *,
+    plan: str,
+    telegram_id: int | None = None,
+    username: str | None = None,
+    email: str | None = None,
+) -> PaymentIntent:
+    """Payment intent for a website checkout.
+
+    Telegram-authenticated buyers share their bot account. Email-only buyers
+    get a local account under a synthetic NEGATIVE telegram_id — real Telegram
+    ids are positive, so the sign marks "no Telegram chat behind this user"
+    and delivery code must not DM it.
+    """
+    clean_email = (email or "").strip().lower() or None
+    if telegram_id is None and clean_email is None:
+        raise ValueError("telegram_id or email is required")
+
+    repo = Repository(session)
+    if telegram_id is None:
+        user = await repo.get_user_by_email(clean_email)
+        if user is None:
+            user = await repo.create_user(telegram_id=-(secrets.randbits(52) + 1))
+        telegram_id = user.telegram_id
+    else:
+        existing = await repo.get_user_by_telegram_id(telegram_id)
+        if existing is not None and username is None:
+            # A site checkout knows no Telegram username; keep the stored one
+            # instead of letting get_or_create_user null it out.
+            username = existing.username
+
+    intent = await build_payment_intent(
+        session, telegram_id=telegram_id, username=username, plan=plan
+    )
+    if clean_email is not None:
+        await repo.update_user(intent.user_id, email=clean_email)
+    return intent
 
 
 async def register_cryptobot_payment(

@@ -52,6 +52,10 @@ async def check_expiring_subscriptions(
         repo = Repository(session)
         subscriptions = await repo.get_expiring_subscriptions(days=3)
         for subscription in subscriptions:
+            if subscription.user.telegram_id <= 0:
+                # Web email-only account (synthetic negative id) — no Telegram chat.
+                await repo.mark_subscription_reminded(subscription.id)
+                continue
             try:
                 await bot.send_message(
                     chat_id=subscription.user.telegram_id,
@@ -89,6 +93,9 @@ async def deactivate_expired_subscriptions(
                     logger.exception("Failed to release premium nodes for subscription_id=%s", subscription.id)
 
             await repo.deactivate_subscription(subscription.id)
+            notify_chat_id = (
+                subscription.user.telegram_id if subscription.user.telegram_id > 0 else None
+            )
 
             if panel is not None and subscription.panel_username:
                 # A renewal keeps the same panel user under a newer, still
@@ -112,10 +119,12 @@ async def deactivate_expired_subscriptions(
                             subscription.panel_username,
                             subscription.id,
                         )
+            if notify_chat_id is None:
+                continue
             try:
                 await send_banner(
                     bot,
-                    subscription.user.telegram_id,
+                    notify_chat_id,
                     EXPIRED_BANNER,
                     caption=(
                         "⛔️ <b>Подписка истекла</b>\n\n"

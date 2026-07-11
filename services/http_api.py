@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, AsyncIterator
@@ -32,6 +33,17 @@ class PromoPreviewRequest(BaseModel):
     user_id: int = Field(alias="userId", gt=0)
     code: str = Field(min_length=1, max_length=64)
     amount_kopecks: int = Field(alias="amountKopecks", gt=0, le=100_000_000)
+
+
+_WEB_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class WebCheckoutRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    plan: str = Field(min_length=1, max_length=64)
+    telegram_id: int | None = Field(default=None, alias="telegramId", gt=0)
+    email: str | None = Field(default=None, max_length=320)
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -235,6 +247,101 @@ def create_app() -> FastAPI:
             raise _promo_http_error(exc)
         return _discount_payload(result)
 
+    @application.get("/web/account/by-telegram/{telegram_id}")
+    async def web_account_by_telegram(telegram_id: int, session: SessionDep) -> dict[str, Any]:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(telegram_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user_not_found")
+        try:
+            overview = await billing_api.get_account_overview(session, user.id)
+        except (ValueError, UnknownWalletUserError):
+            raise HTTPException(status_code=404, detail="user_not_found")
+        payload = _account_payload(overview)
+        # The site shows the multi-protocol gateway link, not the raw panel URL.
+        payload["subscription"]["subscriptionUrl"] = to_gateway_subscription_url(
+            overview.subscription.subscription_url
+        )
+        return payload
+
+    @application.post("/web/checkout")
+    async def web_checkout(body: WebCheckoutRequest, session: SessionDep) -> dict[str, Any]:
+        from config import get_settings
+
+        email = (body.email or "").strip().lower() or None
+        if body.telegram_id is None and email is None:
+            raise HTTPException(status_code=400, detail="identity_required")
+        if email is not None and not _WEB_EMAIL_RE.match(email):
+            raise HTTPException(status_code=400, detail="invalid_email")
+
+        try:
+            tariff = resolve_tariff(body.plan)
+        except (KeyError, ValueError):
+            raise HTTPException(status_code=404, detail="unknown_plan")
+        if tariff.tier != "standard" or tariff.code == "trial":
+            # Card checkout on the site mirrors the bot: standard plans only.
+            raise HTTPException(status_code=400, detail="plan_not_purchasable")
+
+        if not yookassa.is_configured():
+            raise HTTPException(status_code=503, detail="payments_unavailable")
+
+        try:
+            intent = await billing_api.build_web_payment_intent(
+                session,
+                plan=tariff.code,
+                telegram_id=body.telegram_id,
+                email=email,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        web_base = get_settings().WEB_BASE_URL.strip().rstrip("/")
+        try:
+            payment = await yookassa.create_payment(
+                amount_kopecks=intent.plan.price_rub * 100,
+                description=intent.description,
+                metadata={"user_id": intent.user_id, "plan": intent.plan.code, "source": "web"},
+                return_url=f"{web_base}/pay/success" if web_base else None,
+                receipt_email=email,
+            )
+        except yookassa.YooKassaError as exc:
+            logging.getLogger("yookassa").exception("Web checkout: create payment failed")
+            raise HTTPException(status_code=502, detail="payment_create_failed") from exc
+
+        payment_id = payment.get("id")
+        pay_url = yookassa.confirmation_url(payment)
+        if not payment_id or not pay_url:
+            raise HTTPException(status_code=502, detail="payment_create_failed")
+
+        await billing_api.register_yookassa_payment(
+            session, intent=intent, external_payment_id=str(payment_id)
+        )
+        return {
+            "orderId": str(payment_id),
+            "payUrl": pay_url,
+            "plan": _plan_payload(intent.plan),
+        }
+
+    @application.get("/web/order/{order_id}")
+    async def web_order(order_id: str, session: SessionDep) -> dict[str, Any]:
+        repo = Repository(session)
+        payment = await repo.get_payment_by_external_id(order_id)
+        if payment is None or payment.provider != "yookassa":
+            raise HTTPException(status_code=404, detail="order_not_found")
+        if payment.status != "completed":
+            return {"status": "pending"}
+
+        snapshot = await billing_api.get_subscription_snapshot(session, payment.user_id)
+        return {
+            "status": "succeeded",
+            "subscription": {
+                "subscriptionUrl": to_gateway_subscription_url(snapshot.subscription_url),
+                "planTitle": snapshot.plan_title,
+                "expiresAt": _iso(snapshot.expires_at),
+                "isActive": snapshot.is_active,
+            },
+        }
+
     @application.get("/admin/stats")
     async def admin_stats(session: SessionDep) -> dict[str, Any]:
         repo = Repository(session)
@@ -405,15 +512,18 @@ def create_app() -> FastAPI:
         except Exception:
             log.exception("Referral reward failed for YooKassa payment %s", payment_id)
 
-        sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
-        await tribute.deliver_subscription(int(user.telegram_id), sub_url)
+        # Web email-only buyers have a synthetic negative telegram_id — there is
+        # no Telegram chat to DM; they get the link on the site's success page.
+        if int(user.telegram_id) > 0:
+            sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
+            await tribute.deliver_subscription(int(user.telegram_id), sub_url)
 
         # Auto-issue the self-employed чек in «Мой налог» and DM its link (best-effort;
         # YooKassa no longer forms НПД чеки, so we register the income ourselves).
         if moynalog.is_configured():
             plan_title = billing_api.get_billing_plan(details.plan).title
             receipt = await moynalog.issue_receipt(completed.amount, name=f"Оплата подписки: {plan_title}")
-            if receipt:
+            if receipt and int(user.telegram_id) > 0:
                 await moynalog.deliver_receipt(int(user.telegram_id), receipt)
 
         return {"ok": True, "plan": details.plan}

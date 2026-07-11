@@ -74,6 +74,15 @@ class Repository:
         result = await self.session.execute(select(User).where(User.telegram_id == telegram_id))
         return result.scalar_one_or_none()
 
+    async def get_user_by_email(self, email: str) -> User | None:
+        result = await self.session.execute(
+            select(User)
+            .where(func.lower(User.email) == email.strip().lower())
+            .order_by(User.id)
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def list_users(self, limit: int = 100, offset: int = 0) -> list[User]:
         result = await self.session.execute(select(User).offset(offset).limit(limit).order_by(User.id))
         return list(result.scalars().all())
