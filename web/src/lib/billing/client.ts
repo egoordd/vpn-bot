@@ -141,6 +141,15 @@ export async function getWebOrder(orderId: string): Promise<WebOrderStatus | nul
   return callOrNull<WebOrderStatus>(`/web/order/${encodeURIComponent(orderId)}`);
 }
 
+export async function updateAccountEmail(telegramId: number, email: string): Promise<boolean> {
+  if (!API_URL) return true;
+  const result = await callOrNull<{ ok: boolean }>(`/web/account/email`, {
+    method: "POST",
+    body: JSON.stringify({ telegramId, email }),
+  });
+  return result?.ok ?? false;
+}
+
 export async function previewDiscount(
   userId: number,
   code: string,

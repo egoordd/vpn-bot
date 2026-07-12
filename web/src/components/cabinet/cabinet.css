@@ -126,3 +126,75 @@
 .cab__logout:hover {
   border-color: currentColor;
 }
+
+.email-card {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+
+.email-card__view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.email-card__value {
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.email-card__form {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.email-card__input {
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.email-card__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.email-card__btn {
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));
+  background: transparent;
+  color: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.email-card__btn:hover {
+  border-color: currentColor;
+}
+
+.email-card__btn--primary {
+  font-weight: 600;
+}
+
+.email-card__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.email-card__error {
+  color: #d33;
+  font-size: 0.85rem;
+}
+
+.email-card__note {
+  font-size: 0.75rem;
+  opacity: 0.6;
+}

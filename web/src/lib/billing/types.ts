@@ -53,6 +53,7 @@ export interface AccountOverview {
   wallet: WalletSnapshot;
   balanceDisplay: string;
   referral: ReferralStats;
+  email?: string | null;
 }
 
 export interface BillingPlanDto {

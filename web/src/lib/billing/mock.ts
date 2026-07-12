@@ -81,6 +81,7 @@ export function mockAccountOverview(): AccountOverview {
       referralsCount: 3,
       totalEarnedKopecks: 8940,
     },
+    email: "demo@example.com",
   };
 }
 

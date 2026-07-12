@@ -46,6 +46,13 @@ class WebCheckoutRequest(BaseModel):
     email: str | None = Field(default=None, max_length=320)
 
 
+class WebEmailUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    telegram_id: int = Field(alias="telegramId", gt=0)
+    email: str = Field(min_length=3, max_length=320)
+
+
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
@@ -125,6 +132,7 @@ def _account_payload(account: AccountOverview) -> dict[str, Any]:
         "wallet": _wallet_payload(account.wallet),
         "balanceDisplay": account.balance_display,
         "referral": _referral_payload(account.referral),
+        "email": account.email,
     }
 
 
@@ -263,6 +271,18 @@ def create_app() -> FastAPI:
             overview.subscription.subscription_url
         )
         return payload
+
+    @application.post("/web/account/email")
+    async def web_account_email(body: WebEmailUpdateRequest, session: SessionDep) -> dict[str, Any]:
+        email = body.email.strip().lower()
+        if not _WEB_EMAIL_RE.match(email):
+            raise HTTPException(status_code=400, detail="invalid_email")
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(body.telegram_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user_not_found")
+        await repo.update_user(user.id, email=email)
+        return {"ok": True, "email": email}
 
     @application.post("/web/checkout")
     async def web_checkout(body: WebCheckoutRequest, session: SessionDep) -> dict[str, Any]:

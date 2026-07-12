@@ -620,3 +620,42 @@ async def test_yookassa_webhook_skips_dm_for_web_email_buyer(api_client, session
     async with session_pool() as session:
         payment = await Repository(session).get_payment_by_external_id("yk-web-dm")
         assert payment.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_web_account_email_update(api_client, session_pool):
+    async with session_pool() as session:
+        await Repository(session).create_user(telegram_id=9105, username="emailweb")
+
+    response = await api_client.post(
+        "/web/account/email", json={"telegramId": 9105, "email": "  Web@Mail.RU "}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "email": "web@mail.ru"}
+    async with session_pool() as session:
+        user = await Repository(session).get_user_by_telegram_id(9105)
+        assert user.email == "web@mail.ru"
+
+    bad = await api_client.post(
+        "/web/account/email", json={"telegramId": 9105, "email": "nope"}
+    )
+    assert bad.status_code == 400
+
+    missing = await api_client.post(
+        "/web/account/email", json={"telegramId": 424243, "email": "a@b.ru"}
+    )
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_web_account_payload_includes_email(api_client, session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=9106, username="emailshow")
+        await repo.update_user(user.id, email="shown@mail.ru")
+
+    response = await api_client.get("/web/account/by-telegram/9106")
+
+    assert response.status_code == 200
+    assert response.json()["email"] == "shown@mail.ru"

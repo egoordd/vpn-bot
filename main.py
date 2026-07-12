@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from services.alerts import send_alert
 
-from bot.handlers import admin, buy, connect_device, help, instructions, locations, start, subscription, support, wallet
+from bot.handlers import admin, buy, connect_device, email_settings, help, instructions, locations, start, subscription, support, wallet
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
 from bot.middlewares.update_timing import SlowUpdateLoggingMiddleware
 from config import settings
@@ -77,6 +77,7 @@ async def main() -> None:
     dispatcher.include_router(help.router)
     dispatcher.include_router(buy.router)
     dispatcher.include_router(wallet.router)
+    dispatcher.include_router(email_settings.router)
     dispatcher.include_router(subscription.router)
     dispatcher.include_router(locations.router)
     dispatcher.include_router(connect_device.router)
@@ -106,6 +107,7 @@ async def main() -> None:
                 BotCommand(command="help", description="Помощь и поддержка"),
                 BotCommand(command="wallet", description="Кошелёк"),
                 BotCommand(command="invite", description="Пригласить друга"),
+                BotCommand(command="email", description="Email для чеков"),
             ]
         )
         await dispatcher.start_polling(bot)

@@ -32,7 +32,8 @@ async def test_buy_plan_standard_shows_checkout_with_balance_option(session_pool
 
 
 @pytest.mark.integration
-async def test_buy_plan_standard_without_balance_offers_topup(session_pool, fake_bot, monkeypatch):
+async def test_buy_plan_zero_balance_hides_all_balance_ui(session_pool, fake_bot, monkeypatch):
+    # Zero balance: no «Оплатить с баланса», no topup nudge, no balance line.
     monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
     message = SimpleNamespace(photo=None, edit_text=AsyncMock())
     callback = SimpleNamespace(
@@ -46,8 +47,83 @@ async def test_buy_plan_standard_without_balance_offers_topup(session_pool, fake
 
     keyboard = message.edit_text.await_args.kwargs["reply_markup"]
     callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
+    assert "topup_menu" not in callbacks
+    assert not any(cb.startswith("paybal:") for cb in callbacks)
+    text = message.edit_text.await_args.args[0]
+    assert "Ваш баланс" not in text
+
+
+@pytest.mark.integration
+async def test_buy_plan_partial_balance_offers_topup_not_paybal(session_pool, fake_bot, monkeypatch):
+    # Money on the wallet but not enough for the plan → topup nudge, no paybal.
+    from services import wallet as wallet_service
+
+    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
+    async with session_pool() as session:
+        user = await Repository(session).create_user(telegram_id=918, username="partial")
+        await wallet_service.deposit(session, user.id, 5000, description="Пополнение")
+
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data="buy:standard_1m",
+        from_user=SimpleNamespace(id=918, username="partial"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.buy_plan_handler(callback, fake_bot, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
     assert "topup_menu" in callbacks
     assert not any(cb.startswith("paybal:") for cb in callbacks)
+    text = message.edit_text.await_args.args[0]
+    assert "Ваш баланс" in text
+
+
+@pytest.mark.integration
+async def test_buy_plan_full_balance_shows_paybal(session_pool, fake_bot, monkeypatch):
+    from services import wallet as wallet_service
+
+    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
+    async with session_pool() as session:
+        user = await Repository(session).create_user(telegram_id=919, username="rich")
+        await wallet_service.deposit(session, user.id, 100_000, description="Пополнение")
+
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data="buy:standard_1m",
+        from_user=SimpleNamespace(id=919, username="rich"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.buy_plan_handler(callback, fake_bot, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
+    assert any(cb.startswith("paybal:") for cb in callbacks)
+    assert "topup_menu" not in callbacks
+
+
+@pytest.mark.integration
+async def test_buy_plan_checkout_back_goes_to_tier_plans(session_pool, fake_bot, monkeypatch):
+    # «Назад» from checkout = one step back (this tier's plan list), not buy_menu.
+    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data="buy:standard_1m",
+        from_user=SimpleNamespace(id=920, username="nav"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.buy_plan_handler(callback, fake_bot, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
+    assert "buy_tier:standard" in callbacks
+    assert "buy_menu" not in callbacks
 
 
 @pytest.mark.integration

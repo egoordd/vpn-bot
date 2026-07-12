@@ -297,6 +297,7 @@ class AccountOverview:
     wallet: wallet.WalletSnapshot
     balance_display: str
     referral: referral.ReferralStats
+    email: str | None = None
 
 
 async def get_account_overview(
@@ -322,6 +323,7 @@ async def get_account_overview(
         wallet=wallet_snapshot,
         balance_display=format_rub(wallet_snapshot.balance_kopecks),
         referral=referral_stats,
+        email=user.email,
     )
 
 

@@ -85,6 +85,8 @@ def _checkout_keyboard(
     crypto_ok: bool,
     price_kopecks: int,
     yookassa_ok: bool = False,
+    tier: str = "standard",
+    balance_kopecks: int = 0,
 ) -> InlineKeyboardMarkup:
     suffix = f":{region}" if region else ""
     rows: list[list[InlineKeyboardButton]] = []
@@ -117,9 +119,13 @@ def _checkout_keyboard(
                 )
             ]
         )
-    if not balance_ok:
+    # Topup nudge only when the wallet already has money but not enough for
+    # this plan; a zero balance shows no balance UI at all (user's request).
+    if not balance_ok and balance_kopecks > 0:
         rows.append([InlineKeyboardButton(text="➕ Пополнить баланс", callback_data="topup_menu")])
-    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="buy_menu")])
+    # One step back = this tier's plan list, not the tier-select screen.
+    back_callback = f"buy_tier:{tier}" if tier != "premium" else "buy_menu"
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -157,7 +163,10 @@ async def _show_checkout(
     ]
     if region_option is not None:
         card_lines.append(f"📍 Локация: {region_option.flag} {region_option.title}")
-    card_lines.append(f"💳 Ваш баланс: {format_rub(balance)}")
+    # A zero balance is noise on the payment screen — show the wallet only
+    # when there is actually money on it.
+    if balance > 0:
+        card_lines.append(f"💳 Ваш баланс: {format_rub(balance)}")
 
     sections = ["💳 <b>Оплата тарифа</b>\n\n" + bq(*card_lines)]
     if yookassa_ok or balance_ok or crypto_ok:
@@ -169,9 +178,11 @@ async def _show_checkout(
             )
     elif tariff.tier == "premium":
         sections.append("⚠️ Оплата Premium временно доступна только криптовалютой, а она сейчас недоступна. Попробуйте позже.")
-    else:
+    elif balance > 0:
         need = price_kopecks - balance
         sections.append(f"💰 На балансе не хватает {format_rub(need)}. Пополните баланс и оплатите в один тап.")
+    else:
+        sections.append("⚠️ Способы оплаты временно недоступны. Попробуйте позже.")
 
     await _edit_current_message(
         callback,
@@ -183,6 +194,8 @@ async def _show_checkout(
             crypto_ok=crypto_ok,
             price_kopecks=price_kopecks,
             yookassa_ok=yookassa_ok,
+            tier=tariff.tier,
+            balance_kopecks=balance,
         ),
     )
     await callback.answer()
@@ -269,8 +282,10 @@ class YookassaEmailInput(StatesGroup):
     email = State()
 
 
-def _email_prompt_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Отмена", callback_data="buy_menu")]])
+def _email_prompt_keyboard(plan: str, region: str | None = None) -> InlineKeyboardMarkup:
+    # Cancel = one step back to this plan's checkout, not the buy menu.
+    back = f"buy_region:{plan}:{region}" if region else f"buy:{plan}"
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Отмена", callback_data=back)]])
 
 
 async def _create_yookassa_invoice(
@@ -562,7 +577,7 @@ async def pay_yookassa_handler(
             )
             + "\n\nОтправьте ваш email одним сообщением (например, <code>name@mail.ru</code>)."
         )
-        await _send_callback_message(callback, bot, text, _email_prompt_keyboard())
+        await _send_callback_message(callback, bot, text, _email_prompt_keyboard(plan, region))
         return
 
     await _create_yookassa_invoice(
@@ -584,9 +599,10 @@ async def yookassa_email_message_handler(
 ) -> None:
     email = (message.text or "").strip()
     if not _EMAIL_RE.match(email) or len(email) > 320:
+        data = await state.get_data()
         await message.answer(
             "Это не похоже на email. Отправьте адрес вида <code>name@mail.ru</code>.",
-            reply_markup=_email_prompt_keyboard(),
+            reply_markup=_email_prompt_keyboard(str(data.get("plan") or ""), data.get("region")),
         )
         return
 

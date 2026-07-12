@@ -1,5 +1,6 @@
 import type { AccountOverview } from "@/lib/billing/types";
 import { ConnectCard } from "./ConnectCard";
+import { EmailCard } from "./EmailCard";
 import { PromoCard } from "./PromoCard";
 import { ReferralCard } from "./ReferralCard";
 import { SubscriptionCard } from "./SubscriptionCard";
@@ -19,6 +20,7 @@ export function CabinetCards({
       <WalletCard wallet={account.wallet} balanceDisplay={account.balanceDisplay} />
       <ReferralCard referral={account.referral} />
       <PromoCard />
+      <EmailCard email={account.email ?? null} />
       <ConnectCard
         subscriptionUrl={account.subscription.subscriptionUrl}
         qrDataUrl={subscriptionQr}
