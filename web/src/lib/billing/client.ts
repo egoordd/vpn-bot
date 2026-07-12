@@ -1,8 +1,14 @@
 import "server-only";
 
 import { TARIFFS, type Tariff, type Tier } from "@/lib/tariffs";
-import type { AccountOverview, BillingPlanDto, DiscountResult } from "./types";
-import { mockAccountOverview, mockPreviewDiscount } from "./mock";
+import type {
+  AccountOverview,
+  BillingPlanDto,
+  CheckoutResult,
+  DiscountResult,
+  WebOrderStatus,
+} from "./types";
+import { mockAccountOverview, mockCheckout, mockOrderStatus, mockPreviewDiscount } from "./mock";
 
 /**
  * Server-side billing client. The single seam between the site and the shared
@@ -68,6 +74,71 @@ export async function getBillingPlans(tier?: Tier): Promise<Tariff[]> {
   const query = tier ? `?tier=${encodeURIComponent(tier)}` : "";
   const response = await call<{ plans: BillingPlanDto[] }>(`/plans${query}`);
   return response.plans.map((plan, index) => planFromBillingDto(plan, (index + 1) * 10));
+}
+
+/** Like `call`, but resolves null on a 404 instead of throwing. */
+async function callOrNull<T>(path: string, init?: RequestInit): Promise<T | null> {
+  if (!API_URL) {
+    throw new Error("BILLING_API_URL is not configured");
+  }
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+      ...init?.headers,
+    },
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Billing API ${path} failed: ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
+export async function getAccountByTelegram(telegramId: number): Promise<AccountOverview | null> {
+  if (!API_URL) return mockAccountOverview();
+  return callOrNull<AccountOverview>(`/web/account/by-telegram/${telegramId}`);
+}
+
+export class CheckoutError extends Error {
+  constructor(public readonly code: string) {
+    super(code);
+  }
+}
+
+export async function createWebCheckout(input: {
+  plan: string;
+  telegramId?: number;
+  email?: string;
+}): Promise<CheckoutResult> {
+  if (!API_URL) return mockCheckout();
+  const res = await fetch(`${API_URL}/web/checkout`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+    },
+    body: JSON.stringify(input),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let code = `checkout_failed_${res.status}`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (typeof body.detail === "string" && body.detail) code = body.detail;
+    } catch {
+      // non-JSON error body — keep the status-based code
+    }
+    throw new CheckoutError(code);
+  }
+  return (await res.json()) as CheckoutResult;
+}
+
+export async function getWebOrder(orderId: string): Promise<WebOrderStatus | null> {
+  if (!API_URL) return mockOrderStatus();
+  return callOrNull<WebOrderStatus>(`/web/order/${encodeURIComponent(orderId)}`);
 }
 
 export async function previewDiscount(

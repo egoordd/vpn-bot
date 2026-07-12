@@ -1,0 +1,116 @@
+.buy {
+  min-height: 100dvh;
+  padding: clamp(1.5rem, 1rem + 2vw, 3rem) 0 4rem;
+}
+
+.buy__container {
+  max-width: 560px;
+}
+
+.buy__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: clamp(2rem, 1.5rem + 2vw, 3.5rem);
+}
+
+.buy__back {
+  color: var(--color-text-muted, #888);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.buy__back:hover {
+  color: inherit;
+}
+
+.buy__card {
+  padding: clamp(1.5rem, 1rem + 2vw, 2.5rem);
+  display: grid;
+  gap: 1.5rem;
+}
+
+.buy__head {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+}
+
+.buy__title {
+  font-size: clamp(1.5rem, 1.2rem + 1.5vw, 2rem);
+  line-height: 1.15;
+}
+
+.buy__price-value {
+  font-size: clamp(2rem, 1.6rem + 2vw, 2.75rem);
+  font-weight: 700;
+}
+
+.buy__features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+.buy__identity {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.buy__label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.buy__input {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.buy__input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.buy__tg-ok {
+  font-size: 0.95rem;
+}
+
+.buy__tg-alt {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.buy__tg-alt-label {
+  font-size: 0.8rem;
+  opacity: 0.65;
+}
+
+.buy__error {
+  color: #d33;
+  font-size: 0.9rem;
+}
+
+.buy__submit {
+  width: 100%;
+}
+
+.buy__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buy__note {
+  font-size: 0.78rem;
+  opacity: 0.6;
+}

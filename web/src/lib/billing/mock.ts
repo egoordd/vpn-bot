@@ -1,5 +1,5 @@
 import { TARIFFS } from "@/lib/tariffs";
-import type { AccountOverview, DiscountResult } from "./types";
+import type { AccountOverview, CheckoutResult, DiscountResult, WebOrderStatus } from "./types";
 
 const GB = 1024 ** 3;
 
@@ -80,6 +80,22 @@ export function mockAccountOverview(): AccountOverview {
       rewardPercent: 20,
       referralsCount: 3,
       totalEarnedKopecks: 8940,
+    },
+  };
+}
+
+export function mockCheckout(): CheckoutResult {
+  return { orderId: "mock-order-1", payUrl: "/pay/success" };
+}
+
+export function mockOrderStatus(): WebOrderStatus {
+  return {
+    status: "succeeded",
+    subscription: {
+      subscriptionUrl: "https://144.172.101.217.sslip.io:8443/sub/demo-token",
+      planTitle: TARIFFS.standard_1m.title,
+      expiresAt: daysFromNow(30),
+      isActive: true,
     },
   };
 }

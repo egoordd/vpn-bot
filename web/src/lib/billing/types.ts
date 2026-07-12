@@ -73,3 +73,20 @@ export interface DiscountResult {
   discountKopecks: number;
   finalKopecks: number;
 }
+
+export interface CheckoutResult {
+  orderId: string;
+  payUrl: string;
+}
+
+export interface WebOrderSubscription {
+  subscriptionUrl: string | null;
+  planTitle: string | null;
+  expiresAt: string | null; // ISO 8601
+  isActive: boolean;
+}
+
+export interface WebOrderStatus {
+  status: "pending" | "succeeded";
+  subscription?: WebOrderSubscription;
+}

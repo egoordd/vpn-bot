@@ -1,0 +1,134 @@
+.paysuccess {
+  min-height: 100dvh;
+  padding: clamp(1.5rem, 1rem + 2vw, 3rem) 0 4rem;
+}
+
+.paysuccess__container {
+  max-width: 640px;
+}
+
+.paysuccess__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: clamp(2rem, 1.5rem + 2vw, 3.5rem);
+}
+
+.paysuccess__back {
+  color: var(--color-text-muted, #888);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.paysuccess__back:hover {
+  color: inherit;
+}
+
+.paysuccess__card {
+  padding: clamp(1.5rem, 1rem + 2vw, 2.5rem);
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+}
+
+.paysuccess__card h1 {
+  font-size: clamp(1.4rem, 1.1rem + 1.5vw, 1.9rem);
+  line-height: 1.2;
+}
+
+.paysuccess__lead {
+  opacity: 0.85;
+}
+
+.paysuccess__plan {
+  font-size: 0.85rem;
+  opacity: 0.65;
+}
+
+.paysuccess__spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid currentColor;
+  border-top-color: transparent;
+  opacity: 0.5;
+  animation: paysuccess-spin 0.9s linear infinite;
+}
+
+@keyframes paysuccess-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paysuccess__spinner {
+    animation: none;
+  }
+}
+
+.paysuccess__link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.paysuccess__url {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 0.65rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.paysuccess__apps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.paysuccess__apps-label {
+  font-size: 0.8rem;
+  opacity: 0.65;
+}
+
+.paysuccess__app {
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));
+  text-decoration: none;
+  color: inherit;
+  font-size: 0.85rem;
+}
+
+.paysuccess__app:hover {
+  border-color: currentColor;
+}
+
+.paysuccess__qr {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: center;
+  margin: 0.5rem 0 0;
+}
+
+.paysuccess__qr img {
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+}
+
+.paysuccess__qr figcaption {
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.paysuccess__note {
+  font-size: 0.78rem;
+  opacity: 0.6;
+}

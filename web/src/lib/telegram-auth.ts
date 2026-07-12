@@ -11,6 +11,43 @@ import crypto from "crypto";
  * Returns the telegram user id on success, or null if the signature is invalid,
  * expired, or the bot token is not configured.
  */
+/**
+ * Verify a Telegram Login Widget payload and return the telegram user id.
+ *
+ * The widget signs with a DIFFERENT scheme than Mini App initData: the check
+ * hash is HMAC-SHA256 of the sorted `key=value` lines keyed by
+ * SHA256(botToken) — no "WebAppData" prefix.
+ */
+export function verifyTelegramLoginWidget(
+  data: Record<string, unknown>,
+  botToken = process.env.BOT_TOKEN ?? "",
+  maxAgeSeconds = 24 * 60 * 60,
+): number | null {
+  if (!botToken || typeof data !== "object" || data === null) return null;
+
+  const hash = typeof data.hash === "string" ? data.hash : "";
+  if (!hash || !/^[0-9a-f]{64}$/i.test(hash)) return null;
+
+  const pairs = Object.entries(data)
+    .filter(([key, value]) => key !== "hash" && value !== undefined && value !== null)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .sort();
+  const dataCheckString = pairs.join("\n");
+
+  const secretKey = crypto.createHash("sha256").update(botToken).digest();
+  const computed = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+
+  const a = Buffer.from(computed, "hex");
+  const b = Buffer.from(hash, "hex");
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  const authDate = Number(data.auth_date ?? "0");
+  if (!authDate || Date.now() / 1000 - authDate > maxAgeSeconds) return null;
+
+  const id = Number(data.id);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 export function verifyTelegramInitData(
   initData: string,
   botToken = process.env.BOT_TOKEN ?? "",

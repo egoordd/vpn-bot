@@ -7,7 +7,13 @@ const APPS = [
   { name: "Hiddify", scheme: (url: string) => `hiddify://import/${encodeURIComponent(url)}` },
 ];
 
-export function ConnectCard({ subscriptionUrl }: { subscriptionUrl: string | null }) {
+export function ConnectCard({
+  subscriptionUrl,
+  qrDataUrl = null,
+}: {
+  subscriptionUrl: string | null;
+  qrDataUrl?: string | null;
+}) {
   if (!subscriptionUrl) {
     return (
       <article className="card card--span2 connect">
@@ -44,6 +50,14 @@ export function ConnectCard({ subscriptionUrl }: { subscriptionUrl: string | nul
           </a>
         ))}
       </div>
+
+      {qrDataUrl && (
+        <figure className="connect__qr">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qrDataUrl} alt="QR-код ссылки-подписки" width={180} height={180} />
+          <figcaption className="mono">Сканируйте с телефона</figcaption>
+        </figure>
+      )}
     </article>
   );
 }

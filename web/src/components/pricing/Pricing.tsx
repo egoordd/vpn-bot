@@ -88,11 +88,11 @@ export function Pricing() {
                 </ul>
 
                 <Button
-                  href={botLink(`buy_${plan.code}`)}
+                  href={tier === "standard" ? `/buy?plan=${plan.code}` : botLink(`buy_${plan.code}`)}
                   variant={recommended ? (tier === "premium" ? "premium" : "primary") : "ghost"}
                   className="plan__cta"
                 >
-                  Выбрать
+                  {tier === "standard" ? "Купить картой" : "Выбрать в боте"}
                 </Button>
               </article>
             );
