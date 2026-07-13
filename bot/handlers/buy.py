@@ -266,13 +266,24 @@ async def _create_payment_invoice(
     await _send_callback_message(callback, bot, text, keyboard)
 
 
-def _yookassa_pay_keyboard(pay_url: str, price_rub: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"💳 Оплатить — {price_rub}₽", url=pay_url)],
-            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
-        ]
-    )
+def _yookassa_pay_keyboard(
+    pay_url: str,
+    price_rub: int,
+    *,
+    plan: str | None = None,
+    region: str | None = None,
+    email_editable: bool = False,
+) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text=f"💳 Оплатить — {price_rub}₽", url=pay_url)]]
+    if email_editable and plan:
+        # The чек goes to the stored email; a typo would send it nowhere, so
+        # let the buyer fix the address right from the payment screen.
+        suffix = f":{region}" if region else ""
+        rows.append(
+            [InlineKeyboardButton(text="✏️ Изменить email для чека", callback_data=f"ykemail:{plan}{suffix}")]
+        )
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -340,7 +351,16 @@ async def _create_yookassa_invoice(
         + receipt_line
         + "Ссылка-подписка придёт автоматически в течение минуты после оплаты."
     )
-    await send(text, _yookassa_pay_keyboard(pay_url, intent.plan.price_rub))
+    await send(
+        text,
+        _yookassa_pay_keyboard(
+            pay_url,
+            intent.plan.price_rub,
+            plan=plan,
+            region=region,
+            email_editable=bool(email),
+        ),
+    )
 
 
 BUY_MENU_TEXT = (
@@ -589,6 +609,40 @@ async def pay_yookassa_handler(
         email=stored_email,
         send=lambda text, kb: _send_callback_message(callback, bot, text, kb),
     )
+
+
+@router.callback_query(F.data.startswith("ykemail:"))
+async def yookassa_change_email_handler(
+    callback: CallbackQuery,
+    bot: Bot,
+    state: FSMContext,
+) -> None:
+    parts = callback.data.split(":", maxsplit=2) if callback.data else []
+    raw_plan = parts[1] if len(parts) >= 2 else ""
+    raw_region = parts[2] if len(parts) == 3 else None
+    try:
+        plan = normalize_payment_plan_code(raw_plan)
+    except ValueError:
+        await callback.answer("Тариф не найден", show_alert=True)
+        return
+
+    region: str | None = None
+    if raw_region is not None:
+        try:
+            region = resolve_premium_region(raw_region).code
+        except ValueError:
+            await callback.answer("Локация не найдена", show_alert=True)
+            return
+
+    await state.set_state(YookassaEmailInput.email)
+    await state.update_data(plan=plan, region=region)
+    text = (
+        "✏️ <b>Новый email для чека</b>\n\n"
+        "Отправьте адрес одним сообщением (например, <code>name@mail.ru</code>) — "
+        "мы сохраним его и выставим счёт заново."
+    )
+    await _send_callback_message(callback, bot, text, _email_prompt_keyboard(plan, region))
+    await callback.answer()
 
 
 @router.message(YookassaEmailInput.email)

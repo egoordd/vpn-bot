@@ -475,3 +475,68 @@ async def test_renew_sub_premium_keeps_region(session_pool):
     callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
     # premium renewal durations keep the region and route to buy_region (checkout)
     assert any(cb == "buy_region:premium_1m:ams" for cb in callbacks)
+
+
+@pytest.mark.integration
+async def test_yookassa_pay_keyboard_email_edit_button():
+    kb = buy._yookassa_pay_keyboard(
+        "https://pay.example", 149, plan="standard_1m", email_editable=True
+    )
+    callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+    assert "ykemail:standard_1m" in callbacks
+
+    kb_no_email = buy._yookassa_pay_keyboard("https://pay.example", 149, plan="standard_1m")
+    callbacks = [btn.callback_data for row in kb_no_email.inline_keyboard for btn in row]
+    assert not any((cb or "").startswith("ykemail:") for cb in callbacks)
+
+
+@pytest.mark.integration
+async def test_yookassa_change_email_flow_reissues_invoice(session_pool, fake_bot, monkeypatch):
+    # Tap «Изменить email» → send a corrected address → email saved and a NEW
+    # invoice is created with it.
+    from services import yookassa as yk
+
+    async with session_pool() as session:
+        user = await Repository(session).create_user(telegram_id=921, username="typo")
+        await Repository(session).update_user(user.id, email="tpyo@mail.ru")
+
+    state_data: dict = {}
+    state = SimpleNamespace(
+        set_state=AsyncMock(),
+        update_data=AsyncMock(side_effect=lambda **kw: state_data.update(kw)),
+        get_data=AsyncMock(side_effect=lambda: dict(state_data)),
+        clear=AsyncMock(),
+    )
+    message_ns = SimpleNamespace(photo=None, edit_text=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        data="ykemail:standard_1m",
+        from_user=SimpleNamespace(id=921, username="typo"),
+        message=message_ns,
+        answer=AsyncMock(),
+    )
+
+    await buy.yookassa_change_email_handler(callback, fake_bot, state)
+
+    state.set_state.assert_awaited_once()
+    assert state_data == {"plan": "standard_1m", "region": None}
+
+    created: dict = {}
+
+    async def fake_create_payment(**kwargs):
+        created.update(kwargs)
+        return {"id": "yk-fix-1", "confirmation": {"confirmation_url": "https://pay.example/fix"}}
+
+    monkeypatch.setattr(yk, "create_payment", fake_create_payment)
+
+    incoming = SimpleNamespace(
+        text="fixed@mail.ru",
+        from_user=SimpleNamespace(id=921, username="typo"),
+        answer=AsyncMock(),
+    )
+    await buy.yookassa_email_message_handler(incoming, state, session_pool)
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_user_by_telegram_id(921)
+        assert refreshed.email == "fixed@mail.ru"
+    assert created.get("receipt_email") == "fixed@mail.ru"
+    incoming.answer.assert_awaited()

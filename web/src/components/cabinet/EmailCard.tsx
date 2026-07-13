@@ -91,7 +91,7 @@ export function EmailCard({ email }: { email: string | null }) {
       )}
 
       <p className="email-card__note mono">
-        Сюда приходят чеки об оплате картой. Изменить можно и в боте: /email.
+        Сюда приходят чеки об оплате картой. Опечатались — просто исправьте и сохраните.
       </p>
     </article>
   );
