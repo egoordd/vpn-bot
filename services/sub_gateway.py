@@ -45,6 +45,29 @@ KEY_FILE = os.environ.get("KEY_FILE", "")
 # Public origin used to build the /sub/<token> URL embedded in the Happ deep
 # link. Empty -> derive from the request Host header (correct in prod).
 PUBLIC_BASE = os.environ.get("PUBLIC_BASE", "").rstrip("/")
+# When set, a browser opening /sub/<token> is redirected to this site's
+# /connect page (VPN clients still get the raw config). Empty -> disabled.
+CONNECT_PAGE_BASE = os.environ.get("CONNECT_PAGE_BASE", "").rstrip("/")
+
+# Substrings that identify a VPN/proxy client User-Agent — these must always
+# receive the raw subscription, never the HTML redirect.
+_VPN_CLIENT_UA = (
+    "v2rayng", "v2raytun", "v2box", "happ", "hiddify", "streisand", "clash",
+    "mihomo", "sing-box", "singbox", "nekobox", "nekoray", "shadowrocket",
+    "foxray", "karing", "throne", "matsuri", "sagernet", "exclave", "loon",
+    "surge", "stash", "quantumult", "flclash", "xray", "v2ray", "wings",
+    "sub-store", "subconverter",
+)
+
+
+def _is_browser(user_agent: str) -> bool:
+    """Conservative browser check: only true for a clear browser UA that is not
+    a known VPN client. Fails safe — an unknown/empty UA is treated as a client
+    and gets the raw subscription, never a redirect."""
+    ua = (user_agent or "").lower()
+    if not ua or any(client in ua for client in _VPN_CLIENT_UA):
+        return False
+    return "mozilla" in ua
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 # Display name clients show for the subscription (Happ reads `profile-title`,
@@ -281,6 +304,16 @@ class Handler(BaseHTTPRequestHandler):
         token = path[len(prefix):].split("/", 1)[0]
         if not token:
             self._send(404, b"not found", "text/plain")
+            return
+        # A browser gets the connect landing; VPN clients get the raw config.
+        if CONNECT_PAGE_BASE and _TOKEN_RE.match(token) and _is_browser(self.headers.get("User-Agent", "")):
+            base = PUBLIC_BASE or f"https://{self.headers.get('Host', '')}".rstrip("/")
+            sub_url = f"{base}/sub/{token}"
+            location = f"{CONNECT_PAGE_BASE}/connect#sub={urllib.parse.quote(sub_url, safe='')}"
+            self.send_response(302)
+            self.send_header("Location", location)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
             return
         result = build_combined(token)
         if result is None:

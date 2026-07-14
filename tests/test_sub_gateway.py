@@ -261,3 +261,18 @@ def test_marzban_sub_active_fails_open_on_transport_error(monkeypatch):
     monkeypatch.setattr(sub_gateway.urllib.request, "urlopen", boom)
 
     assert sub_gateway._marzban_sub_active("tok") is True
+
+
+# --- browser vs VPN-client detection for /sub redirect ----------------------
+
+def test_is_browser_true_for_real_browsers():
+    chrome = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+    safari_ios = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+    assert sub_gateway._is_browser(chrome) is True
+    assert sub_gateway._is_browser(safari_ios) is True
+
+
+def test_is_browser_false_for_vpn_clients_and_empty():
+    for ua in ("v2rayNG/1.8.5", "Happ/1.0", "Hiddify/2.0", "Streisand", "clash-verge/1.0",
+               "sing-box 1.9", "Shadowrocket/2.2", "v2rayTun/3", "", None):
+        assert sub_gateway._is_browser(ua) is False, ua
