@@ -791,3 +791,56 @@ async def test_yookassa_webhook_rejects_amount_mismatch(api_client, session_pool
     assert response.json()["error"] == "amount_mismatch"
     activate.assert_not_awaited()
     deliver.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_web_auth_register_and_login_endpoints(api_client, session_pool):
+    reg = await api_client.post(
+        "/web/auth/register", json={"email": "webacct@mail.ru", "password": "supersecret1"}
+    )
+    assert reg.status_code == 200
+    tid = reg.json()["telegramId"]
+    assert tid < 0
+
+    dup = await api_client.post(
+        "/web/auth/register", json={"email": "webacct@mail.ru", "password": "supersecret1"}
+    )
+    assert dup.status_code == 409
+
+    good = await api_client.post(
+        "/web/auth/login", json={"email": "webacct@mail.ru", "password": "supersecret1"}
+    )
+    assert good.status_code == 200 and good.json()["telegramId"] == tid
+
+    bad = await api_client.post(
+        "/web/auth/login", json={"email": "webacct@mail.ru", "password": "wrongpass1"}
+    )
+    assert bad.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_web_auth_register_weak_password(api_client):
+    resp = await api_client.post(
+        "/web/auth/register", json={"email": "weakweb@mail.ru", "password": "short"}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "weak_password"
+
+
+@pytest.mark.asyncio
+async def test_web_auth_login_rate_limited(api_client):
+    api_client._transport.app.state.redis = _FakeRedis()
+    last = None
+    for _ in range(api_mod_auth_ip_limit() + 2):
+        last = await api_client.post(
+            "/web/auth/login",
+            json={"email": "brute@mail.ru", "password": "whatever1"},
+            headers={"x-client-ip": "203.0.113.77"},
+        )
+    assert last.status_code == 429
+
+
+def api_mod_auth_ip_limit() -> int:
+    from services import http_api as api_mod
+
+    return api_mod._AUTH_IP_LIMIT

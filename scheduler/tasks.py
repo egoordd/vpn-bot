@@ -35,6 +35,7 @@ from services.referral import reward_referrer_for_payment
 from services.subscription import (
     activate_panel_subscription,
     activate_subscription,
+    connect_page_url,
     to_gateway_subscription_url,
 )
 from services.tariffs import resolve_premium_region, resolve_tariff
@@ -353,8 +354,7 @@ def _subscription_access_text(
         + bq(*card_lines)
         + "\n\n🔗 <b>Ссылка-подписка:</b>\n"
         f"<code>{subscription_url}</code>\n\n"
-        "Добавьте ссылку в Happ, Hiddify, V2RayTun или Streisand. "
-        "QR-код — следующим сообщением."
+        "Нажмите «Подключить VPN» — откроется страница с приложениями и пошаговой инструкцией."
         + note
         + f"\n\nПроблемы? {settings.support_contact}"
     )
@@ -368,7 +368,17 @@ async def _send_subscription_bundle(
     *,
     premium_region_title: str | None = None,
 ) -> None:
-    qr_bytes = await generate_qr_png_bytes(subscription_url)
+    # Deliver the link + a button to the /connect setup page — no QR image.
+    connect_url = connect_page_url(subscription_url)
+    if connect_url:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔗 Подключить VPN", url=connect_url)],
+                [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
+            ]
+        )
+    else:
+        keyboard = back_to_menu_keyboard()
     await bot.send_message(
         chat_id=telegram_id,
         text=_subscription_access_text(
@@ -376,12 +386,7 @@ async def _send_subscription_bundle(
             expires_at,
             premium_region_title=premium_region_title,
         ),
-    )
-    await bot.send_photo(
-        chat_id=telegram_id,
-        photo=BufferedInputFile(qr_bytes, filename="subscription_qr.png"),
-        caption="QR-код ссылки-подписки.",
-        reply_markup=back_to_menu_keyboard(),
+        reply_markup=keyboard,
     )
 
 

@@ -40,7 +40,12 @@ def plan_for(tribute_id: object) -> str | None:
 
 
 async def deliver_subscription(telegram_id: int, sub_url: str) -> bool:
-    """DM the buyer their subscription link via the main bot (HTTP sendMessage)."""
+    """DM the buyer their subscription link via the main bot (HTTP sendMessage).
+
+    Sends the link plus a button to the site's /connect page with one-tap app
+    import and setup instructions — no QR image is pushed."""
+    from services.subscription import connect_page_url
+
     token = settings.bot_token
     if not token or not sub_url:
         return False
@@ -48,9 +53,19 @@ async def deliver_subscription(telegram_id: int, sub_url: str) -> bool:
         "✅ <b>Оплата получена — подписка активна!</b>\n\n"
         "🔗 Ваша ссылка-подписка:\n"
         f"<code>{html.escape(sub_url)}</code>\n\n"
-        "Импортируйте её в Happ, либо откройте бот → «📱 Подключить устройство» — там QR и помощь."
+        "Нажмите «Подключить VPN» — откроется страница с приложениями и пошаговой инструкцией."
     )
-    payload = {"chat_id": telegram_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+    payload: dict[str, object] = {
+        "chat_id": telegram_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    connect_url = connect_page_url(sub_url)
+    if connect_url:
+        payload["reply_markup"] = {
+            "inline_keyboard": [[{"text": "🔗 Подключить VPN", "url": connect_url}]]
+        }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(

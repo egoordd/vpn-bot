@@ -89,7 +89,7 @@ export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimi
   return (
     <div className="buy__card card">
       <header className="buy__head">
-        <Pill tone="accent">Оплата картой</Pill>
+        <Pill tone="accent">Оформление</Pill>
         <h1 className="buy__title">{planTitle}</h1>
         <p className="buy__price">
           <span className="buy__price-value">{formatRubFromRubles(priceRub)}</span>
@@ -135,11 +135,11 @@ export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimi
       {error && <p className="buy__error">{error}</p>}
 
       <Button size="lg" className="buy__submit" disabled={!canSubmit} onClick={submit}>
-        {submitting ? "Создаём платёж…" : `Перейти к оплате · ${formatRubFromRubles(priceRub)}`}
+        {submitting ? "Оформляем…" : `Купить · ${formatRubFromRubles(priceRub)}`}
       </Button>
 
       <p className="buy__note mono">
-        Оплата проходит на защищённой странице ЮKassa. После оплаты вы вернётесь на сайт и получите
+        Оплата проходит на защищённой странице. После оплаты вы вернётесь на сайт и получите
         ссылку-подписку.
       </p>
     </div>

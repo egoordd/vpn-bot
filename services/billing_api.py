@@ -246,6 +246,63 @@ async def build_web_payment_intent(
     return intent
 
 
+class WebAuthError(Exception):
+    """Raised for site email/password auth failures with a stable code."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
+async def _email_account_telegram_id() -> int:
+    # Email accounts have no Telegram chat: a synthetic negative id marks them so
+    # delivery code never DMs them (real Telegram ids are positive).
+    return -(secrets.randbits(52) + 1)
+
+
+async def register_web_account(session: AsyncSession, *, email: str, password: str) -> int:
+    """Create (or claim) a site account for email+password. Returns its telegram_id.
+
+    If the email already bought as a guest (no password yet) the existing account
+    is claimed, so past purchases show up immediately. Raises WebAuthError.
+    """
+    from services import webauth
+
+    clean_email = (email or "").strip().lower()
+    if not clean_email:
+        raise WebAuthError("invalid_email")
+    if not webauth.is_password_acceptable(password or ""):
+        raise WebAuthError("weak_password")
+
+    repo = Repository(session)
+    existing = await repo.get_user_by_email(clean_email)
+    if existing is not None and existing.web_password_hash:
+        raise WebAuthError("already_registered")
+
+    password_hash = webauth.hash_password(password)
+    if existing is not None:
+        await repo.update_user(existing.id, web_password_hash=password_hash)
+        return existing.telegram_id
+
+    user = await repo.create_user(telegram_id=await _email_account_telegram_id())
+    await repo.update_user(user.id, email=clean_email, web_password_hash=password_hash)
+    return user.telegram_id
+
+
+async def authenticate_web_account(session: AsyncSession, *, email: str, password: str) -> int | None:
+    """Verify email+password; return the account's telegram_id or None."""
+    from services import webauth
+
+    clean_email = (email or "").strip().lower()
+    if not clean_email or not password:
+        return None
+    repo = Repository(session)
+    user = await repo.get_user_by_email(clean_email)
+    if user is None or not webauth.verify_password(password, user.web_password_hash):
+        return None
+    return user.telegram_id
+
+
 async def register_cryptobot_payment(
     session: AsyncSession,
     *,

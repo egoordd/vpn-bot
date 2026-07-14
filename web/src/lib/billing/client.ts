@@ -146,6 +146,49 @@ export async function getWebOrder(orderId: string): Promise<WebOrderStatus | nul
   return callOrNull<WebOrderStatus>(`/web/order/${encodeURIComponent(orderId)}`);
 }
 
+export class WebAuthError extends Error {
+  constructor(public readonly code: string) {
+    super(code);
+  }
+}
+
+/** Register/login return the account's telegram_id (negative for email accounts). */
+async function authCall(path: string, email: string, password: string): Promise<number> {
+  if (!API_URL) {
+    // Mock mode: pretend a deterministic email account exists.
+    return -1;
+  }
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+    },
+    body: JSON.stringify({ email, password }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let code = `auth_failed_${res.status}`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (typeof body.detail === "string" && body.detail) code = body.detail;
+    } catch {
+      // keep status-based code
+    }
+    throw new WebAuthError(code);
+  }
+  const body = (await res.json()) as { telegramId: number };
+  return body.telegramId;
+}
+
+export async function registerWebAccount(email: string, password: string): Promise<number> {
+  return authCall("/web/auth/register", email, password);
+}
+
+export async function loginWebAccount(email: string, password: string): Promise<number> {
+  return authCall("/web/auth/login", email, password);
+}
+
 export async function updateAccountEmail(telegramId: number, email: string): Promise<boolean> {
   if (!API_URL) return true;
   const result = await callOrNull<{ ok: boolean }>(`/web/account/email`, {

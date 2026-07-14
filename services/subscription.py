@@ -39,6 +39,21 @@ def to_gateway_subscription_url(marzban_url: str | None) -> str | None:
     return f"{base}/sub/{token}"
 
 
+def connect_page_url(sub_url: str | None) -> str | None:
+    """Build the site's /connect landing link for a subscription.
+
+    The sub link travels in the URL *fragment* (`#sub=...`) so it never reaches
+    the server or referrers — the page reads it client-side to offer one-tap app
+    import + setup instructions. Returns None when WEB_BASE_URL is unset.
+    """
+    import urllib.parse
+
+    base = settings.WEB_BASE_URL.strip().rstrip("/")
+    if not base or not sub_url:
+        return None
+    return f"{base}/connect#sub={urllib.parse.quote(sub_url, safe='')}"
+
+
 def to_happ_import_url(gateway_url: str | None) -> str | None:
     """Map a gateway `/sub/<token>` URL to the `/happ/<token>` redirect.
 

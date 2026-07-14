@@ -31,7 +31,11 @@ from services.payment import (
     usdt_amount_for_kopecks,
 )
 from services.referral import build_referral_link
-from services.subscription import activate_panel_subscription
+from services.subscription import (
+    activate_panel_subscription,
+    connect_page_url,
+    to_gateway_subscription_url,
+)
 from services.tariffs import resolve_premium_region, resolve_tariff
 
 logger = logging.getLogger(__name__)
@@ -404,13 +408,13 @@ async def wallet_command(
     await message.answer(_wallet_text(overview), reply_markup=wallet_keyboard())
 
 
-def _pay_success_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📱 Подключить устройство", callback_data="connect_device")],
-            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
-        ]
-    )
+def _pay_success_keyboard(connect_url: str | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if connect_url:
+        rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=connect_url)])
+    rows.append([InlineKeyboardButton(text="📱 Подключить устройство", callback_data="connect_device")])
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(F.data.startswith("paybal:"))
@@ -502,15 +506,19 @@ async def pay_with_balance_handler(
             return
         balance = await wallet.get_balance(session, user.id)
 
+    sub_url = to_gateway_subscription_url(subscription.subscription_url) or subscription.subscription_url
+    connect_url = connect_page_url(sub_url)
     card_lines = [f"💎 Тариф: {tariff.title}"]
     if region_title is not None:
         card_lines.append(f"🌍 Локация: {region_title}")
     card_lines.append(f"💰 Списано: {format_rub(price_kopecks)}")
     card_lines.append(f"💳 Остаток: {format_rub(balance)}")
+    link_line = f"\n\n🔗 <b>Ссылка-подписка:</b>\n<code>{sub_url}</code>" if sub_url else ""
     text = (
         "✅ <b>Тариф оплачен с баланса</b>\n\n"
         + bq(*card_lines)
         + f"\n\n📅 <b>Подписка активна до:</b> {format_msk(subscription.expires_at)}"
+        + link_line
     )
     if callback.message:
-        await callback.message.answer(text, reply_markup=_pay_success_keyboard())
+        await callback.message.answer(text, reply_markup=_pay_success_keyboard(connect_url))

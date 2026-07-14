@@ -85,6 +85,17 @@ class WebEmailUpdateRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
 
+class WebAuthRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=200)
+
+
+_AUTH_IP_LIMIT = 10
+_AUTH_IP_WINDOW = 600  # 10 min
+
+
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
@@ -315,6 +326,35 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="user_not_found")
         await repo.update_user(user.id, email=email)
         return {"ok": True, "email": email}
+
+    @application.post("/web/auth/register")
+    async def web_auth_register(body: WebAuthRequest, request: Request, session: SessionDep) -> dict[str, Any]:
+        redis = getattr(request.app.state, "redis", None)
+        if not await _rate_limit_ok(redis, "auth:ip", _client_ip(request), _AUTH_IP_LIMIT, _AUTH_IP_WINDOW):
+            raise HTTPException(status_code=429, detail="rate_limited")
+        email = body.email.strip().lower()
+        if not _WEB_EMAIL_RE.match(email):
+            raise HTTPException(status_code=400, detail="invalid_email")
+        try:
+            telegram_id = await billing_api.register_web_account(
+                session, email=email, password=body.password
+            )
+        except billing_api.WebAuthError as exc:
+            status = 409 if exc.code == "already_registered" else 400
+            raise HTTPException(status_code=status, detail=exc.code)
+        return {"ok": True, "telegramId": telegram_id}
+
+    @application.post("/web/auth/login")
+    async def web_auth_login(body: WebAuthRequest, request: Request, session: SessionDep) -> dict[str, Any]:
+        redis = getattr(request.app.state, "redis", None)
+        if not await _rate_limit_ok(redis, "auth:ip", _client_ip(request), _AUTH_IP_LIMIT, _AUTH_IP_WINDOW):
+            raise HTTPException(status_code=429, detail="rate_limited")
+        telegram_id = await billing_api.authenticate_web_account(
+            session, email=body.email.strip().lower(), password=body.password
+        )
+        if telegram_id is None:
+            raise HTTPException(status_code=401, detail="invalid_credentials")
+        return {"ok": True, "telegramId": telegram_id}
 
     @application.post("/web/checkout")
     async def web_checkout(body: WebCheckoutRequest, request: Request, session: SessionDep) -> dict[str, Any]:

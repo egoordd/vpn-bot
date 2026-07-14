@@ -149,7 +149,10 @@ async def test_pay_with_balance_success(session_pool, monkeypatch):
 
     async def activate(**kwargs):
         assert callback.answer.await_count == 1
-        return SimpleNamespace(expires_at=datetime.now(timezone.utc) + timedelta(days=30))
+        return SimpleNamespace(
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            subscription_url="https://sub.example/sub/paidbal",
+        )
 
     activate = AsyncMock(side_effect=activate)
     monkeypatch.setattr(wallet_handlers, "activate_panel_subscription", activate)
@@ -159,6 +162,8 @@ async def test_pay_with_balance_success(session_pool, monkeypatch):
 
     activate.assert_awaited_once()
     callback.message.answer.assert_awaited_once()
+    text = callback.message.answer.await_args.args[0]
+    assert "Ссылка-подписка" in text
     async with session_pool() as session:
         balance = await Repository(session).get_balance(user.id)
     assert balance == 20000 - 14900
@@ -237,7 +242,10 @@ async def test_pay_with_balance_premium_static_region_activates(session_pool, mo
         '{"ams": {"vless": ["VLESS Reality AMS"]}}',
     )
     activate = AsyncMock(
-        return_value=SimpleNamespace(expires_at=datetime.now(timezone.utc) + timedelta(days=30))
+        return_value=SimpleNamespace(
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            subscription_url="https://sub.example/sub/prem",
+        )
     )
     monkeypatch.setattr(wallet_handlers, "activate_panel_subscription", activate)
     monkeypatch.setattr(wallet_handlers, "is_panel_configured", lambda: True)

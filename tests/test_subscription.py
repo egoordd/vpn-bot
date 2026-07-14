@@ -406,3 +406,20 @@ async def test_standard_and_premium_coexist_independently(session_pool, monkeypa
     assert prem_call["inbounds"] == {"vless": ["VLESS Reality AMS"]}
     # both subscriptions remain active simultaneously
     assert {s.tier for s in actives} == {"standard", "premium"}
+
+
+def test_connect_page_url_uses_fragment(monkeypatch):
+    from services import subscription as sub_mod
+
+    monkeypatch.setattr(sub_mod.settings, "WEB_BASE_URL", "https://unlockvpn.site")
+    url = sub_mod.connect_page_url("https://sub.unlockvpn.site/sub/abc123")
+    assert url == "https://unlockvpn.site/connect#sub=https%3A%2F%2Fsub.unlockvpn.site%2Fsub%2Fabc123"
+
+
+def test_connect_page_url_none_when_unset(monkeypatch):
+    from services import subscription as sub_mod
+
+    monkeypatch.setattr(sub_mod.settings, "WEB_BASE_URL", "")
+    assert sub_mod.connect_page_url("https://x/sub/t") is None
+    monkeypatch.setattr(sub_mod.settings, "WEB_BASE_URL", "https://unlockvpn.site")
+    assert sub_mod.connect_page_url(None) is None

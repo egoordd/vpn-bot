@@ -234,8 +234,11 @@ async def test_poll_cryptobot_payments_panel_happy_path(fake_bot, session_pool, 
     activate_panel_subscription.assert_awaited_once()
     ensure_user_peer.assert_not_awaited()
     fake_bot.send_message.assert_awaited_once()
-    fake_bot.send_photo.assert_awaited_once()
+    # Subscription delivery no longer pushes a QR image — link + /connect button only.
+    fake_bot.send_photo.assert_not_awaited()
     fake_bot.send_document.assert_not_awaited()
+    text = fake_bot.send_message.await_args.kwargs.get("text") or fake_bot.send_message.await_args.args[0]
+    assert "sub.example" in text or "Ссылка-подписка" in text
 
 
 @pytest.mark.integration

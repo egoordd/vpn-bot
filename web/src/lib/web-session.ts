@@ -24,7 +24,9 @@ function sign(key: Buffer, payload: string): string {
 }
 
 export function createUserSession(telegramId: number): string | null {
-  if (!Number.isInteger(telegramId) || telegramId <= 0) return null;
+  // Positive ids = Telegram accounts; negative = site email/password accounts.
+  // Only a zero id is invalid.
+  if (!Number.isInteger(telegramId) || telegramId === 0) return null;
   const key = sessionKey();
   if (!key) return null;
   const expiresAt = Date.now() + USER_SESSION_TTL_SECONDS * 1000;
@@ -57,5 +59,5 @@ export function verifyUserSession(token: string | undefined): number | null {
   if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) return null;
 
   const telegramId = Number(telegramIdRaw);
-  return Number.isInteger(telegramId) && telegramId > 0 ? telegramId : null;
+  return Number.isInteger(telegramId) && telegramId !== 0 ? telegramId : null;
 }

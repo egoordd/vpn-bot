@@ -92,7 +92,7 @@ export function Pricing() {
                   variant={recommended ? (tier === "premium" ? "premium" : "primary") : "ghost"}
                   className="plan__cta"
                 >
-                  {tier === "standard" ? "Купить картой" : "Выбрать в боте"}
+                  {tier === "standard" ? "Купить" : "Выбрать в боте"}
                 </Button>
               </article>
             );
