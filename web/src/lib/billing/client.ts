@@ -112,15 +112,20 @@ export async function createWebCheckout(input: {
   plan: string;
   telegramId?: number;
   email?: string;
+  clientIp?: string;
 }): Promise<CheckoutResult> {
   if (!API_URL) return mockCheckout();
+  const { clientIp, ...payload } = input;
   const res = await fetch(`${API_URL}/web/checkout`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+      // Forward the browser IP so the billing API can rate-limit the real
+      // client, not the single Vercel egress address.
+      ...(clientIp ? { "x-client-ip": clientIp } : {}),
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
     cache: "no-store",
   });
   if (!res.ok) {

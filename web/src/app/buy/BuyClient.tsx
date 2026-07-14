@@ -15,6 +15,7 @@ const CHECKOUT_ERRORS: Record<string, string> = {
   payments_unavailable: "Оплата картой временно недоступна. Попробуйте позже или купите в Telegram-боте.",
   payment_create_failed: "Платёжная система не ответила. Попробуйте ещё раз через минуту.",
   invalid_email: "Проверьте email — он выглядит некорректно.",
+  rate_limited: "Слишком много попыток оплаты. Подождите несколько минут и попробуйте снова.",
 };
 
 interface BuyClientProps {

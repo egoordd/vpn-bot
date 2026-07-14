@@ -659,3 +659,135 @@ async def test_web_account_payload_includes_email(api_client, session_pool):
 
     assert response.status_code == 200
     assert response.json()["email"] == "shown@mail.ru"
+
+
+def _yk_unique_payment_mock(prefix: str):
+    from unittest.mock import AsyncMock
+
+    counter = {"n": 0}
+
+    async def create(**kwargs):
+        counter["n"] += 1
+        pid = f"{prefix}-{counter['n']}"
+        return {"id": pid, "status": "pending", "confirmation": {"confirmation_url": f"https://yoomoney.ru/pay/{pid}"}}
+
+    return AsyncMock(side_effect=create)
+
+
+class _FakeRedis:
+    """Minimal async Redis stand-in for rate-limit + idempotency tests."""
+
+    def __init__(self):
+        self.store: dict[str, int] = {}
+
+    async def incr(self, key: str) -> int:
+        self.store[key] = self.store.get(key, 0) + 1
+        return self.store[key]
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        return True
+
+    async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None):
+        if nx and key in self.store:
+            return None
+        self.store[key] = value
+        return True
+
+
+@pytest.mark.asyncio
+async def test_web_checkout_rate_limited_per_ip(api_client, session_pool, monkeypatch):
+    from services import http_api as api_mod
+
+    api_client._transport.app.state.redis = _FakeRedis()
+    monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(api_mod.yookassa, "create_payment", _yk_unique_payment_mock("yk-rl"))
+
+    headers = {"x-client-ip": "203.0.113.9"}
+    ok_count = 0
+    limited = False
+    for i in range(api_mod._CHECKOUT_IP_LIMIT + 2):
+        # Vary identity so the per-IP bucket (not the per-id bucket) is what trips.
+        resp = await api_client.post(
+            "/web/checkout",
+            json={"plan": "standard_1m", "email": f"buyer{i}@mail.ru"},
+            headers=headers,
+        )
+        if resp.status_code == 429:
+            limited = True
+            break
+        assert resp.status_code == 200
+        ok_count += 1
+
+    assert limited
+    assert ok_count == api_mod._CHECKOUT_IP_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_web_checkout_rate_limited_per_email(api_client, session_pool, monkeypatch):
+    from services import http_api as api_mod
+
+    api_client._transport.app.state.redis = _FakeRedis()
+    monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(api_mod.yookassa, "create_payment", _yk_unique_payment_mock("yk-rl2"))
+
+    last = None
+    for i in range(api_mod._CHECKOUT_ID_LIMIT + 2):
+        last = await api_client.post(
+            "/web/checkout",
+            json={"plan": "standard_1m", "email": "same@mail.ru"},
+            headers={"x-client-ip": f"198.51.100.{i}"},
+        )
+    assert last.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_web_checkout_not_limited_without_redis(api_client, monkeypatch):
+    # Redis absent → fail open, real purchases must never be blocked.
+    from services import http_api as api_mod
+
+    api_client._transport.app.state.redis = None
+    monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(api_mod.yookassa, "create_payment", _yk_unique_payment_mock("yk-noredis"))
+
+    for i in range(api_mod._CHECKOUT_IP_LIMIT + 3):
+        resp = await api_client.post(
+            "/web/checkout",
+            json={"plan": "standard_1m", "email": f"free{i}@mail.ru"},
+            headers={"x-client-ip": "203.0.113.10"},
+        )
+        assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_yookassa_webhook_rejects_amount_mismatch(api_client, session_pool, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from services import http_api as api_mod
+    from services.payment import create_invoice_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=7799)
+        payload = create_invoice_payload(user_id=user.id, plan="standard_1m")
+        await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-amt",
+            invoice_payload=payload, plan="standard_1m",
+        )
+
+    # YooKassa reports a paid amount far below the plan price (1.00 ₽).
+    monkeypatch.setattr(
+        api_mod.yookassa,
+        "get_payment",
+        AsyncMock(return_value={"id": "yk-amt", "status": "succeeded", "amount": {"value": "1.00"}}),
+    )
+    activate = AsyncMock()
+    monkeypatch.setattr(api_mod, "activate_panel_subscription", activate)
+    deliver = AsyncMock()
+    monkeypatch.setattr(api_mod.tribute, "deliver_subscription", deliver)
+
+    response = await api_client.post("/yookassa/webhook", json={"object": {"id": "yk-amt"}})
+
+    assert response.status_code == 200
+    assert response.json()["error"] == "amount_mismatch"
+    activate.assert_not_awaited()
+    deliver.assert_not_awaited()

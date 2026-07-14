@@ -20,7 +20,10 @@ const nextConfig = {
       "img-src 'self' data: https:",
       "font-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
-      "script-src 'self' 'unsafe-inline'",
+      // telegram.org serves the Login Widget script; oauth.telegram.org is the
+      // widget's auth iframe/redirect target.
+      "script-src 'self' 'unsafe-inline' https://telegram.org",
+      "frame-src https://oauth.telegram.org",
       "connect-src 'self'",
       "manifest-src 'self'",
     ].join("; ");

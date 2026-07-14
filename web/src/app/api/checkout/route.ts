@@ -38,11 +38,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_email" }, { status: 400 });
   }
 
+  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
+
   try {
-    const result = await createWebCheckout({ plan, telegramId, email });
+    const result = await createWebCheckout({ plan, telegramId, email, clientIp });
     return NextResponse.json(result);
   } catch (error: unknown) {
     if (error instanceof CheckoutError) {
+      if (error.code === "rate_limited") {
+        return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+      }
       const status = error.code === "unknown_plan" ? 404 : 502;
       return NextResponse.json({ error: error.code }, { status });
     }

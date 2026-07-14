@@ -37,6 +37,38 @@ class PromoPreviewRequest(BaseModel):
 
 _WEB_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+# Abuse limits for the unauthenticated site checkout: a legit buyer makes one or
+# two payment intents, so these are generous but cap scripted floods that would
+# create junk users and spam real YooKassa payments.
+_CHECKOUT_IP_LIMIT = 8
+_CHECKOUT_IP_WINDOW = 600  # 10 min
+_CHECKOUT_ID_LIMIT = 5
+_CHECKOUT_ID_WINDOW = 3600  # 1 h
+
+
+def _client_ip(request: Request) -> str:
+    # Next forwards the browser IP as x-client-ip; fall back to the socket peer.
+    forwarded = request.headers.get("x-client-ip") or request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",")[0].strip()
+    if ip:
+        return ip
+    return request.client.host if request.client else "unknown"
+
+
+async def _rate_limit_ok(redis: Any, bucket: str, key: str, limit: int, window: int) -> bool:
+    """Fixed-window counter in Redis. Fails OPEN when Redis is absent so a cache
+    outage can never block real purchases."""
+    if redis is None or not key:
+        return True
+    redis_key = f"rl:{bucket}:{key}"
+    try:
+        count = await redis.incr(redis_key)
+        if count == 1:
+            await redis.expire(redis_key, window)
+        return count <= limit
+    except Exception:
+        return True
+
 
 class WebCheckoutRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -285,7 +317,7 @@ def create_app() -> FastAPI:
         return {"ok": True, "email": email}
 
     @application.post("/web/checkout")
-    async def web_checkout(body: WebCheckoutRequest, session: SessionDep) -> dict[str, Any]:
+    async def web_checkout(body: WebCheckoutRequest, request: Request, session: SessionDep) -> dict[str, Any]:
         from config import get_settings
 
         email = (body.email or "").strip().lower() or None
@@ -293,6 +325,19 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="identity_required")
         if email is not None and not _WEB_EMAIL_RE.match(email):
             raise HTTPException(status_code=400, detail="invalid_email")
+
+        # Abuse guard: the site checkout is unauthenticated, and each call mints a
+        # real user row + a real YooKassa payment. Cap per IP and per identity.
+        redis = getattr(request.app.state, "redis", None)
+        ip = _client_ip(request)
+        identity = email or (str(body.telegram_id) if body.telegram_id else "")
+        allowed = await _rate_limit_ok(redis, "checkout:ip", ip, _CHECKOUT_IP_LIMIT, _CHECKOUT_IP_WINDOW)
+        if allowed:
+            allowed = await _rate_limit_ok(
+                redis, "checkout:id", identity, _CHECKOUT_ID_LIMIT, _CHECKOUT_ID_WINDOW
+            )
+        if not allowed:
+            raise HTTPException(status_code=429, detail="rate_limited")
 
         try:
             tariff = resolve_tariff(body.plan)
@@ -501,6 +546,24 @@ def create_app() -> FastAPI:
         except ValueError:
             log.error("Bad YooKassa payload for payment %s: %r", payment_id, completed.invoice_payload)
             return {"ok": False, "error": "bad_payload"}
+
+        # Defense-in-depth: confirm the amount actually paid matches the plan we
+        # are about to grant. The intent fixes the amount at creation, so this
+        # only trips on tampering or a plan/price desync — never grant on it.
+        try:
+            paid_kopecks = int(round(float(payment["amount"]["value"]) * 100))
+        except (KeyError, TypeError, ValueError):
+            paid_kopecks = None
+        expected_kopecks = billing_api.get_billing_plan(details.plan).price_rub * 100
+        if paid_kopecks is not None and paid_kopecks < expected_kopecks:
+            log.error(
+                "YooKassa amount mismatch payment=%s paid=%s expected=%s plan=%s",
+                payment_id,
+                paid_kopecks,
+                expected_kopecks,
+                details.plan,
+            )
+            return {"ok": False, "error": "amount_mismatch"}
 
         if details.user_id != completed.user_id:
             log.error(
