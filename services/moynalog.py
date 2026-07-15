@@ -174,6 +174,30 @@ async def issue_receipt(amount_kopecks: int, name: str | None = None) -> str | N
         return None
 
 
+async def deliver_receipt_email(email: str, url: str) -> bool:
+    """Email the чек link to the buyer (best-effort, needs SMTP configured)."""
+    import html
+
+    from services import mailer
+
+    if not url or not email:
+        return False
+    safe_url = html.escape(url, quote=True)
+    text = (
+        "Чек по вашей оплате UnLock VPN\n\n"
+        f"Открыть чек: {url}\n\n"
+        "Чек сформирован в сервисе ФНС «Мой налог».\n"
+        "Это письмо отправлено автоматически, отвечать на него не нужно."
+    )
+    html_body = (
+        "<p><b>Чек по вашей оплате UnLock VPN</b></p>"
+        f'<p><a href="{safe_url}">Открыть чек</a></p>'
+        "<p style=\"color:#888;font-size:13px\">Чек сформирован в сервисе ФНС «Мой налог». "
+        "Это письмо отправлено автоматически, отвечать на него не нужно.</p>"
+    )
+    return await mailer.send_email(email, "Чек по оплате UnLock VPN", text, html=html_body)
+
+
 async def deliver_receipt(telegram_id: int, url: str) -> bool:
     """DM the чек link to the buyer via the main bot (best-effort)."""
     import html

@@ -87,6 +87,15 @@ class Settings(BaseSettings):
     # Наименование услуги в чеке.
     MOYNALOG_SERVICE_NAME: str = "Оплата подписки UnLock VPN"
 
+    # Outgoing email (stdlib SMTP) — used to send чеки to buyers. Works with any
+    # provider: Gmail app-password (smtp.gmail.com:465), Resend SMTP, etc.
+    # Empty SMTP_HOST = disabled (receipts then go to Telegram only).
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 465  # 465 = implicit TLS, anything else = STARTTLS
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: SecretStr = SecretStr("")
+    SMTP_FROM: str = ""  # e.g. "UnLock VPN <unlockvpnru@gmail.com>"
+
     PANEL_PROVIDER: str = "remnawave"
 
     BILLING_API_TOKEN: SecretStr = SecretStr("")
@@ -209,6 +218,10 @@ class Settings(BaseSettings):
     @property
     def moynalog_refresh_token(self) -> str:
         return self.MOYNALOG_REFRESH_TOKEN.get_secret_value()
+
+    @property
+    def smtp_password(self) -> str:
+        return self.SMTP_PASSWORD.get_secret_value()
 
     @property
     def remnawave_api_token(self) -> str:

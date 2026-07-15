@@ -339,8 +339,10 @@ async def test_yookassa_webhook_issues_moynalog_receipt(api_client, session_pool
     monkeypatch.setattr(api_mod.moynalog, "is_configured", lambda: True)
     issue = AsyncMock(return_value="https://lknpd.nalog.ru/api/v1/receipt/x/rcpt/print")
     deliver = AsyncMock(return_value=True)
+    deliver_email = AsyncMock(return_value=True)
     monkeypatch.setattr(api_mod.moynalog, "issue_receipt", issue)
     monkeypatch.setattr(api_mod.moynalog, "deliver_receipt", deliver)
+    monkeypatch.setattr(api_mod.moynalog, "deliver_receipt_email", deliver_email)
 
     response = await api_client.post("/yookassa/webhook", json={"object": {"id": "yk-r1"}})
 
@@ -348,6 +350,53 @@ async def test_yookassa_webhook_issues_moynalog_receipt(api_client, session_pool
     issue.assert_awaited_once()
     assert issue.await_args.args[0] == 14900  # full amount in kopecks
     deliver.assert_awaited_once_with(7788, "https://lknpd.nalog.ru/api/v1/receipt/x/rcpt/print")
+    deliver_email.assert_not_awaited()  # buyer has no saved email
+
+
+@pytest.mark.asyncio
+async def test_yookassa_webhook_emails_receipt_to_email_buyer(api_client, session_pool, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from database.repository import Repository
+    from services import http_api as api_mod
+    from services.payment import create_invoice_payload
+
+    # Site email-only buyer: synthetic negative telegram_id, email on file.
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=-424242)
+        await repo.update_user(user.id, email="buyer@example.com")
+        payload = create_invoice_payload(user_id=user.id, plan="standard_1m")
+        await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-r2",
+            invoice_payload=payload, plan="standard_1m",
+        )
+
+    monkeypatch.setattr(api_mod.yookassa, "get_payment", AsyncMock(return_value={"id": "yk-r2", "status": "succeeded"}))
+
+    class _Sub:
+        subscription_url = "https://sub.example/sub/abc"
+
+    monkeypatch.setattr(api_mod, "activate_panel_subscription", AsyncMock(return_value=_Sub()))
+    monkeypatch.setattr(api_mod, "reward_referrer_for_payment", AsyncMock())
+    dm_sub = AsyncMock(return_value=True)
+    monkeypatch.setattr(api_mod.tribute, "deliver_subscription", dm_sub)
+    monkeypatch.setattr(api_mod.moynalog, "is_configured", lambda: True)
+    issue = AsyncMock(return_value="https://lknpd.nalog.ru/api/v1/receipt/x/rcpt2/print")
+    deliver = AsyncMock(return_value=True)
+    deliver_email = AsyncMock(return_value=True)
+    monkeypatch.setattr(api_mod.moynalog, "issue_receipt", issue)
+    monkeypatch.setattr(api_mod.moynalog, "deliver_receipt", deliver)
+    monkeypatch.setattr(api_mod.moynalog, "deliver_receipt_email", deliver_email)
+
+    response = await api_client.post("/yookassa/webhook", json={"object": {"id": "yk-r2"}})
+
+    assert response.status_code == 200
+    dm_sub.assert_not_awaited()  # negative id — never DM
+    deliver.assert_not_awaited()
+    deliver_email.assert_awaited_once_with(
+        "buyer@example.com", "https://lknpd.nalog.ru/api/v1/receipt/x/rcpt2/print"
+    )
 
 
 @pytest.mark.asyncio

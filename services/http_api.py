@@ -641,13 +641,18 @@ def create_app() -> FastAPI:
             sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
             await tribute.deliver_subscription(int(user.telegram_id), sub_url)
 
-        # Auto-issue the self-employed чек in «Мой налог» and DM its link (best-effort;
-        # YooKassa no longer forms НПД чеки, so we register the income ourselves).
+        # Auto-issue the self-employed чек in «Мой налог» and hand its link to the
+        # buyer (best-effort; YooKassa no longer forms НПД чеки, so we register the
+        # income ourselves). Telegram buyers get a DM; anyone with a saved email
+        # also gets the чек by mail — email-only buyers (negative id) have no chat.
         if moynalog.is_configured():
             plan_title = billing_api.get_billing_plan(details.plan).title
             receipt = await moynalog.issue_receipt(completed.amount, name=f"Оплата подписки: {plan_title}")
-            if receipt and int(user.telegram_id) > 0:
-                await moynalog.deliver_receipt(int(user.telegram_id), receipt)
+            if receipt:
+                if int(user.telegram_id) > 0:
+                    await moynalog.deliver_receipt(int(user.telegram_id), receipt)
+                if (user.email or "").strip():
+                    await moynalog.deliver_receipt_email(user.email.strip(), receipt)
 
         return {"ok": True, "plan": details.plan}
 

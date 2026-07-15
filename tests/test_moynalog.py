@@ -117,3 +117,36 @@ async def test_issue_receipt_swallows_errors(mn_settings):
         mocked.post("https://lknpd.nalog.ru/api/v1/auth/lkfl", status=500, payload={"e": 1})
         # best-effort: must not raise, returns None
         assert await moynalog.issue_receipt(14900) is None
+
+
+@pytest.mark.unit
+async def test_deliver_receipt_email_sends_link_via_mailer(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from services import mailer
+
+    send = AsyncMock(return_value=True)
+    monkeypatch.setattr(mailer, "send_email", send)
+
+    url = "https://lknpd.nalog.ru/api/v1/receipt/220454839571/u1/print"
+    assert await moynalog.deliver_receipt_email("buyer@example.com", url) is True
+
+    send.assert_awaited_once()
+    to, subject, text = send.await_args.args
+    assert to == "buyer@example.com"
+    assert "Чек" in subject
+    assert url in text
+    assert url in send.await_args.kwargs["html"]
+
+
+@pytest.mark.unit
+async def test_deliver_receipt_email_skips_empty_recipient(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from services import mailer
+
+    send = AsyncMock(return_value=True)
+    monkeypatch.setattr(mailer, "send_email", send)
+
+    assert await moynalog.deliver_receipt_email("", "https://x/receipt") is False
+    send.assert_not_awaited()
