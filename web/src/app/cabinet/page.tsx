@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import QRCode from "qrcode";
 
 import { CabinetCards } from "@/components/cabinet/CabinetCards";
 import { Logo } from "@/components/ui/Logo";
@@ -51,14 +50,9 @@ export default async function CabinetPage() {
     );
   }
 
-  const subUrl = account.subscription.subscriptionUrl;
-  const subscriptionQr = subUrl
-    ? await QRCode.toDataURL(subUrl, { margin: 1, width: 320 })
-    : null;
-
   return (
     <CabinetShell greetingId={account.telegramId} showLogout>
-      <CabinetCards account={account} subscriptionQr={subscriptionQr} />
+      <CabinetCards account={account} />
     </CabinetShell>
   );
 }

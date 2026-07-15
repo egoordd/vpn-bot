@@ -110,24 +110,6 @@
   border-color: currentColor;
 }
 
-.paysuccess__qr {
-  display: grid;
-  gap: 0.4rem;
-  justify-items: center;
-  margin: 0.5rem 0 0;
-}
-
-.paysuccess__qr img {
-  border-radius: 12px;
-  background: #fff;
-  padding: 8px;
-}
-
-.paysuccess__qr figcaption {
-  font-size: 0.75rem;
-  opacity: 0.6;
-}
-
 .paysuccess__note {
   font-size: 0.78rem;
   opacity: 0.6;

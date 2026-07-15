@@ -7,13 +7,7 @@ import { SubscriptionCard } from "./SubscriptionCard";
 import { WalletCard } from "./WalletCard";
 import "./cabinet.css";
 
-export function CabinetCards({
-  account,
-  subscriptionQr = null,
-}: {
-  account: AccountOverview;
-  subscriptionQr?: string | null;
-}) {
+export function CabinetCards({ account }: { account: AccountOverview }) {
   return (
     <div className="cab__grid">
       <SubscriptionCard sub={account.subscription} />
@@ -21,10 +15,7 @@ export function CabinetCards({
       <ReferralCard referral={account.referral} />
       <PromoCard />
       <EmailCard email={account.email ?? null} />
-      <ConnectCard
-        subscriptionUrl={account.subscription.subscriptionUrl}
-        qrDataUrl={subscriptionQr}
-      />
+      <ConnectCard subscriptionUrl={account.subscription.subscriptionUrl} />
     </div>
   );
 }

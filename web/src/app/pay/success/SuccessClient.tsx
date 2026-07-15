@@ -27,7 +27,6 @@ type Phase = "loading" | "waiting" | "done" | "no-order" | "timeout";
 export function SuccessClient() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [subscription, setSubscription] = useState<OrderSubscription | null>(null);
-  const [qr, setQr] = useState<string | null>(null);
   const stopped = useRef(false);
 
   useEffect(() => {
@@ -56,11 +55,9 @@ export function SuccessClient() {
           const body = (await res.json()) as {
             status: string;
             subscription?: OrderSubscription;
-            subscriptionQr?: string | null;
           };
           if (body.status === "succeeded" && body.subscription) {
             setSubscription(body.subscription);
-            setQr(body.subscriptionQr ?? null);
             setPhase("done");
             try {
               window.localStorage.removeItem(ORDER_STORAGE_KEY);
@@ -157,14 +154,6 @@ export function SuccessClient() {
               </a>
             ))}
           </div>
-
-          {qr && (
-            <figure className="paysuccess__qr">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={qr} alt="QR-код ссылки-подписки" width={200} height={200} />
-              <figcaption className="mono">Сканируйте с другого устройства</figcaption>
-            </figure>
-          )}
 
           <p className="paysuccess__note mono">
             Сохраните ссылку — она же доступна в <a href="/cabinet">кабинете</a> и в Telegram-боте.

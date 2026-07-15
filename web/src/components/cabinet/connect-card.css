@@ -54,20 +54,3 @@
   color: var(--accent);
 }
 
-.connect__qr {
-  display: grid;
-  gap: 0.4rem;
-  justify-items: center;
-  margin: 1rem 0 0;
-}
-
-.connect__qr img {
-  border-radius: 12px;
-  background: #fff;
-  padding: 8px;
-}
-
-.connect__qr figcaption {
-  font-size: 0.75rem;
-  opacity: 0.6;
-}

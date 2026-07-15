@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import QRCode from "qrcode";
 
 import { getWebOrder } from "@/lib/billing/client";
 
@@ -26,10 +25,5 @@ export async function GET(
     return NextResponse.json({ error: "order_not_found" }, { status: 404 });
   }
 
-  const subUrl = order.subscription?.subscriptionUrl;
-  const subscriptionQr = subUrl
-    ? await QRCode.toDataURL(subUrl, { margin: 1, width: 320 })
-    : null;
-
-  return NextResponse.json({ ...order, subscriptionQr });
+  return NextResponse.json(order);
 }

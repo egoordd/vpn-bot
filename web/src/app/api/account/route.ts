@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import QRCode from "qrcode";
 
 import { getAccountByTelegram } from "@/lib/billing/client";
 import { verifyTelegramInitData } from "@/lib/telegram-auth";
@@ -34,10 +33,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "account_not_found" }, { status: 404 });
   }
 
-  const subUrl = account.subscription.subscriptionUrl;
-  const subscriptionQr = subUrl
-    ? await QRCode.toDataURL(subUrl, { margin: 1, width: 320 })
-    : null;
-
-  return NextResponse.json({ ...account, subscriptionQr });
+  return NextResponse.json(account);
 }
