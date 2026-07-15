@@ -1,12 +1,10 @@
 import pytest
 
 from bot.keyboards.main_menu import (
-    _tier_buttons,
     back_to_menu_keyboard,
     main_menu_keyboard,
     my_subs_keyboard,
     tier_plans_keyboard,
-    tier_select_keyboard,
 )
 
 
@@ -33,21 +31,6 @@ def test_main_menu_has_no_clutter_buttons():
 
 
 @pytest.mark.unit
-def test_tier_buttons_show_standard_price_and_premium_soon():
-    buttons = _tier_buttons()
-    assert "от 149₽" in buttons[0][0].text
-    assert "скоро" in buttons[1][0].text.lower()
-    assert buttons[1][0].callback_data == "buy_tier:premium"
-
-
-@pytest.mark.unit
-def test_tier_select_keyboard_has_back_to_main_menu():
-    keyboard = tier_select_keyboard().inline_keyboard
-    assert keyboard[0][0].callback_data == "buy_tier:standard"
-    assert keyboard[-1][0].callback_data == "main_menu"
-
-
-@pytest.mark.unit
 def test_tier_plans_keyboard_lists_only_tier_plans():
     standard = tier_plans_keyboard("standard").inline_keyboard
     assert [row[0].callback_data for row in standard[:-1]] == [
@@ -56,7 +39,15 @@ def test_tier_plans_keyboard_lists_only_tier_plans():
         "buy:standard_6m",
         "buy:standard_12m",
     ]
-    assert standard[-1][0].callback_data == "buy_menu"
+    assert standard[-1][0].callback_data == "main_menu"
+
+
+@pytest.mark.unit
+def test_tier_plans_keyboard_has_no_premium_button():
+    # Premium is not for sale yet — no keyboard should offer it.
+    standard = tier_plans_keyboard("standard").inline_keyboard
+    callbacks = [b.callback_data for row in standard for b in row]
+    assert not any("premium" in (cb or "") for cb in callbacks)
 
 
 @pytest.mark.unit

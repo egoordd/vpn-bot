@@ -13,7 +13,6 @@ from bot.keyboards.main_menu import (
     renew_durations_keyboard,
     renew_menu_keyboard,
     tier_plans_keyboard,
-    tier_select_keyboard,
 )
 from bot.navigation import show_screen
 from bot.texts import bq
@@ -363,15 +362,6 @@ async def _create_yookassa_invoice(
     )
 
 
-BUY_MENU_TEXT = (
-    "🛒 <b>Выбор тарифа</b>\n\n"
-    "<blockquote>"
-    "🚀 <b>Обычный</b> — несколько локаций, переключение в приложении, лучшая цена.\n"
-    "💎 <b>Premium</b> — мало соседей + стабильный IP (скоро)."
-    "</blockquote>\n\n"
-    "Выберите вариант — ниже появятся сроки и цены."
-)
-
 PREMIUM_SOON_TEXT = (
     "💎 <b>Premium — скоро</b>\n\n"
     "<blockquote>"
@@ -399,8 +389,9 @@ TIER_TEXTS = {
 
 @router.callback_query(F.data == "buy_menu")
 async def buy_menu_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    # Single tier for now — skip the tier picker and go straight to durations.
     await state.clear()  # drop any pending email-input state
-    await _edit_current_message(callback, BUY_MENU_TEXT, tier_select_keyboard())
+    await _edit_current_message(callback, TIER_TEXTS["standard"], tier_plans_keyboard("standard"))
     await callback.answer()
 
 
@@ -408,7 +399,8 @@ async def buy_menu_handler(callback: CallbackQuery, state: FSMContext) -> None:
 async def buy_tier_handler(callback: CallbackQuery) -> None:
     tier = callback.data.split(":", maxsplit=1)[1] if callback.data else ""
     if tier == "premium":
-        await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_select_keyboard())
+        # Stale keyboards from old messages may still carry the premium button.
+        await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_plans_keyboard("standard"))
         await callback.answer()
         return
     text = TIER_TEXTS.get(tier)
@@ -433,7 +425,7 @@ async def renew_menu_handler(callback: CallbackQuery, session_pool: async_sessio
         await _edit_current_message(
             callback,
             "🔄 <b>Продление</b>\n\nУ вас нет активных подписок. Оформите тариф через «🛒 Купить тариф».",
-            tier_select_keyboard(),
+            tier_plans_keyboard("standard"),
         )
         await callback.answer()
         return
@@ -493,7 +485,7 @@ async def buy_plan_handler(
 
     if tariff.tier == "premium":
         # Premium sales are paused until dedicated low-density nodes exist.
-        await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_select_keyboard())
+        await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_plans_keyboard("standard"))
         await callback.answer()
         return
 
@@ -512,7 +504,7 @@ async def buy_region_handler(
         return
 
     # Premium sales are paused until dedicated low-density nodes exist.
-    await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_select_keyboard())
+    await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_plans_keyboard("standard"))
     await callback.answer()
 
 

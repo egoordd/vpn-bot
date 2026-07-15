@@ -7,33 +7,6 @@ from services.tariffs import PREMIUM_REGIONS
 DURATION_EMOJI = {30: "🚀", 90: "💎", 180: "👑", 365: "🏆"}
 
 
-def _min_price(tier: str) -> int:
-    """Cheapest actual plan price for a tier (the real entry cost, not a
-    per-month figure that the user can never pay in one go)."""
-    return min(
-        int(plan["rub_amount"])
-        for code, plan in PLANS.items()
-        if code.startswith(tier)
-    )
-
-
-def _tier_buttons() -> list[list[InlineKeyboardButton]]:
-    return [
-        [
-            InlineKeyboardButton(
-                text=f"🚀 Обычный — от {_min_price('standard')}₽",
-                callback_data="buy_tier:standard",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="💎 Premium (скоро)",
-                callback_data="buy_tier:premium",
-            )
-        ],
-    ]
-
-
 def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = False) -> InlineKeyboardMarkup:
     """Single compact main menu shown after /start. Wallet, invite and help live
     in the quick-access command menu (/wallet, /invite, /help)."""
@@ -54,15 +27,6 @@ def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = F
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def tier_select_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            *_tier_buttons(),
-            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
-        ]
-    )
-
-
 def tier_plans_keyboard(tier: str) -> InlineKeyboardMarkup:
     plan_rows = [
         [
@@ -77,7 +41,7 @@ def tier_plans_keyboard(tier: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             *plan_rows,
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="buy_menu")],
+            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
         ]
     )
 
