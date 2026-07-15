@@ -54,17 +54,22 @@ def connect_page_url(sub_url: str | None) -> str | None:
     return f"{base}/connect#sub={urllib.parse.quote(sub_url, safe='')}"
 
 
-def to_happ_import_url(gateway_url: str | None) -> str | None:
+def to_happ_import_url(gateway_url: str | None, auto: bool = False) -> str | None:
     """Map a gateway `/sub/<token>` URL to the `/happ/<token>` redirect.
 
     The redirect endpoint bounces the browser into the `happ://add/...` deep
     link so a single HTTPS button (Telegram rejects custom schemes) opens Happ
     and imports the subscription. Returns None when the URL isn't a recognizable
     `/sub/<token>` gateway link.
+
+    ``auto=True`` targets the «⚡️ Авто-обход» subscription flavor
+    (`/sub/<token>/auto`): the gateway serves it with Happ app-management
+    headers that make the app auto-connect to the lowest-latency server.
     """
     if not gateway_url or "/sub/" not in gateway_url:
         return None
-    return gateway_url.replace("/sub/", "/happ/", 1)
+    happ_url = gateway_url.replace("/sub/", "/happ/", 1)
+    return f"{happ_url.rstrip('/')}/auto" if auto else happ_url
 
 
 async def activate_subscription(session: AsyncSession, user_id: int, plan: str) -> Subscription:

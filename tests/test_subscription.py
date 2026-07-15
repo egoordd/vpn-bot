@@ -423,3 +423,15 @@ def test_connect_page_url_none_when_unset(monkeypatch):
     assert sub_mod.connect_page_url("https://x/sub/t") is None
     monkeypatch.setattr(sub_mod.settings, "WEB_BASE_URL", "https://unlockvpn.site")
     assert sub_mod.connect_page_url(None) is None
+
+
+def test_to_happ_import_url_auto_flavor():
+    assert (
+        to_happ_import_url("https://sub.unlockvpn.site/sub/abc123", auto=True)
+        == "https://sub.unlockvpn.site/happ/abc123/auto"
+    )
+    # default stays the plain flavor
+    assert (
+        to_happ_import_url("https://sub.unlockvpn.site/sub/abc123")
+        == "https://sub.unlockvpn.site/happ/abc123"
+    )

@@ -276,3 +276,87 @@ def test_is_browser_false_for_vpn_clients_and_empty():
     for ua in ("v2rayNG/1.8.5", "Happ/1.0", "Hiddify/2.0", "Streisand", "clash-verge/1.0",
                "sing-box 1.9", "Shadowrocket/2.2", "v2rayTun/3", "", None):
         assert sub_gateway._is_browser(ua) is False, ua
+
+
+# --- node health / авто-обход -------------------------------------------------
+
+
+@pytest.fixture
+def health(monkeypatch):
+    """Fresh health registry with the checker enabled."""
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", True)
+    monkeypatch.setattr(sub_gateway, "_probe_fails", {})
+    return sub_gateway._probe_fails
+
+
+def _vless(host: str, port: int = 2087) -> str:
+    return f"vless://uuid@{host}:{port}?security=reality#test"
+
+
+def _hy2(host: str) -> str:
+    return f"hysteria2://pass@{host}:443?sni={host}#test"
+
+
+def test_uri_endpoint_parses_host_and_port():
+    assert sub_gateway._uri_endpoint(_vless("h.example", 2087)) == ("h.example", 2087)
+    assert sub_gateway._uri_endpoint("trojan://p@h.example:8444?security=tls#x") == ("h.example", 8444)
+    # no explicit port -> 443
+    assert sub_gateway._uri_endpoint("vless://uuid@h.example?type=tcp#x") == ("h.example", 443)
+    assert sub_gateway._uri_endpoint("not-a-uri") is None
+
+
+def test_register_probe_targets_skips_udp(health):
+    sub_gateway._register_probe_targets([_vless("h1", 2087), _hy2("h1")])
+    assert ("h1", 2087) in health
+    assert ("h1", 443) not in health  # hysteria2 is UDP, no TCP probe
+
+
+def test_filter_alive_keeps_all_when_no_failures(health):
+    links = [_vless("h1"), _hy2("h1")]
+    sub_gateway._register_probe_targets(links)
+    assert sub_gateway.filter_alive(links) == links
+
+
+def test_filter_alive_drops_dead_tcp_endpoint(health):
+    links = [_vless("h1"), _vless("h2")]
+    sub_gateway._register_probe_targets(links)
+    health[("h1", 2087)] = sub_gateway.HEALTH_FAILS
+    assert sub_gateway.filter_alive(links) == [_vless("h2")]
+
+
+def test_filter_alive_hy2_follows_host_level_health(health):
+    links = [_vless("h1", 2087), _vless("h1", 8443), _hy2("h1"), _vless("h2"), _hy2("h2")]
+    sub_gateway._register_probe_targets(links)
+    # one of h1's TCP ports is dead, the other alive -> host alive, hy2 stays
+    health[("h1", 2087)] = sub_gateway.HEALTH_FAILS
+    kept = sub_gateway.filter_alive(links)
+    assert _hy2("h1") in kept and _vless("h1", 8443) in kept
+    assert _vless("h1", 2087) not in kept
+
+    # all of h1's TCP ports dead -> host dead, hy2 dropped too
+    health[("h1", 8443)] = sub_gateway.HEALTH_FAILS
+    kept = sub_gateway.filter_alive(links)
+    assert kept == [_vless("h2"), _hy2("h2")]
+
+
+def test_filter_alive_fails_safe_when_everything_dead(health):
+    links = [_vless("h1"), _hy2("h1")]
+    sub_gateway._register_probe_targets(links)
+    health[("h1", 2087)] = sub_gateway.HEALTH_FAILS
+    # filtering would leave nothing -> serve unfiltered
+    assert sub_gateway.filter_alive(links) == links
+
+
+def test_filter_alive_noop_when_disabled(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_probe_fails", {("h1", 2087): 99})
+    links = [_vless("h1")]
+    assert sub_gateway.filter_alive(links) == links
+
+
+def test_auto_headers_enable_happ_autoconnect():
+    assert sub_gateway.AUTO_HEADERS["subscription-autoconnect"] == "1"
+    assert sub_gateway.AUTO_HEADERS["subscription-autoconnect-type"] == "lowestdelay"
+    assert sub_gateway.AUTO_HEADERS["subscriptions-sort-type"] == "ping"
+    # auto flavor refreshes hourly so pruned dead nodes propagate fast
+    assert sub_gateway.AUTO_HEADERS["profile-update-interval"] == "1"

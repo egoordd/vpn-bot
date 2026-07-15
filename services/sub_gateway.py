@@ -29,7 +29,9 @@ import html
 import json
 import os
 import re
+import socket
 import ssl
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -101,6 +103,115 @@ NODES = {
 _SSL = ssl.create_default_context()
 _SSL.check_hostname = False
 _SSL.verify_mode = ssl.CERT_NONE
+
+
+# --- node health --------------------------------------------------------------
+# Background TCP prober: every endpoint seen in a served subscription gets
+# probed every HEALTH_INTERVAL seconds; after HEALTH_FAILS consecutive failures
+# it is dropped from served configs until it answers again. Hysteria2/TUIC are
+# UDP (no TCP probe possible) and inherit host-level health: dropped only when
+# every TCP endpoint of that host is dead. If filtering would leave an empty
+# config the unfiltered list is served — a broken prober must never wipe a
+# paying user's subscription.
+HEALTH_ENABLED = os.environ.get("HEALTH_ENABLED", "1").lower() not in ("0", "false", "")
+HEALTH_INTERVAL = float(os.environ.get("HEALTH_INTERVAL", "45"))
+HEALTH_TIMEOUT = float(os.environ.get("HEALTH_TIMEOUT", "3"))
+HEALTH_FAILS = int(os.environ.get("HEALTH_FAILS", "2"))
+
+_UDP_SCHEMES = ("hysteria2", "hy2", "tuic")
+_health_lock = threading.Lock()
+_probe_fails: dict[tuple[str, int], int] = {}  # (host, port) -> consecutive failures
+
+
+def _uri_endpoint(uri: str) -> tuple[str, int] | None:
+    host = _uri_host(uri)
+    if not host:
+        return None
+    after_at = uri.split("@", 1)[1]
+    hostport = after_at.split("?", 1)[0].split("/", 1)[0].split("#", 1)[0]
+    port = 443
+    if ":" in hostport:
+        try:
+            port = int(hostport.rsplit(":", 1)[1])
+        except ValueError:
+            return None
+    return host, port
+
+
+def _is_udp_uri(uri: str) -> bool:
+    return uri.split("://", 1)[0].lower() in _UDP_SCHEMES
+
+
+def _register_probe_targets(links: list[str]) -> None:
+    with _health_lock:
+        for uri in links:
+            if _is_udp_uri(uri):
+                continue
+            endpoint = _uri_endpoint(uri)
+            if endpoint and endpoint not in _probe_fails:
+                _probe_fails[endpoint] = 0
+
+
+def filter_alive(links: list[str]) -> list[str]:
+    if not HEALTH_ENABLED:
+        return links
+    with _health_lock:
+        snapshot = dict(_probe_fails)
+    dead = {target for target, fails in snapshot.items() if fails >= HEALTH_FAILS}
+    if not dead:
+        return links
+
+    host_targets: dict[str, set[tuple[str, int]]] = {}
+    for host, port in snapshot:
+        host_targets.setdefault(host, set()).add((host, port))
+    dead_hosts = {host for host, targets in host_targets.items() if targets <= dead}
+
+    kept: list[str] = []
+    for uri in links:
+        endpoint = _uri_endpoint(uri)
+        if endpoint is None:
+            kept.append(uri)
+        elif _is_udp_uri(uri):
+            if endpoint[0] not in dead_hosts:
+                kept.append(uri)
+        elif endpoint not in dead:
+            kept.append(uri)
+    return kept or links
+
+
+def _probe_endpoint(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=HEALTH_TIMEOUT):
+            return True
+    except OSError:
+        return False
+
+
+def _health_loop() -> None:
+    while True:
+        with _health_lock:
+            targets = list(_probe_fails.keys())
+        for host, port in targets:
+            alive = _probe_endpoint(host, port)
+            with _health_lock:
+                if (host, port) in _probe_fails:
+                    _probe_fails[(host, port)] = 0 if alive else _probe_fails[(host, port)] + 1
+        time.sleep(HEALTH_INTERVAL)
+
+
+# Happ app-management headers served on the /sub/<token>/auto flavor («⚡️
+# Авто-обход»): the app auto-connects on launch to the lowest-latency server,
+# pings servers on open, sorts them by ping and refreshes the subscription
+# hourly — combined with the health filter above, a dead node disappears and
+# the client lands on a working one without the user touching anything.
+# Non-Happ clients ignore unknown headers, so the flavor is safe cross-client.
+AUTO_HEADERS = {
+    "profile-update-interval": "1",
+    "subscription-autoconnect": "1",
+    "subscription-autoconnect-type": "lowestdelay",
+    "subscription-ping-onopen-enabled": "1",
+    "subscriptions-sort-type": "ping",
+}
 
 
 # Proxy URIs Marzban issues share the `scheme://creds@host:port?...#remark`
@@ -240,6 +351,9 @@ def build_combined(token: str) -> tuple[str, str | None] | None:
     if not combined:
         return "", userinfo
 
+    _register_probe_targets(combined)
+    combined = filter_alive(combined)
+
     payload = base64.b64encode("\n".join(combined).encode("utf-8")).decode("ascii")
     return payload, userinfo
 
@@ -289,26 +403,30 @@ class Handler(BaseHTTPRequestHandler):
             return
         happ_prefix = "/happ/"
         if path.startswith(happ_prefix):
-            token = path[len(happ_prefix):].split("/", 1)[0]
+            token, _, tail = path[len(happ_prefix):].partition("/")
             if not _TOKEN_RE.match(token):
                 self._send(404, b"not found", "text/plain")
                 return
             base = PUBLIC_BASE or f"https://{self.headers.get('Host', '')}".rstrip("/")
-            page = happ_redirect_page(f"{base}/sub/{token}")
+            sub_url = f"{base}/sub/{token}"
+            if tail.rstrip("/") == "auto":
+                sub_url += "/auto"
+            page = happ_redirect_page(sub_url)
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
             return
         prefix = "/sub/"
         if not path.startswith(prefix):
             self._send(404, b"not found", "text/plain")
             return
-        token = path[len(prefix):].split("/", 1)[0]
+        token, _, tail = path[len(prefix):].partition("/")
+        is_auto = tail.rstrip("/") == "auto"
         if not token:
             self._send(404, b"not found", "text/plain")
             return
         # A browser gets the connect landing; VPN clients get the raw config.
         if CONNECT_PAGE_BASE and _TOKEN_RE.match(token) and _is_browser(self.headers.get("User-Agent", "")):
             base = PUBLIC_BASE or f"https://{self.headers.get('Host', '')}".rstrip("/")
-            sub_url = f"{base}/sub/{token}"
+            sub_url = f"{base}/sub/{token}/auto" if is_auto else f"{base}/sub/{token}"
             location = f"{CONNECT_PAGE_BASE}/connect#sub={urllib.parse.quote(sub_url, safe='')}"
             self.send_response(302)
             self.send_header("Location", location)
@@ -321,6 +439,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload, userinfo = result
         extra = {"profile-title": PROFILE_TITLE_HEADER}
+        if is_auto:
+            extra.update(AUTO_HEADERS)
         if userinfo:
             extra["subscription-userinfo"] = userinfo
         self._send(200, payload.encode("ascii"), "text/plain; charset=utf-8", extra)
@@ -329,7 +449,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Profile-Update-Interval", "12")
+        if not any(key.lower() == "profile-update-interval" for key in (extra or {})):
+            self.send_header("Profile-Update-Interval", "12")
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -337,6 +458,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    if HEALTH_ENABLED:
+        threading.Thread(target=_health_loop, daemon=True, name="node-health").start()
     server = ThreadingHTTPServer((BIND_HOST, LISTEN_PORT), Handler)
     scheme = "http"
     if CERT_FILE and KEY_FILE:

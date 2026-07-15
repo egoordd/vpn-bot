@@ -31,11 +31,17 @@ def _awg_available() -> bool:
     return bool(settings.awg_nodes_dict)
 
 
-def _connect_device_keyboard(happ_url: str | None = None, sub_id: int | None = None) -> InlineKeyboardMarkup:
+def _connect_device_keyboard(
+    happ_url: str | None = None,
+    sub_id: int | None = None,
+    happ_auto_url: str | None = None,
+) -> InlineKeyboardMarkup:
     suffix = f":{sub_id}" if sub_id is not None else ""
     rows: list[list[InlineKeyboardButton]] = []
+    if happ_auto_url:
+        rows.append([InlineKeyboardButton(text="⚡️ Авто-обход (рекомендуем)", url=happ_auto_url)])
     if happ_url:
-        rows.append([InlineKeyboardButton(text="📲 Подключить", url=happ_url)])
+        rows.append([InlineKeyboardButton(text="📲 Подключить (выбор вручную)", url=happ_url)])
     if _awg_available():
         rows.append([InlineKeyboardButton(text="🔒 AmneziaWG (запасной канал)", callback_data="connect_awg")])
     rows.append([InlineKeyboardButton(text="❓ Как подключить вручную", callback_data=f"connect_help{suffix}")])
@@ -72,12 +78,16 @@ def _subscription_access_text(subscription_url: str, location: str | None = None
         "🔗 <b>Ссылка-подписка:</b>\n"
         f"<code>{escaped_url}</code>\n\n"
         + bq(
-            "1️⃣ Нажмите «📲 Подключить» — откроется Happ и загрузит подписку",
-            "2️⃣ Разрешите добавить VPN и включите туннель",
-            "3️⃣ Выберите страну в приложении — готово",
+            "⚡️ «Авто-обход» — для тех, кто не хочет разбираться: приложение само",
+            "выберет самый быстрый рабочий сервер и переключится, если он отвалится.",
+            "Нажмите кнопку, разрешите добавить VPN — и всё.",
         )
-        + "\n\n🌍 В подписке несколько стран — выбирайте сервер в приложении.\n"
-        "❓ Нет Happ или другое приложение? Нажмите «Как подключить вручную».\n"
+        + "\n\n"
+        + bq(
+            "📲 «Подключить (выбор вручную)» — то же самое, но страну и протокол",
+            "выбираете сами в приложении.",
+        )
+        + "\n\n❓ Нет Happ или другое приложение? Нажмите «Как подключить вручную».\n"
         "♻️ Сменили тариф или локацию? Нажмите «Обновить подписку» в приложении."
     )
 
@@ -106,7 +116,11 @@ async def _send_subscription_screen(callback: CallbackQuery, subscription: Subsc
         await callback.message.answer_photo(
             BufferedInputFile(qr_bytes, filename="subscription_qr.png"),
             caption=_subscription_access_text(url, _location_label(subscription)),
-            reply_markup=_connect_device_keyboard(to_happ_import_url(url), subscription.id),
+            reply_markup=_connect_device_keyboard(
+                to_happ_import_url(url),
+                subscription.id,
+                happ_auto_url=to_happ_import_url(url, auto=True),
+            ),
         )
 
 
