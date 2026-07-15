@@ -212,6 +212,9 @@ class Payment(Base):
     provider_payment_charge_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     invoice_payload: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending", index=True, nullable=False)
+    # Public URL of the «Мой налог» чек once the income is registered with ФНС;
+    # NULL on a completed payment means the receipt still has to be issued.
+    receipt_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent that issues «Мой налог» чеки for paid orders. It MUST run from
+  a Russian IP (ФНС geo-blocks foreign addresses), which is why it lives on
+  the owner's Mac and not on the US bot VPS.
+
+  Runs at login and then every 6 hours while the Mac is awake; a missed
+  window simply waits for the next one (НПД allows issuing the чек until the
+  9th of the following month for card payments). Credentials come from
+  /Users/egoordd/vpn-bot/.env (MOYNALOG_*, BILLING_API_TOKEN).
+
+  Install:
+    cp deploy/launchd/com.unlock.receipts.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.unlock.receipts.plist
+  Run once by hand:
+    launchctl start com.unlock.receipts
+  Logs: /Users/egoordd/vpn-bot/tmp/receipts_job.log
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.unlock.receipts</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/egoordd/vpn-bot/.venv/bin/python</string>
+        <string>/Users/egoordd/vpn-bot/scripts/receipts_job.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/egoordd/vpn-bot</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>21600</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/egoordd/vpn-bot/tmp/receipts_job.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/egoordd/vpn-bot/tmp/receipts_job.log</string>
+</dict>
+</plist>

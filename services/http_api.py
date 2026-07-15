@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from config import settings
 from database.repository import Repository
 from services import billing_api, moynalog, promo, tribute, wallet, yookassa
 from services.billing_api import AccountOverview, BillingPlan, BillingRegion, SubscriptionSnapshot
@@ -90,6 +91,12 @@ class WebAuthRequest(BaseModel):
 
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=1, max_length=200)
+
+
+class ReceiptCompleteRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    receipt_url: str = Field(alias="receiptUrl", min_length=1, max_length=512)
 
 
 _AUTH_IP_LIMIT = 10
@@ -447,6 +454,60 @@ def create_app() -> FastAPI:
             },
         }
 
+    # --- «Мой налог» receipts -------------------------------------------------
+    # lknpd.nalog.ru answers only to Russian IPs, so the income registration
+    # runs off-box (scripts/receipts_job.py on an RU machine). These two routes
+    # are its API: list paid orders still lacking a чек, then store the issued
+    # чек URL and deliver it to the buyer (Telegram DM / email) from here.
+
+    @application.get("/web/receipts/pending")
+    async def web_receipts_pending(session: SessionDep) -> dict[str, Any]:
+        repo = Repository(session)
+        payments = await repo.list_unreceipted_completed_payments(provider="yookassa")
+        items = []
+        for payment in payments:
+            service_name = settings.MOYNALOG_SERVICE_NAME
+            try:
+                details = parse_invoice_payload_details(payment.invoice_payload or "")
+                service_name = f"Оплата подписки: {billing_api.get_billing_plan(details.plan).title}"
+            except ValueError:
+                pass
+            items.append(
+                {
+                    "paymentId": payment.id,
+                    "amountKopecks": payment.amount,
+                    "serviceName": service_name,
+                    "createdAt": _iso(payment.created_at),
+                }
+            )
+        return {"items": items}
+
+    @application.post("/web/receipts/{payment_id}/complete")
+    async def web_receipts_complete(
+        payment_id: int, body: ReceiptCompleteRequest, session: SessionDep
+    ) -> dict[str, Any]:
+        url = body.receipt_url.strip()
+        if not url.startswith("https://lknpd.nalog.ru/"):
+            raise HTTPException(status_code=400, detail="invalid_receipt_url")
+
+        repo = Repository(session)
+        payment = await repo.get_payment(payment_id)
+        if payment is None:
+            raise HTTPException(status_code=404, detail="payment_not_found")
+        if payment.receipt_url:
+            return {"ok": True, "already": True}
+
+        await repo.set_payment_receipt(payment_id, url)
+
+        delivered_tg = delivered_email = False
+        user = await repo.get_user(payment.user_id)
+        if user is not None:
+            if int(user.telegram_id) > 0:
+                delivered_tg = await moynalog.deliver_receipt(int(user.telegram_id), url)
+            if (user.email or "").strip():
+                delivered_email = await moynalog.deliver_receipt_email(user.email.strip(), url)
+        return {"ok": True, "deliveredTelegram": delivered_tg, "deliveredEmail": delivered_email}
+
     @application.get("/admin/stats")
     async def admin_stats(session: SessionDep) -> dict[str, Any]:
         repo = Repository(session)
@@ -649,6 +710,9 @@ def create_app() -> FastAPI:
             plan_title = billing_api.get_billing_plan(details.plan).title
             receipt = await moynalog.issue_receipt(completed.amount, name=f"Оплата подписки: {plan_title}")
             if receipt:
+                # Record the чек so the off-box receipts job never re-registers
+                # this income with ФНС.
+                await repo.set_payment_receipt(completed.id, receipt)
                 if int(user.telegram_id) > 0:
                     await moynalog.deliver_receipt(int(user.telegram_id), receipt)
                 if (user.email or "").strip():

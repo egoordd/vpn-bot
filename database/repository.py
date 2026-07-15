@@ -696,6 +696,26 @@ class Repository:
         payment.status = status
         return await self._commit_refresh(payment)
 
+    async def list_unreceipted_completed_payments(self, provider: str = "yookassa") -> list[Payment]:
+        """Completed payments still waiting for a «Мой налог» чек."""
+        result = await self.session.execute(
+            select(Payment)
+            .where(
+                Payment.provider == provider,
+                Payment.status == "completed",
+                Payment.receipt_url.is_(None),
+            )
+            .order_by(Payment.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def set_payment_receipt(self, payment_id: int, receipt_url: str) -> Payment | None:
+        payment = await self.get_payment(payment_id)
+        if payment is None:
+            return None
+        payment.receipt_url = receipt_url
+        return await self._commit_refresh(payment)
+
     async def delete_payment(self, payment_id: int) -> bool:
         payment = await self.get_payment(payment_id)
         if payment is None:

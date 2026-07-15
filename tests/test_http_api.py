@@ -893,3 +893,111 @@ def api_mod_auth_ip_limit() -> int:
     from services import http_api as api_mod
 
     return api_mod._AUTH_IP_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_receipts_pending_lists_only_unreceipted_completed(api_client, session_pool):
+    from database.repository import Repository
+    from services.payment import create_invoice_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=5601)
+        # completed, no receipt -> pending
+        p1 = await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-p1",
+            invoice_payload=create_invoice_payload(user_id=user.id, plan="standard_1m"),
+            plan="standard_1m",
+        )
+        await repo.update_payment_status(p1.id, "completed")
+        # completed but already receipted -> excluded
+        p2 = await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-p2",
+            invoice_payload=create_invoice_payload(user_id=user.id, plan="standard_3m"),
+            plan="standard_3m",
+        )
+        await repo.update_payment_status(p2.id, "completed")
+        await repo.set_payment_receipt(p2.id, "https://lknpd.nalog.ru/r/2")
+        # still pending payment -> excluded
+        await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-p3",
+            invoice_payload=create_invoice_payload(user_id=user.id, plan="standard_6m"),
+            plan="standard_6m",
+        )
+
+    response = await api_client.get("/web/receipts/pending")
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [i["paymentId"] for i in items] == [p1.id]
+    assert items[0]["amountKopecks"] == 14900
+    assert items[0]["serviceName"].startswith("Оплата подписки:")
+
+
+@pytest.mark.asyncio
+async def test_receipts_complete_stores_and_delivers(api_client, session_pool, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from database.repository import Repository
+    from services import http_api as api_mod
+    from services.payment import create_invoice_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=5602)
+        await repo.update_user(user.id, email="buyer5602@example.com")
+        payment = await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-p4",
+            invoice_payload=create_invoice_payload(user_id=user.id, plan="standard_1m"),
+            plan="standard_1m",
+        )
+        await repo.update_payment_status(payment.id, "completed")
+
+    deliver = AsyncMock(return_value=True)
+    deliver_email = AsyncMock(return_value=True)
+    monkeypatch.setattr(api_mod.moynalog, "deliver_receipt", deliver)
+    monkeypatch.setattr(api_mod.moynalog, "deliver_receipt_email", deliver_email)
+
+    url = "https://lknpd.nalog.ru/api/v1/receipt/inn/u9/print"
+    response = await api_client.post(
+        f"/web/receipts/{payment.id}/complete", json={"receiptUrl": url}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True and body["deliveredTelegram"] is True and body["deliveredEmail"] is True
+    deliver.assert_awaited_once_with(5602, url)
+    deliver_email.assert_awaited_once_with("buyer5602@example.com", url)
+
+    async with session_pool() as session:
+        stored = await Repository(session).get_payment(payment.id)
+        assert stored.receipt_url == url
+
+    # second call is idempotent — no double delivery
+    response2 = await api_client.post(
+        f"/web/receipts/{payment.id}/complete", json={"receiptUrl": url}
+    )
+    assert response2.status_code == 200
+    assert response2.json().get("already") is True
+    deliver.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_receipts_complete_rejects_foreign_urls(api_client, session_pool):
+    from database.repository import Repository
+    from services.payment import create_invoice_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=5603)
+        payment = await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-p5",
+            invoice_payload=create_invoice_payload(user_id=user.id, plan="standard_1m"),
+            plan="standard_1m",
+        )
+        await repo.update_payment_status(payment.id, "completed")
+
+    response = await api_client.post(
+        f"/web/receipts/{payment.id}/complete", json={"receiptUrl": "https://evil.example/r/1"}
+    )
+    assert response.status_code == 400
