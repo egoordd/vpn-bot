@@ -74,7 +74,8 @@ async def _request(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     url = f"{settings.MOYNALOG_API_URL.rstrip('/')}{path}"
-    async with session.post(url, headers=headers, json=json) as response:
+    proxy = settings.MOYNALOG_PROXY.strip() or None
+    async with session.post(url, headers=headers, json=json, proxy=proxy) as response:
         text = await response.text()
         if response.status == 401:
             raise MoyNalogError("unauthorized")

@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     MOYNALOG_REFRESH_TOKEN: SecretStr = SecretStr("")
     MOYNALOG_DEVICE_ID: str = ""
     MOYNALOG_API_URL: str = "https://lknpd.nalog.ru/api/v1"
+    # lknpd.nalog.ru answers only to Russian IPs; the bot VPS is in the US, so
+    # requests must go through an RU egress. HTTP proxy URL, e.g.
+    # "http://user:pass@ru-host:3128". Empty = direct (works only from RU).
+    MOYNALOG_PROXY: str = ""
     # Наименование услуги в чеке.
     MOYNALOG_SERVICE_NAME: str = "Оплата подписки UnLock VPN"
 
