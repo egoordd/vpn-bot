@@ -156,3 +156,27 @@ async def test_apply_discount_consumes_use_and_then_exhausts(db_session):
 
     with pytest.raises(PromoExhaustedError):
         await preview_discount(db_session, user_id=user.id, code="SINGLE", amount_kopecks=10000)
+
+
+@pytest.mark.asyncio
+async def test_promo_lookup_is_case_insensitive(db_session):
+    # Users type codes from phone keyboards in any case — "test1000" must
+    # find TEST1000 (live complaint 2026-07-16: «промокоды не работают»).
+    user = await _user(db_session, 8077)
+    await _promo(db_session, code="SUMMER25", kind=PROMO_BALANCE_BONUS, value=2500)
+
+    result = await redeem_balance_promo(db_session, user_id=user.id, code="  summer25 ")
+
+    assert result.credited_kopecks == 2500
+    assert result.code == "SUMMER25"
+    # per-user limit still counts across case variants
+    with pytest.raises(PromoUserLimitError):
+        await redeem_balance_promo(db_session, user_id=user.id, code="Summer25")
+
+
+@pytest.mark.asyncio
+async def test_promo_codes_are_stored_uppercase(db_session):
+    repo = Repository(db_session)
+    created = await repo.create_promo_code(code=" bonus10 ", kind=PROMO_BALANCE_BONUS, value=1000)
+    assert created.code == "BONUS10"
+    assert (await repo.get_promo_code("bonus10")).code == "BONUS10"

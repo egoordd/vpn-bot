@@ -937,7 +937,9 @@ class Repository:
         description: str | None = None,
     ) -> PromoCode:
         promo = PromoCode(
-            code=code,
+            # Canonical form is uppercase; lookups are case-insensitive so
+            # buyers can type the code however their keyboard capitalizes it.
+            code=code.strip().upper(),
             kind=kind,
             value=value,
             min_amount_kopecks=min_amount_kopecks,
@@ -951,7 +953,15 @@ class Repository:
         return await self._commit_refresh(promo)
 
     async def get_promo_code(self, code: str) -> PromoCode | None:
-        return await self.session.get(PromoCode, code)
+        """Case-insensitive lookup: users type codes from phone keyboards in
+        whatever case autocorrect gives them ("test1000" must find TEST1000)."""
+        normalized = code.strip()
+        if not normalized:
+            return None
+        result = await self.session.execute(
+            select(PromoCode).where(func.upper(PromoCode.code) == normalized.upper())
+        )
+        return result.scalar_one_or_none()
 
     async def count_user_redemptions(self, code: str, user_id: int) -> int:
         result = await self.session.execute(
