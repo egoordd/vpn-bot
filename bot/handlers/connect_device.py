@@ -12,6 +12,7 @@ from services.tariffs import resolve_tariff
 from config import settings
 from database.models import Subscription
 from database.repository import Repository
+from services import node_probe
 from services.awg_provision import AwgProvisionError, ensure_client_configs
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.qrcode import generate_qr_png_bytes
@@ -53,11 +54,57 @@ def _connect_device_keyboard(
         rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=site_url)])
     if happ_url:
         rows.append([InlineKeyboardButton(text="📲 Импорт в Happ (выбор вручную)", url=happ_url)])
+    rows.append([InlineKeyboardButton(text="🆘 Не подключается?", callback_data=f"connect_fix{suffix}")])
     if _awg_available():
         rows.append([InlineKeyboardButton(text="🔒 AmneziaWG (запасной канал)", callback_data="connect_awg")])
     rows.append([InlineKeyboardButton(text="❓ Как подключить вручную", callback_data=f"connect_help{suffix}")])
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _troubleshoot_keyboard(sub_id: int | None) -> InlineKeyboardMarkup:
+    back = f"connect_loc:{sub_id}" if sub_id is not None else "connect_device"
+    rows: list[list[InlineKeyboardButton]] = []
+    if _awg_available():
+        rows.append([InlineKeyboardButton(text="🔒 Включить AmneziaWG (запасной)", callback_data="connect_awg")])
+    rows.append([InlineKeyboardButton(text="✍️ Написать в поддержку", url=_support_url())])
+    rows.append([InlineKeyboardButton(text="◀️ К подключению", callback_data=back)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _support_url() -> str:
+    contact = settings.support_contact.lstrip("@")
+    return f"https://t.me/{contact}" if contact and contact != "не указан" else "https://t.me/unlock_support_bot"
+
+
+def _health_line(locations: list[node_probe.LocationHealth]) -> str | None:
+    if not locations:
+        return None
+    parts = [
+        f"{loc.flag} {loc.name} {'✅' if loc.reachable else '❌'}".strip()
+        for loc in locations
+    ]
+    up = [loc for loc in locations if loc.reachable]
+    if up:
+        return "Сейчас доступны:\n" + " · ".join(parts)
+    return "Похоже, серверы сейчас не отвечают:\n" + " · ".join(parts)
+
+
+def _troubleshoot_text(locations: list[node_probe.LocationHealth]) -> str:
+    up = [loc for loc in locations if loc.reachable]
+    steps = [
+        "1️⃣ В приложении выберите <b>другую страну</b>"
+        + (f" из рабочих ({', '.join(loc.flag for loc in up)})" if up else "")
+        + " и нажмите «Подключить».",
+        "2️⃣ На мобильном интернете выбирайте сервер с пометкой <b>Hysteria2</b> — "
+        "он лучше проходит блокировки операторов.",
+        "3️⃣ Выключите и снова включите туннель; в приложении нажмите «Обновить подписку».",
+        "4️⃣ Не помогло — включите запасной канал AmneziaWG или напишите в поддержку.",
+    ]
+    health = _health_line(locations)
+    header = "🆘 <b>Не подключается? Разберёмся за минуту</b>"
+    body = (f"{header}\n\n{health}\n\n" if health else f"{header}\n\n") + bq(*steps)
+    return body
 
 
 def _location_selector_keyboard(subs: list[Subscription]) -> InlineKeyboardMarkup:
@@ -274,6 +321,38 @@ async def connect_location_handler(
         await _send_processing_error(callback, "Для этой подписки нет ссылки.")
         return
     await _send_subscription_screen(callback, subscription, url)
+
+
+@router.callback_query(F.data.startswith("connect_fix"), flags={"subscription_required": True})
+async def connect_troubleshoot_handler(
+    callback: CallbackQuery,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    parts = callback.data.split(":") if callback.data else []
+    sub_id = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    await callback.answer("Проверяю серверы…")
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(callback.from_user.id)
+        if user is None:
+            await _send_processing_error(callback, "Пользователь не найден. Нажмите /start.")
+            return
+        subscription_url: str | None = None
+        try:
+            if sub_id is not None:
+                subscription = await repo.get_subscription(sub_id)
+                if subscription and subscription.user_id == user.id:
+                    subscription_url = await _resolve_url_for_subscription(repo, subscription)
+            if subscription_url is None:
+                subscription_url = await _resolve_subscription_url(repo, user.id)
+        except PanelGatewayError:
+            logger.exception("Could not resolve subscription URL for troubleshoot, user_id=%s", user.id)
+            subscription_url = None
+
+    # Live reachability of the user's own servers (best-effort; empty on error).
+    locations = await node_probe.probe_subscription(subscription_url or "")
+    await show_screen(callback, _troubleshoot_text(locations), _troubleshoot_keyboard(sub_id))
 
 
 @router.callback_query(F.data.startswith("connect_help"), flags={"subscription_required": True})
