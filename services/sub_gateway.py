@@ -80,19 +80,6 @@ def _is_browser(user_agent: str) -> bool:
     return "mozilla" in ua
 
 
-# Clients that reliably parse the xray-JSON subscription — they get the
-# «Авто-обход» balancer entry on the plain /sub/<token> link too (so refreshing
-# an existing subscription surfaces it, no new link needed). Others keep the
-# base64 URI list for maximum compatibility. The explicit /auto path forces
-# JSON regardless (used by the site deep-link).
-_JSON_CLIENT_UA = ("happ",)
-
-
-def _wants_json(user_agent: str) -> bool:
-    ua = (user_agent or "").lower()
-    return any(client in ua for client in _JSON_CLIENT_UA)
-
-
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 # Display name clients show for the subscription (Happ reads `profile-title`,
@@ -483,23 +470,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        # «Авто-обход»: a JSON-array subscription whose first entry is an xray
-        # balancer (leastPing) that auto-picks and fails over between servers by
-        # itself. Served on the explicit /auto path AND to JSON-capable clients
-        # (Happ) on the plain link — so refreshing an existing subscription
-        # surfaces the balancer + all current servers with no new link. Falls
-        # back to the base64 body when no xray-core server exists, so it never
-        # regresses; other clients keep the base64 list.
-        if is_auto or _wants_json(self.headers.get("User-Agent", "")):
+        # «Авто-обход» (xray-JSON balancer) is served ONLY on the explicit /auto
+        # path for now. The plain /sub/<token> stays the base64 URI list so it
+        # keeps every protocol including Hysteria2 (which xray-JSON can't carry)
+        # — owner's call 2026-07-16: hy2 delivery over the balancer entry.
+        if is_auto:
             auto = build_auto_json(token)
             if auto is None:
                 self._send(404, b"invalid subscription", "text/plain")
                 return
             body, userinfo, is_json = auto
             extra = {"profile-title": PROFILE_TITLE_HEADER}
-            # Auto-connect headers only on the explicit /auto flavor — the plain
-            # link stays passive (the balancer entry is present either way).
-            if is_json and is_auto:
+            if is_json:
                 extra.update(AUTO_HEADERS)
             if userinfo:
                 extra["subscription-userinfo"] = userinfo

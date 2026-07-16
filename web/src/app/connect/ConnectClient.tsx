@@ -143,21 +143,6 @@ export function ConnectClient() {
   const activeSub = sub || manual.trim();
   const apps = useMemo(() => CATALOG[platform], [platform]);
 
-  // «Авто-обход»: the /sub/<token>/auto flavor carries Happ app-management
-  // headers — the app auto-connects to the lowest-latency server and re-pings
-  // on every open, so a dead server is left behind without user action.
-  const autoSub = activeSub
-    ? activeSub.endsWith("/auto")
-      ? activeSub
-      : `${activeSub.replace(/\/+$/, "")}/auto`
-    : "";
-  const happAutoLink = autoSub ? `happ://add/${encodeURIComponent(autoSub)}` : "";
-  const happStore: Partial<Record<Platform, string>> = {
-    ios: "https://apps.apple.com/app/happ-proxy-utility/id6504287215",
-    android: "https://play.google.com/store/apps/details?id=com.happproxy",
-    macos: "https://apps.apple.com/app/happ-proxy-utility/id6504287215",
-  };
-
   return (
     <div className="connectp__wrap">
       <header className="connectp__head">
@@ -189,39 +174,6 @@ export function ConnectClient() {
             value={manual}
             onChange={(e) => setManual(e.target.value)}
           />
-        </section>
-      )}
-
-      {activeSub && (
-        <section className="connectp__card connectp__auto card">
-          <h2 className="connectp__auto-title">
-            <span className="connectp__auto-badge">⚡️ Авто-обход</span>
-            Не хотите разбираться? Один тап — и работает
-          </h2>
-          <p className="connectp__auto-text">
-            Приложение само выберет самый быстрый рабочий сервер и при сбое переключится на
-            другой. Ничего настраивать и выбирать не нужно.
-          </p>
-          {happStore[platform] ? (
-            <div className="connectp__auto-actions">
-              <a className="connectp__app-import" href={happAutoLink}>
-                ⚡️ Подключить автоматически
-              </a>
-              <a
-                className="connectp__app-store"
-                href={happStore[platform]}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Сначала установите Happ
-              </a>
-            </div>
-          ) : (
-            <p className="connectp__auto-text">
-              На этой платформе установите Hiddify (кнопки ниже) — его режим «Auto» делает то же
-              самое: сам выбирает и переключает серверы.
-            </p>
-          )}
         </section>
       )}
 

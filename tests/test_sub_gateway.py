@@ -281,14 +281,6 @@ def test_is_browser_false_for_vpn_clients_and_empty():
         assert sub_gateway._is_browser(ua) is False, ua
 
 
-def test_wants_json_only_for_happ():
-    # Happ gets the balancer entry on the plain link; others keep base64.
-    assert sub_gateway._wants_json("Happ/3.13.0") is True
-    assert sub_gateway._wants_json("happ/2.1 (iPhone)") is True
-    for ua in ("v2rayNG/1.8.5", "Hiddify/2.0", "v2rayTun/3", "sing-box 1.9", "", None):
-        assert sub_gateway._wants_json(ua) is False, ua
-
-
 # --- node health / авто-обход -------------------------------------------------
 
 
