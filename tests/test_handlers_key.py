@@ -68,7 +68,12 @@ async def test_get_key_handler_sends_subscription_link_for_panel_subscription(se
             is_active=True,
         )
 
-    message = SimpleNamespace(answer_document=AsyncMock(), answer_photo=AsyncMock())
+    message = SimpleNamespace(
+        answer_document=AsyncMock(),
+        answer_photo=AsyncMock(),
+        edit_text=AsyncMock(),
+        photo=None,
+    )
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=902),
         message=message,
@@ -76,14 +81,15 @@ async def test_get_key_handler_sends_subscription_link_for_panel_subscription(se
     )
     rotate_user_key = AsyncMock()
     monkeypatch.setattr(connect_device, "rotate_user_key", rotate_user_key)
-    monkeypatch.setattr(connect_device, "generate_qr_png_bytes", AsyncMock(return_value=b"png"))
 
     await connect_device.connect_device_handler(callback, session_pool)
 
     rotate_user_key.assert_not_awaited()
     message.answer_document.assert_not_awaited()
-    message.answer_photo.assert_awaited_once()
-    assert "https://sub.example/api/sub/short" in message.answer_photo.await_args.kwargs["caption"]
+    # text-only screen now: the link goes into the edited message, no QR photo
+    message.answer_photo.assert_not_awaited()
+    message.edit_text.assert_awaited_once()
+    assert "https://sub.example/api/sub/short" in message.edit_text.await_args.args[0]
 
 
 @pytest.mark.integration

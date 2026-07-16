@@ -412,7 +412,6 @@ def _pay_success_keyboard(connect_url: str | None = None) -> InlineKeyboardMarku
     rows: list[list[InlineKeyboardButton]] = []
     if connect_url:
         rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=connect_url)])
-    rows.append([InlineKeyboardButton(text="📱 Подключить устройство", callback_data="connect_device")])
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

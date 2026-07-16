@@ -14,7 +14,7 @@ from database.repository import Repository
 from services.awg_provision import AwgProvisionError, ensure_client_configs
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.qrcode import generate_qr_png_bytes
-from services.subscription import to_gateway_subscription_url, to_happ_import_url
+from services.subscription import connect_page_url, to_gateway_subscription_url, to_happ_import_url
 from services.wireguard import WireGuardError, rotate_user_key
 
 logger = logging.getLogger(__name__)
@@ -34,14 +34,14 @@ def _awg_available() -> bool:
 def _connect_device_keyboard(
     happ_url: str | None = None,
     sub_id: int | None = None,
-    happ_auto_url: str | None = None,
+    site_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     suffix = f":{sub_id}" if sub_id is not None else ""
     rows: list[list[InlineKeyboardButton]] = []
-    if happ_auto_url:
-        rows.append([InlineKeyboardButton(text="⚡️ Авто-обход (рекомендуем)", url=happ_auto_url)])
+    if site_url:
+        rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=site_url)])
     if happ_url:
-        rows.append([InlineKeyboardButton(text="📲 Подключить (выбор вручную)", url=happ_url)])
+        rows.append([InlineKeyboardButton(text="📲 Импорт в Happ (выбор вручную)", url=happ_url)])
     if _awg_available():
         rows.append([InlineKeyboardButton(text="🔒 AmneziaWG (запасной канал)", callback_data="connect_awg")])
     rows.append([InlineKeyboardButton(text="❓ Как подключить вручную", callback_data=f"connect_help{suffix}")])
@@ -78,16 +78,12 @@ def _subscription_access_text(subscription_url: str, location: str | None = None
         "🔗 <b>Ссылка-подписка:</b>\n"
         f"<code>{escaped_url}</code>\n\n"
         + bq(
-            "⚡️ «Авто-обход» — для тех, кто не хочет разбираться: приложение само",
-            "выберет самый быстрый рабочий сервер и переключится, если он отвалится.",
-            "Нажмите кнопку, разрешите добавить VPN — и всё.",
+            "🔗 «Подключить VPN» — откроется страница, где всё делается в пару",
+            "касаний: установка приложения, импорт подписки и «Авто-обход»,",
+            "который сам выбирает быстрый рабочий сервер.",
         )
-        + "\n\n"
-        + bq(
-            "📲 «Подключить (выбор вручную)» — то же самое, но страну и протокол",
-            "выбираете сами в приложении.",
-        )
-        + "\n\n❓ Нет Happ или другое приложение? Нажмите «Как подключить вручную».\n"
+        + "\n\n📲 Happ уже установлен? «Импорт в Happ» добавит подписку сразу.\n"
+        "❓ Другое приложение? Нажмите «Как подключить вручную».\n"
         "♻️ Сменили тариф или локацию? Нажмите «Обновить подписку» в приложении."
     )
 
@@ -111,17 +107,17 @@ async def _active_subs_with_links(repo: Repository, user_id: int) -> list[tuple[
 
 
 async def _send_subscription_screen(callback: CallbackQuery, subscription: Subscription, url: str) -> None:
-    qr_bytes = await generate_qr_png_bytes(url)
-    if callback.message:
-        await callback.message.answer_photo(
-            BufferedInputFile(qr_bytes, filename="subscription_qr.png"),
-            caption=_subscription_access_text(url, _location_label(subscription)),
-            reply_markup=_connect_device_keyboard(
-                to_happ_import_url(url),
-                subscription.id,
-                happ_auto_url=to_happ_import_url(url, auto=True),
-            ),
-        )
+    # Text-only screen: the link + buttons cover every path (site page with
+    # apps and «Авто-обход», direct Happ import) — no QR image is pushed.
+    await show_screen(
+        callback,
+        _subscription_access_text(url, _location_label(subscription)),
+        _connect_device_keyboard(
+            to_happ_import_url(url),
+            subscription.id,
+            site_url=connect_page_url(url),
+        ),
+    )
 
 
 def _manual_help_text(subscription_url: str | None) -> str:
@@ -130,7 +126,7 @@ def _manual_help_text(subscription_url: str | None) -> str:
         "",
         bq(
             "1️⃣ Скопируйте ссылку-подписку (ниже) — нажмите на неё.",
-            "2️⃣ Откройте приложение и импортируйте ссылку по URL или QR.",
+            "2️⃣ Откройте приложение и импортируйте ссылку («Добавить из буфера»).",
             "3️⃣ Включите туннель и выберите страну.",
         ),
         "",

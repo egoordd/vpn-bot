@@ -107,7 +107,7 @@ def _my_subs_text(subscriptions: list[Subscription]) -> str:
         )
     cards = [_subscription_card(s) for s in subscriptions]
     return "📋 <b>Мои подписки</b>\n\n" + "\n\n".join(cards) + (
-        "\n\n📱 Нажмите «Подключить устройство», чтобы получить ссылку и QR."
+        "\n\n📱 Нажмите «Подключить устройство», чтобы получить ссылку и подключиться."
     )
 
 
