@@ -96,6 +96,35 @@ class Repository:
                 setattr(user, key, value)
         return await self._commit_refresh(user)
 
+    async def set_user_source_if_unset(self, user_id: int, source: str) -> None:
+        """Record the acquisition source only on first touch — never overwrite,
+        so a user's origin channel is stable even if they re-open other links."""
+        user = await self.get_user(user_id)
+        if user is None or user.source:
+            return
+        user.source = source
+        await self._commit_refresh(user)
+
+    async def source_funnel_counts(self, since: datetime | None = None) -> dict[str, dict[str, int]]:
+        """Funnel milestone counts grouped by user acquisition source.
+
+        Returns {source: {event: count}}; users with no source group under
+        ``"(без источника)"`` so seeded channels can be compared side by side.
+        """
+        query = (
+            select(User.source, FunnelEvent.event, func.count())
+            .join(FunnelEvent, FunnelEvent.user_id == User.id)
+            .group_by(User.source, FunnelEvent.event)
+        )
+        if since is not None:
+            query = query.where(FunnelEvent.created_at >= since)
+        result = await self.session.execute(query)
+        grouped: dict[str, dict[str, int]] = {}
+        for source, event, count in result.all():
+            key = source or "(без источника)"
+            grouped.setdefault(key, {})[event] = int(count)
+        return grouped
+
     async def delete_user(self, user_id: int) -> bool:
         user = await self.get_user(user_id)
         if user is None:

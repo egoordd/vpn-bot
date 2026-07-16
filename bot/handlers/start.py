@@ -13,7 +13,12 @@ from bot.texts import aware as _aware, bq, format_gb as _format_gb, format_msk a
 from database.models import Subscription, User
 from database.repository import Repository
 from services.money import format_rub
-from services.referral import ReferralError, attach_referrer, parse_referral_start_payload
+from services.referral import (
+    ReferralError,
+    attach_referrer,
+    parse_referral_start_payload,
+    parse_source_start_payload,
+)
 from services.subscription import activate_panel_subscription
 from services.tariffs import resolve_premium_region, resolve_tariff
 
@@ -159,6 +164,8 @@ async def _record_start_event(
     message: Message,
 ) -> None:
     """Best-effort funnel telemetry; must never break /start."""
+    parts = (getattr(message, "text", None) or "").split(maxsplit=1)
+    source = parse_source_start_payload(parts[1] if len(parts) > 1 else None)
     try:
         async with session_pool() as session:
             repo = Repository(session)
@@ -166,7 +173,9 @@ async def _record_start_event(
                 telegram_id=message.from_user.id,
                 username=message.from_user.username,
             )
-            await repo.record_funnel_event(user.id, "start")
+            if source:
+                await repo.set_user_source_if_unset(user.id, source)
+            await repo.record_funnel_event(user.id, "start", meta={"source": source} if source else None)
     except Exception:  # noqa: BLE001 - telemetry only
         logger.exception("Failed to record start funnel event for telegram_id=%s", message.from_user.id)
 

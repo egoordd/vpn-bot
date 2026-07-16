@@ -231,6 +231,21 @@ def _funnel_report(counts: dict[str, int], title: str) -> str:
     return f"<b>{title}</b>\n" + bq(*lines)
 
 
+def _source_report(by_source: dict[str, dict[str, int]]) -> str:
+    """Compact per-source funnel: start → trial → payment for each channel,
+    sorted by starts so the biggest sources come first."""
+    if not by_source:
+        return "<b>По источникам</b>\n" + bq("Пока нет данных.")
+    ordered = sorted(by_source.items(), key=lambda kv: kv[1].get("start", 0), reverse=True)
+    lines = []
+    for source, counts in ordered:
+        starts = counts.get("start", 0)
+        trials = counts.get("trial", 0)
+        paid = counts.get("payment", 0)
+        lines.append(f"{source}: {starts} старт → {trials} триал → {paid} оплат")
+    return "<b>По источникам</b>\n" + bq(*lines)
+
+
 @router.message(Command("funnel"))
 async def funnel_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
     if await _reject_non_admin(message):
@@ -239,6 +254,7 @@ async def funnel_handler(message: Message, session_pool: async_sessionmaker[Asyn
         repo = Repository(session)
         total = await repo.funnel_counts()
         week = await repo.funnel_counts(since=datetime.now(timezone.utc) - timedelta(days=7))
+        by_source = await repo.source_funnel_counts()
 
     text = (
         "🧭 <b>Воронка</b>\n\n"
@@ -246,7 +262,12 @@ async def funnel_handler(message: Message, session_pool: async_sessionmaker[Asyn
         + "\n\n"
         + _funnel_report(week, "За 7 дней")
         + "\n\n"
-        + bq("События пишутся один раз на пользователя; проценты — конверсия из предыдущего шага.")
+        + _source_report(by_source)
+        + "\n\n"
+        + bq(
+            "События пишутся один раз на пользователя; проценты — конверсия из предыдущего шага.",
+            "Источник задаётся ссылкой t.me/unlkvpn_bot?start=src_ИМЯ (первое касание).",
+        )
     )
     await message.answer(text)
 

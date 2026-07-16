@@ -18,7 +18,7 @@ from services.autoscaler import (
     autoscale_premium_pool,
     release_subscription_nodes,
 )
-from services.cryptobot import get_invoices_by_status
+from services.cryptobot import CryptoBotUnavailableError, get_invoices_by_status
 from services.panel_gateway import (
     PanelGateway,
     PanelGatewayError,
@@ -465,6 +465,11 @@ async def poll_cryptobot_payments(
 ) -> None:
     try:
         invoices = await get_invoices_by_status("paid", count=100)
+    except CryptoBotUnavailableError as exc:
+        # CryptoBot API had a transient hiccup (5xx/HTML). Next tick retries;
+        # no traceback — this fires up to every 30s during their outages.
+        logger.warning("CryptoBot temporarily unavailable, will retry: %s", exc)
+        return
     except Exception:
         logger.exception("CryptoBot polling failed")
         return

@@ -38,6 +38,9 @@ class User(Base):
     lang: Mapped[str] = mapped_column(String(10), default="ru", server_default="ru", nullable=False)
     referrer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     ref_code: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    # Acquisition source captured first-touch from a `/start src_<name>` deep
+    # link (seeded channel, ad). Never overwritten, so it reflects origin.
+    source: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,

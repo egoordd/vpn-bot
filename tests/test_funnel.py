@@ -215,3 +215,49 @@ def test_funnel_report_formats_conversion_percentages():
     assert "Получили триал: 5 (50% от пред.)" in text
     assert "Подключились: 2 (40% от пред.)" in text
     assert "Оплатили: 1 (50% от пред.)" in text
+
+
+@pytest.mark.integration
+async def test_source_captured_first_touch_and_grouped(session_pool):
+    # New user arrives via a seeded-channel deep link.
+    msg = SimpleNamespace(
+        text="/start src_tgchan",
+        from_user=SimpleNamespace(id=6001, username="seed", full_name="Seed"),
+    )
+    await start._record_start_event(session_pool, msg)
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(6001)
+        assert user.source == "tgchan"
+
+        # A later /start with a different source must NOT overwrite first-touch.
+        await repo.set_user_source_if_unset(user.id, "ads")
+        assert (await repo.get_user_by_telegram_id(6001)).source == "tgchan"
+
+        grouped = await repo.source_funnel_counts()
+        assert grouped["tgchan"]["start"] == 1
+
+
+@pytest.mark.integration
+async def test_source_funnel_counts_buckets_unknown(session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=6002, username="nosrc")
+        await repo.record_funnel_event(user.id, "start")
+
+        grouped = await repo.source_funnel_counts()
+        assert grouped["(без источника)"]["start"] >= 1
+
+
+@pytest.mark.unit
+def test_source_report_sorts_by_starts():
+    from bot.handlers.admin import _source_report
+
+    text = _source_report({
+        "small": {"start": 2, "payment": 0},
+        "big": {"start": 10, "trial": 4, "payment": 1},
+    })
+    # bigger source listed first
+    assert text.index("big") < text.index("small")
+    assert "10 старт → 4 триал → 1 оплат" in text

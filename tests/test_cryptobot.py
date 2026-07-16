@@ -97,3 +97,40 @@ async def test_create_invoice_rejects_unexpected_result(cryptobot_settings):
 
         with pytest.raises(CryptoBotError):
             await cryptobot.create_invoice("1.99", "payload", "description")
+
+
+@pytest.mark.unit
+async def test_upstream_500_raises_unavailable(cryptobot_settings):
+    from services.cryptobot import CryptoBotUnavailableError
+
+    with aioresponses() as mocked:
+        mocked.get(
+            re.compile(r"https://pay\.crypt\.bot/api/getInvoices.*"),
+            status=500,
+            body="<html>Bad Gateway</html>",
+            content_type="text/html",
+        )
+        with pytest.raises(CryptoBotUnavailableError):
+            await cryptobot.get_invoices_by_status("paid")
+
+
+@pytest.mark.unit
+async def test_non_json_error_page_is_unavailable_not_generic(cryptobot_settings):
+    from services.cryptobot import CryptoBotUnavailableError
+
+    with aioresponses() as mocked:
+        mocked.get(
+            re.compile(r"https://pay\.crypt\.bot/api/getInvoices.*"),
+            status=502,
+            body="upstream down",
+            content_type="text/html",
+        )
+        with pytest.raises(CryptoBotUnavailableError):
+            await cryptobot.get_invoices_by_status("paid")
+
+
+@pytest.mark.unit
+async def test_unavailable_is_a_cryptobot_error_subclass():
+    from services.cryptobot import CryptoBotUnavailableError
+
+    assert issubclass(CryptoBotUnavailableError, CryptoBotError)

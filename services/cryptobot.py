@@ -11,6 +11,11 @@ class CryptoBotError(RuntimeError):
     pass
 
 
+class CryptoBotUnavailableError(CryptoBotError):
+    """Transient upstream failure (5xx, HTML error page, network) — not our bug.
+    Callers should treat it as "try again later", not log a full traceback."""
+
+
 def is_configured() -> bool:
     """Whether CryptoBot crypto payments are available (token present)."""
     return bool(settings.CRYPTOBOT_TOKEN.strip())
@@ -26,13 +31,16 @@ async def _request(method: str, endpoint: str, **params: Any) -> Any:
     clean_params = {key: value for key, value in params.items() if value is not None}
     timeout = aiohttp.ClientTimeout(total=15)
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        if method.upper() == "GET":
-            async with session.get(url, headers=headers, params=clean_params) as response:
-                data = await _read_response(response)
-        else:
-            async with session.post(url, headers=headers, json=clean_params) as response:
-                data = await _read_response(response)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            if method.upper() == "GET":
+                async with session.get(url, headers=headers, params=clean_params) as response:
+                    data = await _read_response(response)
+            else:
+                async with session.post(url, headers=headers, json=clean_params) as response:
+                    data = await _read_response(response)
+    except aiohttp.ClientError as exc:  # connection reset, DNS, timeout, …
+        raise CryptoBotUnavailableError(f"CryptoBot request failed: {exc}") from exc
 
     if not data.get("ok"):
         raise CryptoBotError(f"CryptoBot API error: {data.get('error') or data}")
@@ -40,10 +48,18 @@ async def _request(method: str, endpoint: str, **params: Any) -> Any:
 
 
 async def _read_response(response: aiohttp.ClientResponse) -> dict[str, Any]:
+    # A 5xx/HTML page is CryptoBot having a bad moment, not a client bug — flag
+    # it as transient so the poller can retry quietly next tick.
+    if response.status >= 500:
+        raise CryptoBotUnavailableError(f"CryptoBot upstream {response.status}")
     try:
         data = await response.json()
     except aiohttp.ContentTypeError as exc:
         text = await response.text()
+        if response.status >= 400:
+            raise CryptoBotUnavailableError(
+                f"CryptoBot non-JSON error: {response.status}"
+            ) from exc
         raise CryptoBotError(f"CryptoBot returned non-JSON response: {response.status} {text}") from exc
 
     if response.status >= 400:

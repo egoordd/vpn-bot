@@ -38,6 +38,22 @@ def test_parse_referral_start_payload():
 
 
 @pytest.mark.unit
+def test_parse_source_start_payload():
+    from services.referral import parse_source_start_payload
+
+    assert parse_source_start_payload("src_telegram_channel") == "telegram_channel"
+    assert parse_source_start_payload("src_VC-Blog") == "vc-blog"  # lowercased, dash kept
+    # non [a-z0-9_-] chars (cyrillic, punctuation) are stripped → empty → None
+    assert parse_source_start_payload("src_реклама") is None
+    assert parse_source_start_payload("src_") is None
+    assert parse_source_start_payload("ref_tg5001") is None  # referral, not a source
+    assert parse_source_start_payload(None) is None
+    # sanitised + length-capped
+    long = "src_" + "a" * 100
+    assert len(parse_source_start_payload(long)) == 32
+
+
+@pytest.mark.unit
 def test_build_referral_link_strips_at_sign():
     assert build_referral_link("@unlock_bot", "tg5001") == "https://t.me/unlock_bot?start=ref_tg5001"
 

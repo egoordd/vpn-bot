@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,6 +69,27 @@ def parse_referral_start_payload(payload: str | None) -> str | None:
         code = payload[len(_START_REF_PREFIX):].strip()
         return code or None
     return None
+
+
+_START_SRC_PREFIX = "src_"
+_SRC_MAX_LEN = 32
+_SRC_RE = re.compile(r"[^a-z0-9_-]+")
+
+
+def parse_source_start_payload(payload: str | None) -> str | None:
+    """Extract an acquisition source from a ``/start src_<name>`` deep-link.
+
+    Used to tag where a user came from (seeded channels, ads) so the funnel can
+    be compared by source. Sanitised to a short slug; None when absent/empty.
+    """
+    if not payload:
+        return None
+    payload = payload.strip()
+    if not payload.startswith(_START_SRC_PREFIX):
+        return None
+    raw = payload[len(_START_SRC_PREFIX):].strip().lower()
+    slug = _SRC_RE.sub("", raw)[:_SRC_MAX_LEN].strip("-_")
+    return slug or None
 
 
 def build_referral_link(bot_username: str, ref_code: str) -> str:
