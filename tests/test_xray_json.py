@@ -84,13 +84,9 @@ def test_build_server_config_uses_uri_remark():
 @pytest.mark.unit
 def test_build_json_subscription_balancer_first_then_servers():
     configs = xray_json.build_json_subscription([REALITY, HY2, TROJAN])
-    # balancer first; xray servers as JSON configs; hy2 passed through as a
-    # raw URI string element in its original position
-    assert len(configs) == 4
-    assert configs[0]["remarks"] == "⚡️ Авто-обход"
-    assert configs[1]["remarks"] == "🇺🇸 США"
-    assert configs[2] == HY2
-    assert configs[3]["remarks"] == "🇵🇱 Trojan"
+    # objects only: raw URI strings in the array break Happ's import, so hy2
+    # is dropped from the JSON flavor (still present in the base64 one)
+    assert [c["remarks"] for c in configs] == ["⚡️ Авто-обход", "🇺🇸 США", "🇵🇱 Trojan"]
 
 
 @pytest.mark.unit
