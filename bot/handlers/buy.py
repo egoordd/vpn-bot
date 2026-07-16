@@ -226,14 +226,14 @@ async def _create_payment_invoice(
         )
     except CryptoBotError:
         logger.exception("Failed to create CryptoBot invoice for user_id=%s plan=%s", intent.user_id, plan)
-        await _send_callback_message(callback, bot, "Не удалось создать счет. Попробуйте позже.")
+        await _send_callback_message(callback, bot, "Не удалось создать счёт. Попробуйте позже.")
         return
 
     external_invoice_id = invoice.get("invoice_id")
     pay_url = invoice.get("bot_invoice_url") or invoice.get("pay_url") or invoice.get("mini_app_invoice_url")
     if external_invoice_id is None or not pay_url:
         logger.error("CryptoBot invoice has no invoice_id or payment URL: %s", invoice)
-        await _send_callback_message(callback, bot, "CryptoBot вернул некорректный счет. Напишите в поддержку.")
+        await _send_callback_message(callback, bot, "CryptoBot вернул некорректный счёт. Напишите в поддержку.")
         return
 
     async with session_pool() as session:
@@ -377,7 +377,7 @@ TIER_TEXTS = {
     "standard": (
         "🚀 <b>Обычный тариф</b>\n\n"
         "<blockquote>"
-        "🌍 Несколько локаций (🇺🇸 США, 🇳🇱 Нидерланды)\n"
+        "🌍 Три страны: 🇺🇸 США, 🇳🇱 Нидерланды, 🇵🇱 Польша\n"
         "🔀 Переключение между странами прямо в приложении\n"
         "📊 До 150 ГБ трафика в месяц\n"
         "📱 До 3–5 устройств"
@@ -424,7 +424,7 @@ async def renew_menu_handler(callback: CallbackQuery, session_pool: async_sessio
     if not subscriptions:
         await _edit_current_message(
             callback,
-            "🔄 <b>Продление</b>\n\nУ вас нет активных подписок. Оформите тариф через «🛒 Купить тариф».",
+            "🔄 <b>Продление</b>\n\nУ вас нет активных подписок. Оформите тариф через «🛒 Купить подписку».",
             tier_plans_keyboard("standard"),
         )
         await callback.answer()

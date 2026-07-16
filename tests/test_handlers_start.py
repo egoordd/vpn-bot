@@ -42,7 +42,7 @@ async def test_menu_state_returns_active_subscription_menu(session_pool):
 
     assert has_subscription is True
     assert "Профиль" in text
-    assert "Активных подписок" in text
+    assert "У вас <b>1</b> подписка" in text
     # Main menu: buy first, and "Мои подписки" present when a subscription is active
     assert keyboard.inline_keyboard[0][0].callback_data == "buy_menu"
     cbs = [b.callback_data for row in keyboard.inline_keyboard for b in row]

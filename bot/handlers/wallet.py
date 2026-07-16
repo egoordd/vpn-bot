@@ -301,7 +301,7 @@ async def promo_enter_handler(callback: CallbackQuery, state: FSMContext) -> Non
 
 def _promo_error_text(exc: promo.PromoError) -> str:
     if isinstance(exc, promo.PromoNotFoundError):
-        return "Такого промокода нет. Проверь написание."
+        return "Такого промокода нет. Проверьте написание."
     if isinstance(exc, promo.PromoExpiredError):
         return "Срок действия промокода истёк."
     if isinstance(exc, promo.PromoInactiveError):
@@ -309,7 +309,7 @@ def _promo_error_text(exc: promo.PromoError) -> str:
     if isinstance(exc, promo.PromoExhaustedError):
         return "Промокод уже исчерпан."
     if isinstance(exc, promo.PromoUserLimitError):
-        return "Ты уже использовал этот промокод."
+        return "Вы уже использовали этот промокод."
     if isinstance(exc, promo.PromoTypeError):
         return "Этот промокод применяется при оплате, а не к балансу."
     return "Промокод не подошёл."

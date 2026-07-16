@@ -84,7 +84,7 @@ def _menu_text(
         nearest = min(subscriptions, key=lambda s: s.expires_at)
         word = _plural_subs(len(subscriptions))
         sections.append(
-            f"✅ Активных подписок: <b>{len(subscriptions)}</b> {word}\n"
+            f"✅ У вас <b>{len(subscriptions)}</b> {word}\n"
             f"📅 Ближайшее окончание: {_format_msk(nearest.expires_at)}\n\n"
             "Подключение и детали — в «📋 Мои подписки»."
         )

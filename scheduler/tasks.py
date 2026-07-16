@@ -129,7 +129,7 @@ async def deactivate_expired_subscriptions(
                     EXPIRED_BANNER,
                     caption=(
                         "⛔️ <b>Подписка истекла</b>\n\n"
-                        "Доступ отключён. Верни его в один тап — ссылка-подписка останется прежней."
+                        "Доступ отключён. Верните его в один тап — ссылка-подписка останется прежней."
                     ),
                     reply_markup=InlineKeyboardMarkup(
                         inline_keyboard=[
@@ -240,15 +240,15 @@ def _access_text(expires_at: datetime) -> str:
     return (
         "✅ Оплата получена!\n"
         f"Подписка активна до {_aware(expires_at):%d.%m.%Y %H:%M} UTC\n\n"
-        "🔑 Твой WireGuard-ключ (.conf файл прикреплён ниже)\n"
+        "🔑 Ваш WireGuard-ключ (.conf файл прикреплён ниже)\n"
         "📸 QR-код для импорта — следующим сообщением\n\n"
         "📖 Как подключиться:\n"
-        "1. Скачай WireGuard:\n"
+        "1. Скачайте WireGuard:\n"
         "   • iOS: App Store\n"
         "   • Android: Google Play\n"
         "   • Windows/Mac: wireguard.com/install\n"
-        "2. В приложении нажми «+» → «Импорт из файла» или «Сканировать QR»\n"
-        "3. Включи туннель — готово\n\n"
+        "2. В приложении нажмите «+» → «Импорт из файла» или «Сканировать QR»\n"
+        "3. Включите туннель — готово\n\n"
         f"Проблемы? {settings.support_contact}"
     )
 

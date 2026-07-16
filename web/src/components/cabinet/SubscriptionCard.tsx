@@ -13,9 +13,9 @@ export function SubscriptionCard({ sub }: { sub: SubscriptionSnapshot }) {
           <span className="card__title">Подписка</span>
           <Pill tone="warn">нет активной</Pill>
         </div>
-        <p className="sub__empty">У вас пока нет подписки. Заберите пробник на 3 дня — без карты.</p>
+        <p className="sub__empty">У вас пока нет подписки. Активируйте пробный период на 3 дня — без карты.</p>
         <Button href={botLink("trial")} className="sub__cta">
-          Активировать пробник
+          Активировать пробный период
         </Button>
       </article>
     );
