@@ -37,6 +37,14 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# In the repo this is the services package; on the VPS the gateway runs
+# standalone as /opt/sub_gateway.py with /opt/xray_json.py beside it (the
+# script's own dir is on sys.path), so fall back to a flat import.
+try:
+    from services.xray_json import build_json_subscription
+except ImportError:  # pragma: no cover - standalone deploy path
+    from xray_json import build_json_subscription
+
 MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://144.172.101.217.sslip.io:8443").rstrip("/")
 # When set, the gateway serves Remnawave subscriptions (tried before Marzban).
 REMNAWAVE_SUB_BASE = os.environ.get("REMNAWAVE_SUB_BASE", "").rstrip("/")
@@ -199,18 +207,16 @@ def _health_loop() -> None:
         time.sleep(HEALTH_INTERVAL)
 
 
-# Happ app-management headers served on the /sub/<token>/auto flavor («⚡️
-# Авто-обход»): the app auto-connects on launch to the lowest-latency server,
-# pings servers on open, sorts them by ping and refreshes the subscription
-# hourly — combined with the health filter above, a dead node disappears and
-# the client lands on a working one without the user touching anything.
-# Non-Happ clients ignore unknown headers, so the flavor is safe cross-client.
+# Happ app-management headers on the /sub/<token>/auto flavor. The body itself
+# carries the «⚡️ Авто-обход» balancer as the first entry (see build_auto_json),
+# so here we only make Happ reconnect on launch to the last-used entry (the
+# balancer, after the first tap) and refresh hourly so pruned dead nodes and a
+# re-picked balancer target propagate fast. Non-Happ clients ignore these.
 AUTO_HEADERS = {
     "profile-update-interval": "1",
     "subscription-autoconnect": "1",
-    "subscription-autoconnect-type": "lowestdelay",
+    "subscription-autoconnect-type": "lastused",
     "subscription-ping-onopen-enabled": "1",
-    "subscriptions-sort-type": "ping",
 }
 
 
@@ -338,7 +344,13 @@ def combine_links(decoded: str) -> list[str]:
     return combined
 
 
-def build_combined(token: str) -> tuple[str, str | None] | None:
+def resolve_links(token: str) -> tuple[list[str], str | None] | None:
+    """Resolve a token to its live proxy links (health-filtered).
+
+    Returns (links, userinfo): links is empty when the subscription is
+    expired/blank/disabled. Returns None only when the token is unknown (404).
+    Shared by the base64 and the JSON («Авто-обход») subscription flavors.
+    """
     fetched = _fetch_upstream_sub(token)
     if fetched is None:
         return None
@@ -346,16 +358,39 @@ def build_combined(token: str) -> tuple[str, str | None] | None:
     if _userinfo_expired(userinfo) or (
         provider == "marzban" and not _marzban_sub_active(token)
     ):
-        return "", userinfo
+        return [], userinfo
     combined = combine_links(decoded)
     if not combined:
-        return "", userinfo
-
+        return [], userinfo
     _register_probe_targets(combined)
-    combined = filter_alive(combined)
+    return filter_alive(combined), userinfo
 
-    payload = base64.b64encode("\n".join(combined).encode("utf-8")).decode("ascii")
+
+def build_combined(token: str) -> tuple[str, str | None] | None:
+    resolved = resolve_links(token)
+    if resolved is None:
+        return None
+    links, userinfo = resolved
+    payload = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
     return payload, userinfo
+
+
+def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
+    """Build the «Авто-обход» body for the /auto flavor.
+
+    Returns (body, userinfo, is_json): a JSON array of xray configs (balancer
+    first) when at least one xray-core server exists, else the plain base64
+    body (is_json False) so nothing regresses. None on an unknown token.
+    """
+    resolved = resolve_links(token)
+    if resolved is None:
+        return None
+    links, userinfo = resolved
+    configs = build_json_subscription(links)
+    if configs:
+        return json.dumps(configs, ensure_ascii=False), userinfo, True
+    payload = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
+    return payload, userinfo, False
 
 
 def happ_redirect_page(sub_url: str) -> str:
@@ -433,14 +468,31 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
+        # /auto → «Авто-обход»: a JSON-array subscription whose first entry is
+        # an xray balancer (leastPing) that auto-picks and fails over between
+        # servers by itself. Falls back to the plain body when no xray-core
+        # server exists, so it never regresses vs the base64 sub.
+        if is_auto:
+            auto = build_auto_json(token)
+            if auto is None:
+                self._send(404, b"invalid subscription", "text/plain")
+                return
+            body, userinfo, is_json = auto
+            extra = {"profile-title": PROFILE_TITLE_HEADER}
+            if is_json:
+                extra.update(AUTO_HEADERS)
+            if userinfo:
+                extra["subscription-userinfo"] = userinfo
+            ctype = "application/json; charset=utf-8" if is_json else "text/plain; charset=utf-8"
+            self._send(200, body.encode("utf-8"), ctype, extra)
+            return
+
         result = build_combined(token)
         if result is None:
             self._send(404, b"invalid subscription", "text/plain")
             return
         payload, userinfo = result
         extra = {"profile-title": PROFILE_TITLE_HEADER}
-        if is_auto:
-            extra.update(AUTO_HEADERS)
         if userinfo:
             extra["subscription-userinfo"] = userinfo
         self._send(200, payload.encode("ascii"), "text/plain; charset=utf-8", extra)

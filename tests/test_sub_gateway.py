@@ -1,3 +1,6 @@
+import base64
+import json
+
 import pytest
 
 from services import sub_gateway
@@ -356,7 +359,44 @@ def test_filter_alive_noop_when_disabled(monkeypatch):
 
 def test_auto_headers_enable_happ_autoconnect():
     assert sub_gateway.AUTO_HEADERS["subscription-autoconnect"] == "1"
-    assert sub_gateway.AUTO_HEADERS["subscription-autoconnect-type"] == "lowestdelay"
-    assert sub_gateway.AUTO_HEADERS["subscriptions-sort-type"] == "ping"
+    # reconnect to the last-used entry (the balancer, after first tap)
+    assert sub_gateway.AUTO_HEADERS["subscription-autoconnect-type"] == "lastused"
     # auto flavor refreshes hourly so pruned dead nodes propagate fast
     assert sub_gateway.AUTO_HEADERS["profile-update-interval"] == "1"
+
+
+def _reality_uri(host: str, port: int = 2087) -> str:
+    return (
+        f"vless://uuid-{host}@{host}:{port}?security=reality&type=tcp"
+        f"&flow=xtls-rprx-vision&sni={host}&fp=firefox&pbk=PBK&sid=SID#{host}"
+    )
+
+
+def test_build_auto_json_returns_json_array_with_balancer_first(monkeypatch):
+    links = [_reality_uri("h1"), _hy2("h1"), _reality_uri("h2")]
+    monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: (links, "expire=0"))
+
+    result = sub_gateway.build_auto_json("tok")
+    assert result is not None
+    body, userinfo, is_json = result
+    assert is_json is True and userinfo == "expire=0"
+
+    configs = json.loads(body)
+    assert configs[0]["remarks"] == "⚡️ Авто-обход"
+    assert configs[0]["routing"]["balancers"][0]["strategy"]["type"] == "leastPing"
+    # hy2 is not xray-core: only the two VLESS servers become balancer outbounds
+    proxy_tags = [o["tag"] for o in configs[0]["outbounds"] if o["tag"].startswith("proxy-")]
+    assert proxy_tags == ["proxy-0", "proxy-1"]
+
+
+def test_build_auto_json_falls_back_to_base64_without_xray_nodes(monkeypatch):
+    # only hysteria2 -> no xray balancer possible -> plain base64 body
+    monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: ([_hy2("h1")], None))
+    body, userinfo, is_json = sub_gateway.build_auto_json("tok")
+    assert is_json is False
+    assert _hy2("h1") in base64.b64decode(body).decode()
+
+
+def test_build_auto_json_none_for_unknown_token(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: None)
+    assert sub_gateway.build_auto_json("tok") is None
