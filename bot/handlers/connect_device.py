@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
 from bot.navigation import show_screen
-from bot.texts import bq
+from bot.texts import bq, format_msk
+from services.tariffs import resolve_tariff
 from config import settings
 from database.models import Subscription
 from database.repository import Repository
@@ -25,6 +26,16 @@ def _location_label(subscription: Subscription) -> str:
     if subscription.tier == "premium":
         return "💎 Premium"
     return "🌐 Обычный"
+
+
+def _sub_choice_label(subscription: Subscription) -> str:
+    """Distinguishing label for the multi-subscription picker: tariff + expiry,
+    so two active subscriptions are never indistinguishable."""
+    try:
+        title = resolve_tariff(subscription.plan).title
+    except ValueError:
+        title = subscription.plan
+    return f"{_location_label(subscription)} · {title} · до {format_msk(subscription.expires_at)}"
 
 
 def _awg_available() -> bool:
@@ -51,7 +62,7 @@ def _connect_device_keyboard(
 
 def _location_selector_keyboard(subs: list[Subscription]) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text=_location_label(sub), callback_data=f"connect_loc:{sub.id}")]
+        [InlineKeyboardButton(text=_sub_choice_label(sub), callback_data=f"connect_loc:{sub.id}")]
         for sub in subs
     ]
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
@@ -82,7 +93,8 @@ def _subscription_access_text(subscription_url: str, location: str | None = None
             "касаний: установка приложения, импорт подписки и «Авто-обход»,",
             "который сам выбирает быстрый рабочий сервер.",
         )
-        + "\n\n📲 Happ уже установлен? «Импорт в Happ» добавит подписку сразу.\n"
+        + "\n\n📲 Happ уже установлен? «Импорт в Happ» добавит подписку сразу — "
+        "в списке серверов появится «⚡️ Авто-обход».\n"
         "❓ Другое приложение? Нажмите «Как подключить вручную».\n"
         "♻️ Сменили тариф или локацию? Нажмите «Обновить подписку» в приложении."
     )
