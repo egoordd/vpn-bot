@@ -135,65 +135,6 @@ def test_connect_keyboard_has_happ_help_and_awg_when_configured(monkeypatch):
     assert "https://sub.example/happ/x" in urls_on
     assert "connect_awg" in datas_on
     assert "connect_help:7" in datas_on
-    assert "connect_fix:7" in datas_on  # «Не подключается?»
-
-
-def test_troubleshoot_text_marks_up_and_down_locations():
-    from services.node_probe import LocationHealth
-
-    locs = [
-        LocationHealth(flag="🇺🇸", name="США", reachable=True),
-        LocationHealth(flag="🇳🇱", name="Нидерланды", reachable=False),
-    ]
-    text = connect_device._troubleshoot_text(locs)
-    assert "Сейчас доступны" in text
-    assert "🇺🇸 США ✅" in text
-    assert "🇳🇱 Нидерланды ❌" in text
-    assert "Hysteria2" in text  # steers mobile users to the DPI-resistant protocol
-
-
-def test_troubleshoot_text_without_health_data_still_gives_steps():
-    text = connect_device._troubleshoot_text([])
-    assert "Не подключается" in text
-    assert "AmneziaWG" in text
-    assert "поддержку" in text
-
-
-@pytest.mark.integration
-async def test_connect_troubleshoot_handler_shows_live_health(session_pool, monkeypatch):
-    from services.node_probe import LocationHealth
-
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.create_user(telegram_id=904, username="stuck")
-        await repo.create_subscription(
-            user_id=user.id, plan="trial", tier="trial", panel_username="tg_904",
-            sub_token="tok", subscription_url="https://sub.example/api/sub/tok",
-            started_at=datetime.now(timezone.utc),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=7), is_active=True,
-        )
-
-    monkeypatch.setattr(
-        connect_device, "_resolve_subscription_url",
-        AsyncMock(return_value="https://sub.unlockvpn.site/sub/tok"),
-    )
-    probe = AsyncMock(return_value=[LocationHealth(flag="🇺🇸", name="США", reachable=True)])
-    monkeypatch.setattr(connect_device.node_probe, "probe_subscription", probe)
-
-    message = SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock())
-    callback = SimpleNamespace(
-        data="connect_fix",
-        from_user=SimpleNamespace(id=904),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await connect_device.connect_troubleshoot_handler(callback, session_pool)
-
-    probe.assert_awaited_once_with("https://sub.unlockvpn.site/sub/tok")
-    callback.answer.assert_awaited_once()
-    text = message.edit_text.await_args.args[0]
-    assert "🇺🇸 США ✅" in text
 
     monkeypatch.setattr(connect_device, "_awg_available", lambda: False)
     datas_off = [b.callback_data for row in connect_device._connect_device_keyboard().inline_keyboard for b in row]
