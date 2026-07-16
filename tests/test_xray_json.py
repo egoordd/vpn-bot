@@ -84,12 +84,13 @@ def test_build_server_config_uses_uri_remark():
 @pytest.mark.unit
 def test_build_json_subscription_balancer_first_then_servers():
     configs = xray_json.build_json_subscription([REALITY, HY2, TROJAN])
-    remarks = [c["remarks"] for c in configs]
-    # balancer first, then one entry per xray server (hy2 dropped)
-    assert remarks[0] == "⚡️ Авто-обход"
-    assert remarks[1] == "🇺🇸 США"
-    assert remarks[2] == "🇵🇱 Trojan"
-    assert len(configs) == 3
+    # balancer first; xray servers as JSON configs; hy2 passed through as a
+    # raw URI string element in its original position
+    assert len(configs) == 4
+    assert configs[0]["remarks"] == "⚡️ Авто-обход"
+    assert configs[1]["remarks"] == "🇺🇸 США"
+    assert configs[2] == HY2
+    assert configs[3]["remarks"] == "🇵🇱 Trojan"
 
 
 @pytest.mark.unit

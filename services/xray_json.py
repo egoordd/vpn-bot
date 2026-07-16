@@ -187,8 +187,13 @@ def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict 
     }
 
 
-def build_json_subscription(links: list[str]) -> list[dict]:
+def build_json_subscription(links: list[str]) -> list[dict | str]:
     """Full JSON-array body: the balancer first, then each server on its own.
+
+    xray-core servers become full JSON configs; anything else (Hysteria2 runs
+    on a separate core) is passed through as a raw URI string element in the
+    same array, preserving the original per-location order — Happ parses both
+    kinds side by side, so hy2 entries stay available for manual pick.
 
     Empty when no xray-core-compatible server is present (caller then falls
     back to the plain base64 subscription).
@@ -196,9 +201,8 @@ def build_json_subscription(links: list[str]) -> list[dict]:
     balancer = build_balancer_config(links)
     if balancer is None:
         return []
-    configs = [balancer]
+    configs: list[dict | str] = [balancer]
     for index, uri in enumerate(links):
         server = build_server_config(uri, index)
-        if server is not None:
-            configs.append(server)
+        configs.append(server if server is not None else uri)
     return configs
