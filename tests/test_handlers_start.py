@@ -79,8 +79,11 @@ async def test_activate_trial_handler_grants_and_refreshes(session_pool, monkeyp
 
     monkeypatch.setattr(start, "activate_panel_subscription", fake_activate)
 
+    shown: dict = {}
+
     async def fake_show(callback, text, keyboard):
-        return None
+        shown["text"] = text
+        shown["keyboard"] = keyboard
 
     monkeypatch.setattr(start, "show_screen", fake_show)
     callback = SimpleNamespace(
@@ -97,6 +100,10 @@ async def test_activate_trial_handler_grants_and_refreshes(session_pool, monkeyp
         sub = await Repository(session).get_active_subscription(user.id)
     assert sub is not None and sub.plan == "trial"
     callback.answer.assert_awaited()
+    # delivery-first: the screen carries the subscription link, not the menu
+    text = shown["text"]
+    assert "Пробный период активирован" in text
+    assert "sub.example" in text or "sub.unlockvpn.site" in text
 
 
 @pytest.mark.integration

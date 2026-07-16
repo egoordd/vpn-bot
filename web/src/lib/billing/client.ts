@@ -213,3 +213,37 @@ export async function previewDiscount(
     return null;
   }
 }
+
+export type TrialActivationResult =
+  | { ok: true; subscriptionUrl: string | null }
+  | { ok: false; error: "has_active_subscription" | "trial_already_used" | "unavailable" };
+
+export async function activateWebTrial(telegramId: number): Promise<TrialActivationResult> {
+  // Standalone preview: pretend the trial activated so the UI flow is testable.
+  if (!API_URL) {
+    return { ok: true, subscriptionUrl: "https://sub.unlockvpn.site/sub/demo" };
+  }
+  const res = await fetch(`${API_URL}/web/trial/activate`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+    },
+    body: JSON.stringify({ telegramId }),
+    cache: "no-store",
+  });
+  if (res.ok) {
+    const body = (await res.json()) as { subscriptionUrl?: string | null };
+    return { ok: true, subscriptionUrl: body.subscriptionUrl ?? null };
+  }
+  let detail = "";
+  try {
+    detail = ((await res.json()) as { detail?: string }).detail ?? "";
+  } catch {
+    // non-JSON error body — treat as unavailable
+  }
+  if (detail === "has_active_subscription" || detail === "trial_already_used") {
+    return { ok: false, error: detail };
+  }
+  return { ok: false, error: "unavailable" };
+}

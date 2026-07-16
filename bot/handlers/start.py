@@ -3,7 +3,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.filters import CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.banners import pick_start_banner, send_banner
@@ -19,7 +19,11 @@ from services.referral import (
     parse_referral_start_payload,
     parse_source_start_payload,
 )
-from services.subscription import activate_panel_subscription
+from services.subscription import (
+    activate_panel_subscription,
+    connect_page_url,
+    to_gateway_subscription_url,
+)
 from services.tariffs import resolve_premium_region, resolve_tariff
 
 router = Router()
@@ -215,7 +219,7 @@ async def activate_trial_handler(callback: CallbackQuery, session_pool: async_se
             await callback.answer("Пробный период уже был активирован ранее.", show_alert=True)
             return
         try:
-            await activate_panel_subscription(session=session, user_id=user.id, plan="trial")
+            subscription = await activate_panel_subscription(session=session, user_id=user.id, plan="trial")
         except Exception:  # noqa: BLE001 - surface a friendly retry, don't crash
             logger.exception("Failed to activate trial on button for telegram_id=%s", telegram_id)
             await callback.answer(
@@ -224,13 +228,21 @@ async def activate_trial_handler(callback: CallbackQuery, session_pool: async_se
             )
             return
 
-    text, keyboard, _ = await _menu_state(
-        session_pool=session_pool,
-        telegram_id=telegram_id,
-        username=callback.from_user.username,
-        display_name=getattr(callback.from_user, "full_name", None),
+    # Deliver right away — the same link-first screen a buyer gets after
+    # payment, not a menu the user has to dig through.
+    sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
+    connect_url = connect_page_url(sub_url)
+    rows = []
+    if connect_url:
+        rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=connect_url)])
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
+    text = (
+        "🎉 <b>Пробный период активирован — 3 дня!</b>\n\n"
+        "🔗 <b>Ссылка-подписка:</b>\n"
+        f"<code>{html.escape(sub_url)}</code>\n\n"
+        "Нажмите «Подключить VPN» — откроется страница с приложениями и пошаговой инструкцией."
     )
-    await show_screen(callback, text, keyboard)
+    await show_screen(callback, text, InlineKeyboardMarkup(inline_keyboard=rows))
     await callback.answer("Пробный период активирован! 🎉")
 
 

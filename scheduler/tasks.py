@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
@@ -49,6 +49,7 @@ async def check_expiring_subscriptions(
     bot: Bot,
     session_pool: async_sessionmaker[AsyncSession],
 ) -> None:
+    now = datetime.now(timezone.utc)
     async with session_pool() as session:
         repo = Repository(session)
         subscriptions = await repo.get_expiring_subscriptions(days=3)
@@ -57,15 +58,26 @@ async def check_expiring_subscriptions(
                 # Web email-only account (synthetic negative id) — no Telegram chat.
                 await repo.mark_subscription_reminded(subscription.id)
                 continue
-            try:
-                await bot.send_message(
-                    chat_id=subscription.user.telegram_id,
-                    text=(
-                        "⏰ <b>Подписка скоро закончится</b>\n\n"
-                        + bq("📅 Осталось: меньше 3 дней")
-                        + "\n\nЧтобы не потерять доступ, продлите подписку — кнопка «🔄 Продлить» в меню."
-                    ),
+            # A 3-day trial falls inside the 3-day window the moment it is
+            # activated — greeting a fresh trial with «скоро закончится» is
+            # absurd. Trials get one reminder on their LAST day instead.
+            is_trial = subscription.tier == "trial"
+            if is_trial and _aware(subscription.expires_at) - now > timedelta(days=1):
+                continue  # not marked — revisited when the last day comes
+            if is_trial:
+                text = (
+                    "⏰ <b>Пробный период заканчивается сегодня</b>\n\n"
+                    "Понравилось? Оформите тариф — ссылка-подписка останется той же, "
+                    "ничего перенастраивать не придётся. Кнопка «🛒 Купить подписку» в меню."
                 )
+            else:
+                text = (
+                    "⏰ <b>Подписка скоро закончится</b>\n\n"
+                    + bq("📅 Осталось: меньше 3 дней")
+                    + "\n\nЧтобы не потерять доступ, продлите подписку — кнопка «🔄 Продлить» в меню."
+                )
+            try:
+                await bot.send_message(chat_id=subscription.user.telegram_id, text=text)
                 await repo.mark_subscription_reminded(subscription.id)
             except Exception:
                 logger.exception("Failed to send expiration reminder for subscription_id=%s", subscription.id)

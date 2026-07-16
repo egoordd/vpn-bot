@@ -832,3 +832,46 @@ async def test_deactivate_expired_survives_panel_error(fake_bot, session_pool, m
     async with session_pool() as session:
         refreshed = await Repository(session).get_subscription(subscription.id)
     assert refreshed.is_active is False
+
+
+@pytest.mark.integration
+async def test_fresh_trial_gets_no_instant_reminder(fake_bot, session_pool):
+    # A 3-day trial is inside the 3-day window from the moment of activation —
+    # it must NOT be greeted with «скоро закончится» right away.
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=601)
+        subscription = await repo.create_subscription(
+            user_id=user.id, plan="trial", tier="trial",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=3),
+            is_active=True,
+        )
+
+    await tasks.check_expiring_subscriptions(fake_bot, session_pool)
+
+    fake_bot.send_message.assert_not_awaited()
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+        # not marked -> will be revisited on its last day
+        assert refreshed.last_reminded_at is None
+
+
+@pytest.mark.integration
+async def test_trial_last_day_gets_trial_wording(fake_bot, session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=602)
+        await repo.create_subscription(
+            user_id=user.id, plan="trial", tier="trial",
+            started_at=datetime.now(timezone.utc) - timedelta(days=2, hours=6),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=18),
+            is_active=True,
+        )
+
+    await tasks.check_expiring_subscriptions(fake_bot, session_pool)
+
+    fake_bot.send_message.assert_awaited_once()
+    text = fake_bot.send_message.await_args.kwargs["text"]
+    assert "Пробный период заканчивается" in text
+    assert "меньше 3 дней" not in text

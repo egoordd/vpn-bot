@@ -99,6 +99,13 @@ class ReceiptCompleteRequest(BaseModel):
     receipt_url: str = Field(alias="receiptUrl", min_length=1, max_length=512)
 
 
+class WebTrialRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    # Site accounts include email-only buyers with synthetic negative ids.
+    telegram_id: int = Field(alias="telegramId")
+
+
 _AUTH_IP_LIMIT = 10
 _AUTH_IP_WINDOW = 600  # 10 min
 
@@ -452,6 +459,28 @@ def create_app() -> FastAPI:
                 "expiresAt": _iso(snapshot.expires_at),
                 "isActive": snapshot.is_active,
             },
+        }
+
+    @application.post("/web/trial/activate")
+    async def web_trial_activate(body: WebTrialRequest, session: SessionDep) -> dict[str, Any]:
+        """Site-side trial: same guards as the bot button (no active sub, one
+        trial per user), same provisioning path, link returned for display."""
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(body.telegram_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user_not_found")
+        if await repo.list_active_subscriptions(user.id):
+            raise HTTPException(status_code=409, detail="has_active_subscription")
+        if await repo.has_used_trial(user.id):
+            raise HTTPException(status_code=409, detail="trial_already_used")
+        try:
+            subscription = await activate_panel_subscription(session=session, user_id=user.id, plan="trial")
+        except Exception as exc:  # noqa: BLE001 - surfaced as 502 for the web layer
+            log.exception("Web trial activation failed for user_id=%s", user.id)
+            raise HTTPException(status_code=502, detail="provisioning_failed") from exc
+        return {
+            "ok": True,
+            "subscriptionUrl": to_gateway_subscription_url(subscription.subscription_url),
         }
 
     # --- «Мой налог» receipts -------------------------------------------------

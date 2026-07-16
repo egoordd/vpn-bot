@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/Button";
+import { TrialButton } from "./TrialButton";
 import { Pill } from "@/components/ui/Pill";
 import { formatDate, formatGb, daysLeft, trafficPercent } from "@/lib/format";
 import { botLink } from "@/lib/site";
@@ -14,9 +15,7 @@ export function SubscriptionCard({ sub }: { sub: SubscriptionSnapshot }) {
           <Pill tone="warn">нет активной</Pill>
         </div>
         <p className="sub__empty">У вас пока нет подписки. Активируйте пробный период на 3 дня — без карты.</p>
-        <Button href={botLink("trial")} className="sub__cta">
-          Активировать пробный период
-        </Button>
+        <TrialButton />
       </article>
     );
   }

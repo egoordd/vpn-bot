@@ -1001,3 +1001,72 @@ async def test_receipts_complete_rejects_foreign_urls(api_client, session_pool):
         f"/web/receipts/{payment.id}/complete", json={"receiptUrl": "https://evil.example/r/1"}
     )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_web_trial_activate_provisions_and_returns_link(api_client, session_pool, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from database.repository import Repository
+    from services import http_api as api_mod
+
+    async with session_pool() as session:
+        user = await Repository(session).create_user(telegram_id=-777001)
+
+    class _Sub:
+        subscription_url = "https://144.172.101.217.sslip.io:8443/sub/trialtok"
+
+    activate = AsyncMock(return_value=_Sub())
+    monkeypatch.setattr(api_mod, "activate_panel_subscription", activate)
+
+    response = await api_client.post("/web/trial/activate", json={"telegramId": -777001})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert "/sub/trialtok" in body["subscriptionUrl"]
+    activate.assert_awaited_once()
+    assert activate.await_args.kwargs["plan"] == "trial"
+
+
+@pytest.mark.asyncio
+async def test_web_trial_activate_guards(api_client, session_pool, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import AsyncMock
+
+    from database.repository import Repository
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(api_mod, "activate_panel_subscription", AsyncMock())
+
+    # unknown user -> 404
+    resp = await api_client.post("/web/trial/activate", json={"telegramId": -777999})
+    assert resp.status_code == 404
+
+    # already used trial (expired) -> 409 trial_already_used
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=-777002)
+        await repo.create_subscription(
+            user_id=user.id, plan="trial", tier="trial",
+            started_at=datetime.now(timezone.utc) - timedelta(days=10),
+            expires_at=datetime.now(timezone.utc) - timedelta(days=7),
+            is_active=False,
+        )
+    resp = await api_client.post("/web/trial/activate", json={"telegramId": -777002})
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "trial_already_used"
+
+    # active subscription -> 409 has_active_subscription
+    async with session_pool() as session:
+        repo = Repository(session)
+        user2 = await repo.create_user(telegram_id=-777003)
+        await repo.create_subscription(
+            user_id=user2.id, plan="standard_1m", tier="standard",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            is_active=True,
+        )
+    resp = await api_client.post("/web/trial/activate", json={"telegramId": -777003})
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "has_active_subscription"
