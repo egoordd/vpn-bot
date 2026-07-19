@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     # "http://user:pass@ru-host:3128". Empty = direct (works only from RU).
     MOYNALOG_PROXY: str = ""
     # Наименование услуги в чеке.
-    MOYNALOG_SERVICE_NAME: str = "Оплата подписки UnLock VPN"
+    MOYNALOG_SERVICE_NAME: str = "UnLockVPN — VPN-подписка"
 
     # Outgoing email (stdlib SMTP) — used to send чеки to buyers. Works with any
     # provider: Gmail app-password (smtp.gmail.com:465), Resend SMTP, etc.

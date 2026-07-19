@@ -511,7 +511,7 @@ def create_app() -> FastAPI:
             service_name = settings.MOYNALOG_SERVICE_NAME
             try:
                 details = parse_invoice_payload_details(payment.invoice_payload or "")
-                service_name = f"Оплата подписки: {billing_api.get_billing_plan(details.plan).title}"
+                service_name = f"UnLockVPN — {billing_api.get_billing_plan(details.plan).title}"
             except ValueError:
                 pass
             items.append(
@@ -750,7 +750,7 @@ def create_app() -> FastAPI:
         # also gets the чек by mail — email-only buyers (negative id) have no chat.
         if moynalog.is_configured():
             plan_title = billing_api.get_billing_plan(details.plan).title
-            receipt = await moynalog.issue_receipt(completed.amount, name=f"Оплата подписки: {plan_title}")
+            receipt = await moynalog.issue_receipt(completed.amount, name=f"UnLockVPN — {plan_title}")
             if receipt:
                 # Record the чек so the off-box receipts job never re-registers
                 # this income with ФНС.

@@ -937,7 +937,7 @@ async def test_receipts_pending_lists_only_unreceipted_completed(api_client, ses
     items = response.json()["items"]
     assert [i["paymentId"] for i in items] == [p1.id]
     assert items[0]["amountKopecks"] == 14900
-    assert items[0]["serviceName"].startswith("Оплата подписки:")
+    assert items[0]["serviceName"].startswith("UnLockVPN —")  # brand in the item name
 
 
 @pytest.mark.asyncio
