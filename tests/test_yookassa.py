@@ -160,3 +160,40 @@ async def test_get_payment_returns_status(yk_settings):
         payment = await yookassa.get_payment("p1")
 
     assert payment["status"] == "succeeded"
+
+
+@pytest.mark.unit
+async def test_verify_paid_true_for_succeeded_matching_amount(yk_settings):
+    with aioresponses() as mocked:
+        mocked.get(
+            "https://api.yookassa.ru/v3/payments/pay-1",
+            payload={"status": "succeeded", "paid": True, "amount": {"value": "149.00", "currency": "RUB"}},
+        )
+        assert await yookassa.verify_paid("pay-1", 14900) is True
+
+
+@pytest.mark.unit
+async def test_verify_paid_false_when_canceled(yk_settings):
+    with aioresponses() as mocked:
+        mocked.get(
+            "https://api.yookassa.ru/v3/payments/pay-2",
+            payload={"status": "canceled", "paid": False, "amount": {"value": "149.00", "currency": "RUB"}},
+        )
+        assert await yookassa.verify_paid("pay-2", 14900) is False
+
+
+@pytest.mark.unit
+async def test_verify_paid_false_when_amount_short(yk_settings):
+    with aioresponses() as mocked:
+        mocked.get(
+            "https://api.yookassa.ru/v3/payments/pay-3",
+            payload={"status": "succeeded", "paid": True, "amount": {"value": "1.00", "currency": "RUB"}},
+        )
+        assert await yookassa.verify_paid("pay-3", 14900) is False
+
+
+@pytest.mark.unit
+async def test_verify_paid_fails_closed_on_error(yk_settings):
+    with aioresponses() as mocked:
+        mocked.get("https://api.yookassa.ru/v3/payments/pay-4", status=500, payload={"e": 1})
+        assert await yookassa.verify_paid("pay-4", 14900) is False

@@ -495,6 +495,19 @@ def create_app() -> FastAPI:
         payments = await repo.list_unreceipted_completed_payments(provider="yookassa")
         items = []
         for payment in payments:
+            # HARD GATE against phantom receipts: never hand a payment to the
+            # fiscal service on our DB status alone. Re-confirm with YooKassa
+            # that it genuinely succeeded for the expected amount — otherwise a
+            # payment wrongly marked completed (test, replayed webhook, manual
+            # edit) would become real registered income at the tax service.
+            if not payment.external_invoice_id:
+                continue
+            if not await yookassa.verify_paid(payment.external_invoice_id, payment.amount):
+                logging.getLogger("receipts").warning(
+                    "Skipping receipt for payment %s — not verified paid at YooKassa",
+                    payment.id,
+                )
+                continue
             service_name = settings.MOYNALOG_SERVICE_NAME
             try:
                 details = parse_invoice_payload_details(payment.invoice_payload or "")

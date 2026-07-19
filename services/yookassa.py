@@ -15,6 +15,7 @@ Amounts are handled in RUB. Receipts (54-ФЗ, самозанятый) are attac
 from __future__ import annotations
 
 import base64
+import logging
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -22,6 +23,8 @@ from typing import Any
 import aiohttp
 
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class YooKassaError(RuntimeError):
@@ -140,6 +143,28 @@ async def create_payment(
 async def get_payment(payment_id: str) -> dict[str, Any]:
     """Re-fetch a payment to authoritatively confirm its status (webhook check)."""
     return await _request("GET", f"/payments/{payment_id}")
+
+
+async def verify_paid(payment_id: str, expected_kopecks: int) -> bool:
+    """Authoritatively confirm at YooKassa that this payment really succeeded
+    for at least ``expected_kopecks``. Used as a hard gate before issuing a
+    fiscal receipt so a receipt can never be formed for a non-existent payment.
+
+    Fails CLOSED: any API/parse error returns False — better to skip a receipt
+    (and retry next run) than register phantom income with the tax service.
+    """
+    try:
+        payment = await get_payment(str(payment_id))
+    except Exception:  # noqa: BLE001 - unreachable/parse error → treat as unverified
+        logger.warning("YooKassa verify failed for payment %s", payment_id, exc_info=True)
+        return False
+    if payment.get("status") != "succeeded" or not payment.get("paid"):
+        return False
+    try:
+        paid_kopecks = int(round(float(payment["amount"]["value"]) * 100))
+    except (KeyError, TypeError, ValueError):
+        return False
+    return paid_kopecks >= expected_kopecks
 
 
 def confirmation_url(payment: dict[str, Any]) -> str | None:

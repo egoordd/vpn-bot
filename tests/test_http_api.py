@@ -896,9 +896,15 @@ def api_mod_auth_ip_limit() -> int:
 
 
 @pytest.mark.asyncio
-async def test_receipts_pending_lists_only_unreceipted_completed(api_client, session_pool):
+async def test_receipts_pending_lists_only_unreceipted_completed(api_client, session_pool, monkeypatch):
+    from unittest.mock import AsyncMock
+
     from database.repository import Repository
+    from services import http_api as api_mod
     from services.payment import create_invoice_payload
+
+    # YooKassa confirms every listed payment as genuinely paid.
+    monkeypatch.setattr(api_mod.yookassa, "verify_paid", AsyncMock(return_value=True))
 
     async with session_pool() as session:
         repo = Repository(session)
@@ -932,6 +938,45 @@ async def test_receipts_pending_lists_only_unreceipted_completed(api_client, ses
     assert [i["paymentId"] for i in items] == [p1.id]
     assert items[0]["amountKopecks"] == 14900
     assert items[0]["serviceName"].startswith("Оплата подписки:")
+
+
+@pytest.mark.asyncio
+async def test_receipts_pending_excludes_payments_not_verified_at_yookassa(
+    api_client, session_pool, monkeypatch
+):
+    """A payment marked completed in our DB but NOT confirmed paid at YooKassa
+    must never reach the fiscal service — this is the anti-phantom-receipt gate."""
+    from unittest.mock import AsyncMock
+
+    from database.repository import Repository
+    from services import http_api as api_mod
+    from services.payment import create_invoice_payload
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=5610)
+        real = await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-real",
+            invoice_payload=create_invoice_payload(user_id=user.id, plan="standard_1m"),
+            plan="standard_1m",
+        )
+        await repo.update_payment_status(real.id, "completed")
+        fake = await repo.create_yookassa_payment(
+            user_id=user.id, amount=14900, external_invoice_id="yk-fake",
+            invoice_payload=create_invoice_payload(user_id=user.id, plan="standard_1m"),
+            plan="standard_1m",
+        )
+        await repo.update_payment_status(fake.id, "completed")
+
+    async def fake_verify(external_id, expected):
+        return external_id == "yk-real"  # only the real one is confirmed paid
+
+    monkeypatch.setattr(api_mod.yookassa, "verify_paid", fake_verify)
+
+    response = await api_client.get("/web/receipts/pending")
+
+    assert response.status_code == 200
+    assert [i["paymentId"] for i in response.json()["items"]] == [real.id]
 
 
 @pytest.mark.asyncio
