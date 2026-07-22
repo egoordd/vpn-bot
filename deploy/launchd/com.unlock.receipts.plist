@@ -41,7 +41,7 @@
     <true/>
 
     <key>StartInterval</key>
-    <integer>21600</integer>
+    <integer>3600</integer>
 
     <key>StandardOutPath</key>
     <string>/Users/egoordd/vpn-bot/tmp/receipts_job.log</string>

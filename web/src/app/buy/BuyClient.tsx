@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { TelegramLoginButton } from "@/components/auth/TelegramLoginButton";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { formatRubFromRubles } from "@/lib/money";
@@ -28,7 +27,6 @@ interface BuyClientProps {
 
 export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimit }: BuyClientProps) {
   const [telegramId, setTelegramId] = useState<number | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,8 +42,6 @@ export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimi
       }
     } catch {
       setTelegramId(null);
-    } finally {
-      setAuthChecked(true);
     }
   }, []);
 
@@ -122,12 +118,6 @@ export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimi
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
-            {authChecked && (
-              <div className="buy__tg-alt">
-                <span className="buy__tg-alt-label mono">или войдите через Telegram:</span>
-                <TelegramLoginButton onSuccess={refreshAuth} onError={setError} />
-              </div>
-            )}
           </>
         )}
       </div>
