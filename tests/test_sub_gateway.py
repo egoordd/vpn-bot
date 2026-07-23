@@ -400,3 +400,28 @@ def test_build_auto_json_falls_back_to_base64_without_xray_nodes(monkeypatch):
 def test_build_auto_json_none_for_unknown_token(monkeypatch):
     monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: None)
     assert sub_gateway.build_auto_json("tok") is None
+
+
+def test_reorder_by_proximity_poland_first_us_last():
+    # Marzban order is US, NL, PL; RU-audience order must be PL, NL, US,
+    # with each location's protocols kept grouped.
+    US, NL, PL = "144.172.101.217.sslip.io", "107.189.22.160.sslip.io", "78.17.154.225.sslip.io"
+    links = [
+        f"vless://u@{US}:443#US",
+        f"hysteria2://p@{US}:443#US-Hy2",
+        f"vless://u@{NL}:2053#NL",
+        f"hysteria2://p@{NL}:443#NL-Hy2",
+        f"vless://u@{PL}:2087#PL",
+        f"trojan://p@{PL}:8444#PL-Trojan",
+    ]
+    out = sub_gateway.reorder_by_proximity(links)
+    hosts = [sub_gateway._uri_host(u) for u in out]
+    # Poland group first, Netherlands second, USA last
+    assert hosts == [PL, PL, NL, NL, US, US]
+
+
+def test_reorder_by_proximity_unknown_host_before_us():
+    US = "144.172.101.217.sslip.io"
+    links = [f"vless://u@{US}:443#US", "vless://u@other.example:443#X"]
+    out = sub_gateway.reorder_by_proximity(links)
+    assert sub_gateway._uri_host(out[0]) == "other.example"  # unknown ahead of US

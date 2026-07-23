@@ -346,6 +346,27 @@ def combine_links(decoded: str) -> list[str]:
     return combined
 
 
+# RU-audience proximity order: the app's default/top server should be the
+# lowest-ping one. Poland/Netherlands are ~30-70ms from RU; the US is ~250ms,
+# so it goes last (kept available, just not the default a user taps into).
+NODE_PRIORITY = {
+    "78.17.154.225.sslip.io": 0,    # 🇵🇱 Польша (ближе всего к РФ)
+    "107.189.22.160.sslip.io": 1,   # 🇳🇱 Нидерланды
+    "144.172.101.217.sslip.io": 2,  # 🇺🇸 США (дальше всего)
+}
+_DEFAULT_PRIORITY = 1  # unknown hosts sit mid-list, ahead of the far US node
+
+
+def reorder_by_proximity(links: list[str]) -> list[str]:
+    """Order locations closest-to-RU first (Польша → Нидерланды → … → США).
+
+    Stable within a location: each node's VLESS/Hy2/Trojan stay grouped and in
+    their original order (same host → same priority → tie broken by index)."""
+    indexed = list(enumerate(links))
+    indexed.sort(key=lambda pair: (NODE_PRIORITY.get(_uri_host(pair[1]) or "", _DEFAULT_PRIORITY), pair[0]))
+    return [uri for _, uri in indexed]
+
+
 def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     """Resolve a token to its live proxy links (health-filtered).
 
@@ -365,7 +386,7 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     if not combined:
         return [], userinfo
     _register_probe_targets(combined)
-    return filter_alive(combined), userinfo
+    return reorder_by_proximity(filter_alive(combined)), userinfo
 
 
 def build_combined(token: str) -> tuple[str, str | None] | None:
