@@ -1,5 +1,6 @@
 import base64
 import json
+import urllib.parse
 
 import pytest
 
@@ -425,3 +426,65 @@ def test_reorder_by_proximity_unknown_host_before_us():
     links = [f"vless://u@{US}:443#US", "vless://u@other.example:443#X"]
     out = sub_gateway.reorder_by_proximity(links)
     assert sub_gateway._uri_host(out[0]) == "other.example"  # unknown ahead of US
+
+
+# --- 🇷🇺→🇩🇪 cascade -----------------------------------------------------------
+
+DE_HOST = "166.0.28.132.sslip.io"
+
+
+def _de_reality(uuid: str = "uuid", port: int = 2096) -> str:
+    return (
+        f"vless://{uuid}@{DE_HOST}:{port}?security=reality&type=tcp"
+        f"&flow=xtls-rprx-vision&sni={DE_HOST}&fp=firefox&pbk=PBK&sid=SID#🇩🇪 Германия"
+    )
+
+
+def test_relay_rewrite_swaps_only_connect_host():
+    out = sub_gateway._relay_rewrite(_de_reality(), "130.49.143.41", "cascade")
+    # connect host is now the relay, port preserved
+    assert sub_gateway._uri_endpoint(out) == ("130.49.143.41", 2096)
+    # Reality sni/keys stay Frankfurt's so the stolen-cert handshake validates
+    assert f"sni={DE_HOST}" in out
+    assert "pbk=PBK" in out and "sid=SID" in out
+    assert out.endswith("#cascade")
+    # the original uuid/userinfo is preserved
+    assert out.split("://", 1)[1].startswith("uuid@")
+
+
+def test_build_cascade_links_twins_frankfurt_reality():
+    cascade = sub_gateway.build_cascade_links([_de_reality("abc")])
+    assert len(cascade) == 1
+    assert sub_gateway._uri_host(cascade[0]) == sub_gateway.RU_RELAY_HOST
+    assert sub_gateway.CASCADE_REMARK.split("→")[0] in cascade[0] or "%" in cascade[0]
+
+
+def test_build_cascade_links_ignores_other_nodes_and_unforwarded_ports():
+    other = f"vless://u@78.17.154.225.sslip.io:2087?security=reality&sni=x#PL"
+    de_wrong_port = _de_reality(port=443)  # vless on 443 is not a DNAT'd cascade port
+    pl_hy2 = f"hysteria2://p@78.17.154.225.sslip.io:443?sni=x#PL-Hy2"  # wrong node
+    assert sub_gateway.build_cascade_links([other, de_wrong_port, pl_hy2]) == []
+
+
+def test_build_cascade_links_twins_frankfurt_hy2():
+    de_hy2 = f"hysteria2://depass@{DE_HOST}:443?sni={DE_HOST}&insecure=0#🇩🇪 Германия · Hysteria2"
+    cascade = sub_gateway.build_cascade_links([de_hy2])
+    assert len(cascade) == 1
+    assert cascade[0].startswith(f"hysteria2://depass@{sub_gateway.RU_RELAY_HOST}:443")
+    # Hy2 cert still validates against Frankfurt's sni through the UDP relay
+    assert f"sni={DE_HOST}" in cascade[0]
+    assert "Hy2" in urllib.parse.unquote(cascade[0])
+
+
+def test_resolve_links_places_cascade_first(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(
+        sub_gateway,
+        "_fetch_upstream_sub",
+        lambda token: (_de_reality("u1") + "\n" + _reality_uri("78.17.154.225.sslip.io"), None, "remnawave"),
+    )
+    links, _ = sub_gateway.resolve_links("tok")
+    # cascade (relay host) is the very first entry a user sees
+    assert sub_gateway._uri_host(links[0]) == sub_gateway.RU_RELAY_HOST
+    # Frankfurt direct follows, Poland after it
+    assert sub_gateway._uri_host(links[1]) == DE_HOST

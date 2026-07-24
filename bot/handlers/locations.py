@@ -52,8 +52,17 @@ async def _edit_text(callback: CallbackQuery, text: str, reply_markup: InlineKey
 
 
 # Shared locations available in the standard (multi-location) subscription.
-# Switched on the client side (the subscription lists all of them).
-SHARED_LOCATIONS = ["🇺🇸 США", "🇳🇱 Нидерланды", "🇵🇱 Польша"]
+# Switched on the client side (the subscription lists all of them). Ordered
+# closest-to-RU first, matching the subscription the gateway serves: the
+# 🇷🇺→🇩🇪 cascade enters on a domestic Moscow IP (un-throttled first hop) and
+# exits in Germany, so it gives the lowest real ping for Russian users.
+SHARED_LOCATIONS = [
+    "🇷🇺→🇩🇪 Каскад (Россия → Германия) — самый низкий пинг",
+    "🇩🇪 Германия",
+    "🇵🇱 Польша",
+    "🇳🇱 Нидерланды",
+    "🇺🇸 США",
+]
 
 
 @router.callback_query(F.data == "locations")
@@ -63,9 +72,11 @@ async def locations_handler(
 ) -> None:
     text = (
         "🌍 <b>Локации</b>\n\n"
-        "В вашей подписке доступны страны:\n"
+        "В вашей подписке доступны серверы:\n"
         + bq(*SHARED_LOCATIONS)
-        + "\n\n🔀 Переключайтесь между ними <b>прямо в приложении</b> "
+        + "\n\n⚡️ Для России рекомендуем <b>верхний</b> сервер — "
+        "«🇷🇺→🇩🇪 Каскад»: вход через Москву, выход в Германии, минимальный пинг.\n\n"
+        "🔀 Переключайтесь между серверами <b>прямо в приложении</b> "
         "(выбор сервера в Happ / V2RayTun / Hiddify) — ссылка-подписка одна."
     )
     await _edit_text(callback, text, back_to_menu_keyboard())

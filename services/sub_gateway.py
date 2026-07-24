@@ -106,7 +106,29 @@ NODES = {
         "trojan_port": 8444,
         "trojan_pass": os.environ.get("PL_TROJAN_PASS", ""),
     },
+    "166.0.28.132.sslip.io": {
+        "flag": "🇩🇪", "name": "Германия",
+        "hy2_host": "166.0.28.132.sslip.io", "hy2_port": 443,
+        "hy2_pass": os.environ.get("DE_HY2_PASS", ""),
+    },
 }
+
+# --- 🇷🇺→🇩🇪 cascade -----------------------------------------------------------
+# A domestic Moscow relay (raw TCP DNAT, no user state) forwards its Reality
+# port straight to the Frankfurt exit. Clients connect to a *Russian* IP — the
+# first hop is domestic and un-throttled — while Reality still authenticates
+# end-to-end against Frankfurt and traffic egresses in Germany. We synthesize
+# the client entry by copying each user's Frankfurt Reality link and rewriting
+# only the connect host to the relay; the Reality sni/pbk/sid stay Frankfurt's,
+# so the stolen-cert handshake validates through the relay unchanged.
+DE_HOST = "166.0.28.132.sslip.io"
+RU_RELAY_HOST = os.environ.get("RU_RELAY_HOST", "130.49.143.41")
+CASCADE_REMARK = "🇷🇺→🇩🇪 Каскад"
+# Frankfurt ports the Moscow relay actually DNATs onward. Only DE links on these
+# (proto, port) endpoints get a cascade twin, so we never advertise a relay path
+# the relay doesn't forward: tcp/2096 = VLESS Reality, udp/443 = Hysteria2.
+CASCADE_TCP_PORTS = {2096}
+CASCADE_UDP_PORTS = {443}
 
 # The gateway calls our own Marzban panel (same host in prod), so TLS
 # verification is unnecessary here and trips on the own-domain sslip cert.
@@ -346,15 +368,68 @@ def combine_links(decoded: str) -> list[str]:
     return combined
 
 
+def _relay_rewrite(uri: str, new_host: str, remark: str) -> str:
+    """Return a copy of a proxy URI with only the connect host swapped and the
+    remark relabeled — query (sni/pbk/sid/…) and port are kept verbatim.
+
+    Used to point a Reality link at the Moscow relay instead of Frankfurt: the
+    relay DNATs the bytes onward, so the Reality handshake still validates
+    against Frankfurt's sni/keys that stay in the query string untouched."""
+    base, _, _frag = uri.partition("#")
+    pre_query, qsep, query = base.partition("?")
+    scheme, sep, rest = pre_query.partition("://")
+    if not sep:
+        return uri
+    userinfo, at, hostport = rest.rpartition("@")
+    if not at:
+        return uri
+    _host, colon, port = hostport.partition(":")
+    new_hostport = f"{new_host}:{port}" if colon else new_host
+    out = f"{scheme}://{userinfo}@{new_hostport}"
+    if qsep:
+        out += qsep + query
+    return out + "#" + urllib.parse.quote(remark)
+
+
+def build_cascade_links(links: list[str]) -> list[str]:
+    """Synthesize the 🇷🇺→🇩🇪 cascade entries from each forwarded Frankfurt link.
+
+    Both the VLESS Reality (tcp/2096) and the Hysteria2 (udp/443) Frankfurt links
+    get a Moscow-relay twin — but only on ports the relay actually DNATs, so we
+    never advertise a relay path that isn't wired. Order follows the source
+    links; final placement is handled by reorder_by_proximity."""
+    cascade: list[str] = []
+    for uri in links:
+        if _uri_host(uri) != DE_HOST:
+            continue
+        endpoint = _uri_endpoint(uri)
+        if endpoint is None:
+            continue
+        if _is_udp_uri(uri):
+            if endpoint[1] not in CASCADE_UDP_PORTS:
+                continue
+            remark = CASCADE_REMARK + " · Hy2"
+        else:
+            if endpoint[1] not in CASCADE_TCP_PORTS:
+                continue
+            remark = CASCADE_REMARK
+        cascade.append(_relay_rewrite(uri, RU_RELAY_HOST, remark))
+    return cascade
+
+
 # RU-audience proximity order: the app's default/top server should be the
-# lowest-ping one. Poland/Netherlands are ~30-70ms from RU; the US is ~250ms,
-# so it goes last (kept available, just not the default a user taps into).
+# lowest-ping one. The 🇷🇺→🇩🇪 cascade enters on a domestic Moscow IP (the
+# un-throttled first hop) so it wins outright; Germany/Poland/Netherlands are
+# ~30-70ms direct; the US is ~250ms, so it goes last (kept available, just not
+# the default a user taps into).
 NODE_PRIORITY = {
-    "78.17.154.225.sslip.io": 0,    # 🇵🇱 Польша (ближе всего к РФ)
-    "107.189.22.160.sslip.io": 1,   # 🇳🇱 Нидерланды
-    "144.172.101.217.sslip.io": 2,  # 🇺🇸 США (дальше всего)
+    RU_RELAY_HOST: 0,               # 🇷🇺→🇩🇪 каскад (домашний вход, ниже всего пинг)
+    "166.0.28.132.sslip.io": 1,     # 🇩🇪 Германия (Франкфурт, прямой)
+    "78.17.154.225.sslip.io": 2,    # 🇵🇱 Польша
+    "107.189.22.160.sslip.io": 3,   # 🇳🇱 Нидерланды
+    "144.172.101.217.sslip.io": 4,  # 🇺🇸 США (дальше всего)
 }
-_DEFAULT_PRIORITY = 1  # unknown hosts sit mid-list, ahead of the far US node
+_DEFAULT_PRIORITY = 2  # unknown hosts sit mid-list, ahead of the far NL/US nodes
 
 
 def reorder_by_proximity(links: list[str]) -> list[str]:
@@ -385,6 +460,7 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     combined = combine_links(decoded)
     if not combined:
         return [], userinfo
+    combined = combined + build_cascade_links(combined)
     _register_probe_targets(combined)
     return reorder_by_proximity(filter_alive(combined)), userinfo
 
