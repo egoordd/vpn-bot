@@ -121,6 +121,12 @@ NODES = {
 # the client entry by copying each user's Frankfurt Reality link and rewriting
 # only the connect host to the relay; the Reality sni/pbk/sid stay Frankfurt's,
 # so the stolen-cert handshake validates through the relay unchanged.
+# Master switch for the cascade entries. The plain DNAT relay only helps while
+# the domestic entry IP stays un-throttled; once RKN/TSPU flags the relay's IP
+# the cascade degrades to the same throttled latency as a direct foreign link,
+# so it must be pullable from the subscription without a code change. Off in
+# prod until the entry survives throttling (obfuscated relay / cleaner IP).
+CASCADE_ENABLED = os.environ.get("CASCADE_ENABLED", "1").lower() not in ("0", "false", "no", "")
 DE_HOST = "166.0.28.132.sslip.io"
 RU_RELAY_HOST = os.environ.get("RU_RELAY_HOST", "130.49.143.41")
 CASCADE_REMARK = "🇷🇺→🇩🇪 Каскад"
@@ -398,6 +404,8 @@ def build_cascade_links(links: list[str]) -> list[str]:
     get a Moscow-relay twin — but only on ports the relay actually DNATs, so we
     never advertise a relay path that isn't wired. Order follows the source
     links; final placement is handled by reorder_by_proximity."""
+    if not CASCADE_ENABLED:
+        return []
     cascade: list[str] = []
     for uri in links:
         if _uri_host(uri) != DE_HOST:
@@ -423,9 +431,9 @@ def build_cascade_links(links: list[str]) -> list[str]:
 # ~30-70ms direct; the US is ~250ms, so it goes last (kept available, just not
 # the default a user taps into).
 NODE_PRIORITY = {
-    RU_RELAY_HOST: 0,               # 🇷🇺→🇩🇪 каскад (домашний вход, ниже всего пинг)
-    "166.0.28.132.sslip.io": 1,     # 🇩🇪 Германия (Франкфурт, прямой)
-    "78.17.154.225.sslip.io": 2,    # 🇵🇱 Польша
+    RU_RELAY_HOST: 0,               # 🇷🇺→🇩🇪 каскад — первый, только когда включён
+    "78.17.154.225.sslip.io": 1,    # 🇵🇱 Польша (Варшава — ближе всего европ. части РФ)
+    "166.0.28.132.sslip.io": 2,     # 🇩🇪 Германия (Франкфурт)
     "107.189.22.160.sslip.io": 3,   # 🇳🇱 Нидерланды
     "144.172.101.217.sslip.io": 4,  # 🇺🇸 США (дальше всего)
 }

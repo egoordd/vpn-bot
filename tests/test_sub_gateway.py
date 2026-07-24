@@ -476,8 +476,9 @@ def test_build_cascade_links_twins_frankfurt_hy2():
     assert "Hy2" in urllib.parse.unquote(cascade[0])
 
 
-def test_resolve_links_places_cascade_first(monkeypatch):
+def test_resolve_links_places_cascade_first_when_enabled(monkeypatch):
     monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", True)
     monkeypatch.setattr(
         sub_gateway,
         "_fetch_upstream_sub",
@@ -486,5 +487,25 @@ def test_resolve_links_places_cascade_first(monkeypatch):
     links, _ = sub_gateway.resolve_links("tok")
     # cascade (relay host) is the very first entry a user sees
     assert sub_gateway._uri_host(links[0]) == sub_gateway.RU_RELAY_HOST
-    # Frankfurt direct follows, Poland after it
-    assert sub_gateway._uri_host(links[1]) == DE_HOST
+    # Poland (priority 1) then Frankfurt (priority 2) among the direct nodes
+    hosts = [sub_gateway._uri_host(u) for u in links]
+    assert hosts.index("78.17.154.225.sslip.io") < hosts.index(DE_HOST)
+
+
+def test_build_cascade_links_empty_when_disabled(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", False)
+    assert sub_gateway.build_cascade_links([_de_reality("abc")]) == []
+
+
+def test_resolve_links_omits_cascade_when_disabled(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", False)
+    monkeypatch.setattr(
+        sub_gateway,
+        "_fetch_upstream_sub",
+        lambda token: (_de_reality("u1"), None, "remnawave"),
+    )
+    links, _ = sub_gateway.resolve_links("tok")
+    # no relay-host entries at all; Frankfurt direct leads
+    assert all(sub_gateway._uri_host(u) != sub_gateway.RU_RELAY_HOST for u in links)
+    assert sub_gateway._uri_host(links[0]) == DE_HOST
