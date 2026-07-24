@@ -113,28 +113,35 @@ NODES = {
     },
 }
 
-# --- 🇷🇺→🇩🇪 cascade -----------------------------------------------------------
+# --- 🇷🇺→exit cascades ---------------------------------------------------------
 # A domestic Moscow relay runs its own Xray (VLESS Reality) with split routing:
 # it terminates the client's tunnel on a *Russian* IP (un-throttled first hop),
 # then sends Russian destinations out its own Russian IP (geoip:ru / RU domains
 # → direct, so banks / gosuslugi / RU apps see a Russian IP and work) and
-# forwards everything else to the Frankfurt exit (bypass). VLESS/TCP only — RU
-# mobile blocks the UDP/QUIC path, so there is deliberately no Hysteria2 twin.
-# The entry is a standalone shared-secret link (like the Hy2/Trojan extras),
+# forwards everything else to a foreign exit (bypass). The relay listens on one
+# port per exit country and routes that inbound to the matching exit node, so we
+# offer a 🇷🇺→<country> cascade for every location. VLESS/TCP only — RU mobile
+# blocks the UDP/QUIC path, so there is deliberately no Hysteria2 twin. Each
+# entry is a standalone shared-secret link (like the Hy2/Trojan extras),
 # hand-added below rather than derived from a per-user Marzban link. Expiry is
 # still enforced upstream: resolve_links() blanks the whole sub for an expired
 # user before this runs, so the cascade never leaks to a lapsed account here.
 CASCADE_ENABLED = os.environ.get("CASCADE_ENABLED", "1").lower() not in ("0", "false", "no", "")
-DE_HOST = "166.0.28.132.sslip.io"
-# The relay's own Reality identity (its keypair, not Frankfurt's — the handshake
-# now terminates in Moscow). Host == SNI == an sslip name resolving to the relay
-# IP, per the SNI/IP-correlation fix that keeps Reality working on RU LTE.
+# The relay's own Reality identity (its keypair — the handshake terminates in
+# Moscow), shared across every country port. Host == SNI == an sslip name
+# resolving to the relay IP, per the SNI/IP-correlation fix for RU LTE.
 RU_RELAY_HOST = os.environ.get("RU_RELAY_HOST", "130.49.143.41.sslip.io")
-CASCADE_PORT = int(os.environ.get("CASCADE_PORT", "2096"))
 CASCADE_UUID = os.environ.get("CASCADE_UUID", "02ef44d5-0588-470f-a3e0-fdb498a3b501")
 CASCADE_PBK = os.environ.get("CASCADE_PBK", "Z6NNgVuRJ2lFsgLLNv7aSMt-CS8Ywy5ZeZu898zoqno")
 CASCADE_SID = os.environ.get("CASCADE_SID", "9a5e913a359a98a8")
-CASCADE_REMARK = "🇷🇺→🇩🇪 Каскад"
+# (relay port, remark) per exit country — mirrors the relay's per-country
+# inbounds. Closest-first so the top cascade a user taps is the nearest exit.
+CASCADE_COUNTRIES = (
+    (2091, "🇷🇺→🇵🇱 Каскад"),
+    (2096, "🇷🇺→🇩🇪 Каскад"),
+    (2092, "🇷🇺→🇳🇱 Каскад"),
+    (2093, "🇷🇺→🇺🇸 Каскад"),
+)
 
 # The gateway calls our own Marzban panel (same host in prod), so TLS
 # verification is unnecessary here and trips on the own-domain sslip cert.
@@ -374,28 +381,29 @@ def combine_links(decoded: str) -> list[str]:
     return combined
 
 
-def _cascade_link() -> str:
-    """The standalone 🇷🇺→🇩🇪 cascade entry: VLESS Reality to the Moscow relay's
-    own inbound (its keypair, VLESS/TCP only). The relay does the RU-vs-foreign
-    split routing server-side, so the client needs nothing but this one link."""
+def _cascade_link(port: int, remark: str) -> str:
+    """One standalone 🇷🇺→<country> cascade entry: VLESS Reality to the Moscow
+    relay's per-country inbound (its keypair, VLESS/TCP only). The relay does the
+    RU-vs-foreign split routing server-side and forwards this port's foreign
+    traffic to the matching exit, so the client needs nothing but this link."""
     return (
-        f"vless://{CASCADE_UUID}@{RU_RELAY_HOST}:{CASCADE_PORT}"
+        f"vless://{CASCADE_UUID}@{RU_RELAY_HOST}:{port}"
         f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={RU_RELAY_HOST}"
         f"&fp=firefox&pbk={CASCADE_PBK}&sid={CASCADE_SID}"
-        f"#{urllib.parse.quote(CASCADE_REMARK)}"
+        f"#{urllib.parse.quote(remark)}"
     )
 
 
 def build_cascade_links(links: list[str]) -> list[str]:
-    """Hand-add the 🇷🇺→🇩🇪 cascade entry for an active subscription.
+    """Hand-add a 🇷🇺→<country> cascade entry per exit for an active subscription.
 
     Emitted only when enabled and the user already has at least one live link
     (resolve_links has already blanked expired subs), so a lapsed account never
-    receives the shared-secret cascade here. Placement is left to
-    reorder_by_proximity, which ranks the relay host first."""
+    receives the shared-secret cascade here. All entries share the relay host, so
+    reorder_by_proximity groups them first, in CASCADE_COUNTRIES order."""
     if not CASCADE_ENABLED or not links:
         return []
-    return [_cascade_link()]
+    return [_cascade_link(port, remark) for port, remark in CASCADE_COUNTRIES]
 
 
 # RU-audience proximity order: the app's default/top server should be the

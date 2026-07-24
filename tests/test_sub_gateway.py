@@ -443,19 +443,23 @@ def _de_reality(uuid: str = "uuid", port: int = 2096) -> str:
 
 
 def test_cascade_link_targets_the_moscow_relay_reality():
-    link = sub_gateway._cascade_link()
+    port, remark = sub_gateway.CASCADE_COUNTRIES[0]
+    link = sub_gateway._cascade_link(port, remark)
     # VLESS/TCP to the relay's own Reality identity (no UDP/Hy2 twin)
-    assert link.startswith(f"vless://{sub_gateway.CASCADE_UUID}@{sub_gateway.RU_RELAY_HOST}:{sub_gateway.CASCADE_PORT}")
+    assert link.startswith(f"vless://{sub_gateway.CASCADE_UUID}@{sub_gateway.RU_RELAY_HOST}:{port}")
     assert f"sni={sub_gateway.RU_RELAY_HOST}" in link
     assert f"pbk={sub_gateway.CASCADE_PBK}" in link and f"sid={sub_gateway.CASCADE_SID}" in link
     assert "flow=xtls-rprx-vision" in link
     assert "hysteria2" not in link  # RU mobile blocks UDP — VLESS only
 
 
-def test_build_cascade_links_adds_one_entry_for_active_sub():
+def test_build_cascade_links_adds_one_entry_per_country():
     cascade = sub_gateway.build_cascade_links([_de_reality("abc")])
-    assert cascade == [sub_gateway._cascade_link()]
-    assert sub_gateway._uri_host(cascade[0]) == sub_gateway.RU_RELAY_HOST
+    # one 🇷🇺→<country> entry per exit, all on the relay host, distinct ports
+    assert len(cascade) == len(sub_gateway.CASCADE_COUNTRIES)
+    assert all(sub_gateway._uri_host(c) == sub_gateway.RU_RELAY_HOST for c in cascade)
+    ports = [sub_gateway._uri_endpoint(c)[1] for c in cascade]
+    assert ports == [p for p, _ in sub_gateway.CASCADE_COUNTRIES]
 
 
 def test_build_cascade_links_empty_for_blank_sub():

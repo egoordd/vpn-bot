@@ -11,9 +11,126 @@
   },
   "inbounds": [
     {
-      "tag": "cascade-in",
+      "tag": "in-pl",
+      "listen": "0.0.0.0",
+      "port": 2091,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "02ef44d5-0588-470f-a3e0-fdb498a3b501",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "130.49.143.41:8443",
+          "xver": 0,
+          "serverNames": [
+            "130.49.143.41.sslip.io"
+          ],
+          "privateKey": "${RU_REALITY_PRIVKEY}",
+          "shortIds": [
+            "9a5e913a359a98a8"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    },
+    {
+      "tag": "in-de",
       "listen": "0.0.0.0",
       "port": 2096,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "02ef44d5-0588-470f-a3e0-fdb498a3b501",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "130.49.143.41:8443",
+          "xver": 0,
+          "serverNames": [
+            "130.49.143.41.sslip.io"
+          ],
+          "privateKey": "${RU_REALITY_PRIVKEY}",
+          "shortIds": [
+            "9a5e913a359a98a8"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    },
+    {
+      "tag": "in-nl",
+      "listen": "0.0.0.0",
+      "port": 2092,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "02ef44d5-0588-470f-a3e0-fdb498a3b501",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "130.49.143.41:8443",
+          "xver": 0,
+          "serverNames": [
+            "130.49.143.41.sslip.io"
+          ],
+          "privateKey": "${RU_REALITY_PRIVKEY}",
+          "shortIds": [
+            "9a5e913a359a98a8"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    },
+    {
+      "tag": "in-us",
+      "listen": "0.0.0.0",
+      "port": 2093,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -63,6 +180,35 @@
       "protocol": "blackhole"
     },
     {
+      "tag": "pl",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "78.17.154.225.sslip.io",
+            "port": 2087,
+            "users": [
+              {
+                "id": "654c46c1-b668-47ab-a874-cc79423d69be",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "78.17.154.225.sslip.io",
+          "fingerprint": "firefox",
+          "publicKey": "B94gt5HcRpinXwbnQFFjRV1ZMNA0Da38-7Aej69Y8TA",
+          "shortId": "39fb8b580ab91c5d"
+        }
+      }
+    },
+    {
       "tag": "de",
       "protocol": "vless",
       "settings": {
@@ -90,6 +236,64 @@
           "shortId": "3f9c1e7a2b8d4056"
         }
       }
+    },
+    {
+      "tag": "nl",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "107.189.22.160.sslip.io",
+            "port": 2053,
+            "users": [
+              {
+                "id": "654c46c1-b668-47ab-a874-cc79423d69be",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "107.189.22.160.sslip.io",
+          "fingerprint": "firefox",
+          "publicKey": "n_G4LjyBI8FvOdcgFiYW2UP-hXx1EQaSqiO3HpDA-jc",
+          "shortId": "a6ec94b3651e91c1"
+        }
+      }
+    },
+    {
+      "tag": "us",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "144.172.101.217.sslip.io",
+            "port": 443,
+            "users": [
+              {
+                "id": "654c46c1-b668-47ab-a874-cc79423d69be",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "144.172.101.217.sslip.io",
+          "fingerprint": "firefox",
+          "publicKey": "XfIFLXO4LUizIpiNXay1p8HL_ou5thasFS5bPusNziw",
+          "shortId": "3684c6d01d7363a4"
+        }
+      }
     }
   ],
   "routing": {
@@ -111,6 +315,13 @@
       },
       {
         "type": "field",
+        "ip": [
+          "geoip:ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
         "domain": [
           "geosite:category-ru",
           "geosite:category-gov-ru"
@@ -119,15 +330,31 @@
       },
       {
         "type": "field",
-        "ip": [
-          "geoip:ru"
+        "inboundTag": [
+          "in-pl"
         ],
-        "outboundTag": "direct"
+        "outboundTag": "pl"
       },
       {
         "type": "field",
-        "network": "tcp,udp",
+        "inboundTag": [
+          "in-de"
+        ],
         "outboundTag": "de"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "in-nl"
+        ],
+        "outboundTag": "nl"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "in-us"
+        ],
+        "outboundTag": "us"
       }
     ]
   }
