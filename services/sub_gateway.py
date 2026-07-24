@@ -114,27 +114,27 @@ NODES = {
 }
 
 # --- 🇷🇺→🇩🇪 cascade -----------------------------------------------------------
-# A domestic Moscow relay (raw TCP DNAT, no user state) forwards its Reality
-# port straight to the Frankfurt exit. Clients connect to a *Russian* IP — the
-# first hop is domestic and un-throttled — while Reality still authenticates
-# end-to-end against Frankfurt and traffic egresses in Germany. We synthesize
-# the client entry by copying each user's Frankfurt Reality link and rewriting
-# only the connect host to the relay; the Reality sni/pbk/sid stay Frankfurt's,
-# so the stolen-cert handshake validates through the relay unchanged.
-# Master switch for the cascade entries. The plain DNAT relay only helps while
-# the domestic entry IP stays un-throttled; once RKN/TSPU flags the relay's IP
-# the cascade degrades to the same throttled latency as a direct foreign link,
-# so it must be pullable from the subscription without a code change. Off in
-# prod until the entry survives throttling (obfuscated relay / cleaner IP).
+# A domestic Moscow relay runs its own Xray (VLESS Reality) with split routing:
+# it terminates the client's tunnel on a *Russian* IP (un-throttled first hop),
+# then sends Russian destinations out its own Russian IP (geoip:ru / RU domains
+# → direct, so banks / gosuslugi / RU apps see a Russian IP and work) and
+# forwards everything else to the Frankfurt exit (bypass). VLESS/TCP only — RU
+# mobile blocks the UDP/QUIC path, so there is deliberately no Hysteria2 twin.
+# The entry is a standalone shared-secret link (like the Hy2/Trojan extras),
+# hand-added below rather than derived from a per-user Marzban link. Expiry is
+# still enforced upstream: resolve_links() blanks the whole sub for an expired
+# user before this runs, so the cascade never leaks to a lapsed account here.
 CASCADE_ENABLED = os.environ.get("CASCADE_ENABLED", "1").lower() not in ("0", "false", "no", "")
 DE_HOST = "166.0.28.132.sslip.io"
-RU_RELAY_HOST = os.environ.get("RU_RELAY_HOST", "130.49.143.41")
+# The relay's own Reality identity (its keypair, not Frankfurt's — the handshake
+# now terminates in Moscow). Host == SNI == an sslip name resolving to the relay
+# IP, per the SNI/IP-correlation fix that keeps Reality working on RU LTE.
+RU_RELAY_HOST = os.environ.get("RU_RELAY_HOST", "130.49.143.41.sslip.io")
+CASCADE_PORT = int(os.environ.get("CASCADE_PORT", "2096"))
+CASCADE_UUID = os.environ.get("CASCADE_UUID", "02ef44d5-0588-470f-a3e0-fdb498a3b501")
+CASCADE_PBK = os.environ.get("CASCADE_PBK", "Z6NNgVuRJ2lFsgLLNv7aSMt-CS8Ywy5ZeZu898zoqno")
+CASCADE_SID = os.environ.get("CASCADE_SID", "9a5e913a359a98a8")
 CASCADE_REMARK = "🇷🇺→🇩🇪 Каскад"
-# Frankfurt ports the Moscow relay actually DNATs onward. Only DE links on these
-# (proto, port) endpoints get a cascade twin, so we never advertise a relay path
-# the relay doesn't forward: tcp/2096 = VLESS Reality, udp/443 = Hysteria2.
-CASCADE_TCP_PORTS = {2096}
-CASCADE_UDP_PORTS = {443}
 
 # The gateway calls our own Marzban panel (same host in prod), so TLS
 # verification is unnecessary here and trips on the own-domain sslip cert.
@@ -374,55 +374,28 @@ def combine_links(decoded: str) -> list[str]:
     return combined
 
 
-def _relay_rewrite(uri: str, new_host: str, remark: str) -> str:
-    """Return a copy of a proxy URI with only the connect host swapped and the
-    remark relabeled — query (sni/pbk/sid/…) and port are kept verbatim.
-
-    Used to point a Reality link at the Moscow relay instead of Frankfurt: the
-    relay DNATs the bytes onward, so the Reality handshake still validates
-    against Frankfurt's sni/keys that stay in the query string untouched."""
-    base, _, _frag = uri.partition("#")
-    pre_query, qsep, query = base.partition("?")
-    scheme, sep, rest = pre_query.partition("://")
-    if not sep:
-        return uri
-    userinfo, at, hostport = rest.rpartition("@")
-    if not at:
-        return uri
-    _host, colon, port = hostport.partition(":")
-    new_hostport = f"{new_host}:{port}" if colon else new_host
-    out = f"{scheme}://{userinfo}@{new_hostport}"
-    if qsep:
-        out += qsep + query
-    return out + "#" + urllib.parse.quote(remark)
+def _cascade_link() -> str:
+    """The standalone 🇷🇺→🇩🇪 cascade entry: VLESS Reality to the Moscow relay's
+    own inbound (its keypair, VLESS/TCP only). The relay does the RU-vs-foreign
+    split routing server-side, so the client needs nothing but this one link."""
+    return (
+        f"vless://{CASCADE_UUID}@{RU_RELAY_HOST}:{CASCADE_PORT}"
+        f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={RU_RELAY_HOST}"
+        f"&fp=firefox&pbk={CASCADE_PBK}&sid={CASCADE_SID}"
+        f"#{urllib.parse.quote(CASCADE_REMARK)}"
+    )
 
 
 def build_cascade_links(links: list[str]) -> list[str]:
-    """Synthesize the 🇷🇺→🇩🇪 cascade entries from each forwarded Frankfurt link.
+    """Hand-add the 🇷🇺→🇩🇪 cascade entry for an active subscription.
 
-    Both the VLESS Reality (tcp/2096) and the Hysteria2 (udp/443) Frankfurt links
-    get a Moscow-relay twin — but only on ports the relay actually DNATs, so we
-    never advertise a relay path that isn't wired. Order follows the source
-    links; final placement is handled by reorder_by_proximity."""
-    if not CASCADE_ENABLED:
+    Emitted only when enabled and the user already has at least one live link
+    (resolve_links has already blanked expired subs), so a lapsed account never
+    receives the shared-secret cascade here. Placement is left to
+    reorder_by_proximity, which ranks the relay host first."""
+    if not CASCADE_ENABLED or not links:
         return []
-    cascade: list[str] = []
-    for uri in links:
-        if _uri_host(uri) != DE_HOST:
-            continue
-        endpoint = _uri_endpoint(uri)
-        if endpoint is None:
-            continue
-        if _is_udp_uri(uri):
-            if endpoint[1] not in CASCADE_UDP_PORTS:
-                continue
-            remark = CASCADE_REMARK + " · Hy2"
-        else:
-            if endpoint[1] not in CASCADE_TCP_PORTS:
-                continue
-            remark = CASCADE_REMARK
-        cascade.append(_relay_rewrite(uri, RU_RELAY_HOST, remark))
-    return cascade
+    return [_cascade_link()]
 
 
 # RU-audience proximity order: the app's default/top server should be the

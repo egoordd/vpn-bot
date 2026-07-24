@@ -1,0 +1,134 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "dns": {
+    "servers": [
+      "1.1.1.1",
+      "8.8.8.8",
+      "localhost"
+    ]
+  },
+  "inbounds": [
+    {
+      "tag": "cascade-in",
+      "listen": "0.0.0.0",
+      "port": 2096,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "02ef44d5-0588-470f-a3e0-fdb498a3b501",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "130.49.143.41:8443",
+          "xver": 0,
+          "serverNames": [
+            "130.49.143.41.sslip.io"
+          ],
+          "privateKey": "${RU_REALITY_PRIVKEY}",
+          "shortIds": [
+            "9a5e913a359a98a8"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "UseIPv4"
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    },
+    {
+      "tag": "de",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "166.0.28.132.sslip.io",
+            "port": 2096,
+            "users": [
+              {
+                "id": "654c46c1-b668-47ab-a874-cc79423d69be",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "166.0.28.132.sslip.io",
+          "fingerprint": "firefox",
+          "publicKey": "GwB2zyoXmKCgEAVX5KUVBKxqAZkD5R0vDokGACJJ_2M",
+          "shortId": "3f9c1e7a2b8d4056"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "IPOnDemand",
+    "rules": [
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": [
+          "bittorrent"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "geosite:category-ru",
+          "geosite:category-gov-ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": "de"
+      }
+    ]
+  }
+}

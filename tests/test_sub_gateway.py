@@ -226,6 +226,7 @@ def test_build_combined_serves_active_marzban_user(monkeypatch):
     import base64
 
     vless = f"vless://uuid@{US_HOST}:443#US"
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", False)
     monkeypatch.setattr(
         sub_gateway,
         "_fetch_upstream_sub",
@@ -242,6 +243,7 @@ def test_build_combined_skips_marzban_status_check_for_remnawave(monkeypatch):
     import base64
 
     vless = f"vless://uuid@{US_HOST}:443#US"
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", False)
     monkeypatch.setattr(
         sub_gateway,
         "_fetch_upstream_sub",
@@ -440,40 +442,30 @@ def _de_reality(uuid: str = "uuid", port: int = 2096) -> str:
     )
 
 
-def test_relay_rewrite_swaps_only_connect_host():
-    out = sub_gateway._relay_rewrite(_de_reality(), "130.49.143.41", "cascade")
-    # connect host is now the relay, port preserved
-    assert sub_gateway._uri_endpoint(out) == ("130.49.143.41", 2096)
-    # Reality sni/keys stay Frankfurt's so the stolen-cert handshake validates
-    assert f"sni={DE_HOST}" in out
-    assert "pbk=PBK" in out and "sid=SID" in out
-    assert out.endswith("#cascade")
-    # the original uuid/userinfo is preserved
-    assert out.split("://", 1)[1].startswith("uuid@")
+def test_cascade_link_targets_the_moscow_relay_reality():
+    link = sub_gateway._cascade_link()
+    # VLESS/TCP to the relay's own Reality identity (no UDP/Hy2 twin)
+    assert link.startswith(f"vless://{sub_gateway.CASCADE_UUID}@{sub_gateway.RU_RELAY_HOST}:{sub_gateway.CASCADE_PORT}")
+    assert f"sni={sub_gateway.RU_RELAY_HOST}" in link
+    assert f"pbk={sub_gateway.CASCADE_PBK}" in link and f"sid={sub_gateway.CASCADE_SID}" in link
+    assert "flow=xtls-rprx-vision" in link
+    assert "hysteria2" not in link  # RU mobile blocks UDP — VLESS only
 
 
-def test_build_cascade_links_twins_frankfurt_reality():
+def test_build_cascade_links_adds_one_entry_for_active_sub():
     cascade = sub_gateway.build_cascade_links([_de_reality("abc")])
-    assert len(cascade) == 1
+    assert cascade == [sub_gateway._cascade_link()]
     assert sub_gateway._uri_host(cascade[0]) == sub_gateway.RU_RELAY_HOST
-    assert sub_gateway.CASCADE_REMARK.split("→")[0] in cascade[0] or "%" in cascade[0]
 
 
-def test_build_cascade_links_ignores_other_nodes_and_unforwarded_ports():
-    other = f"vless://u@78.17.154.225.sslip.io:2087?security=reality&sni=x#PL"
-    de_wrong_port = _de_reality(port=443)  # vless on 443 is not a DNAT'd cascade port
-    pl_hy2 = f"hysteria2://p@78.17.154.225.sslip.io:443?sni=x#PL-Hy2"  # wrong node
-    assert sub_gateway.build_cascade_links([other, de_wrong_port, pl_hy2]) == []
+def test_build_cascade_links_empty_for_blank_sub():
+    # an expired/blank sub (no links) must not get the shared-secret cascade
+    assert sub_gateway.build_cascade_links([]) == []
 
 
-def test_build_cascade_links_twins_frankfurt_hy2():
-    de_hy2 = f"hysteria2://depass@{DE_HOST}:443?sni={DE_HOST}&insecure=0#🇩🇪 Германия · Hysteria2"
-    cascade = sub_gateway.build_cascade_links([de_hy2])
-    assert len(cascade) == 1
-    assert cascade[0].startswith(f"hysteria2://depass@{sub_gateway.RU_RELAY_HOST}:443")
-    # Hy2 cert still validates against Frankfurt's sni through the UDP relay
-    assert f"sni={DE_HOST}" in cascade[0]
-    assert "Hy2" in urllib.parse.unquote(cascade[0])
+def test_build_cascade_links_empty_when_disabled(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", False)
+    assert sub_gateway.build_cascade_links([_de_reality("abc")]) == []
 
 
 def test_resolve_links_places_cascade_first_when_enabled(monkeypatch):
@@ -490,11 +482,6 @@ def test_resolve_links_places_cascade_first_when_enabled(monkeypatch):
     # Poland (priority 1) then Frankfurt (priority 2) among the direct nodes
     hosts = [sub_gateway._uri_host(u) for u in links]
     assert hosts.index("78.17.154.225.sslip.io") < hosts.index(DE_HOST)
-
-
-def test_build_cascade_links_empty_when_disabled(monkeypatch):
-    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", False)
-    assert sub_gateway.build_cascade_links([_de_reality("abc")]) == []
 
 
 def test_resolve_links_omits_cascade_when_disabled(monkeypatch):

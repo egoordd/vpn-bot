@@ -61,7 +61,13 @@ def test_build_balancer_config_structure():
     balancer = cfg["routing"]["balancers"][0]
     assert balancer["selector"] == ["proxy-"]
     assert balancer["strategy"]["type"] == "leastPing"
-    assert cfg["routing"]["rules"][0]["balancerTag"] == "auto"
+    rules = cfg["routing"]["rules"]
+    # Russian destinations bypass the tunnel (real IP → RU apps work, no detour)
+    assert cfg["routing"]["domainStrategy"] == "IPOnDemand"
+    assert rules[0]["ip"] == ["geoip:private"] and rules[0]["outboundTag"] == "direct"
+    assert rules[1]["ip"] == ["geoip:ru"] and rules[1]["outboundTag"] == "direct"
+    # everything else load-balances across the foreign nodes
+    assert rules[-1]["balancerTag"] == "auto"
     assert cfg["observatory"]["subjectSelector"] == ["proxy-"]
     # a socks + http inbound the client's TUN bridges to
     assert {i["protocol"] for i in cfg["inbounds"]} == {"socks", "http"}
@@ -78,7 +84,9 @@ def test_build_server_config_uses_uri_remark():
     cfg = xray_json.build_server_config(REALITY, 0)
     assert cfg["remarks"] == "🇺🇸 США"
     assert [o["tag"] for o in cfg["outbounds"]] == ["proxy", "direct", "block"]
-    assert cfg["routing"]["rules"][0]["outboundTag"] == "proxy"
+    # RU-bypass rules first, then everything else through the picked server
+    assert cfg["routing"]["rules"][1]["ip"] == ["geoip:ru"]
+    assert cfg["routing"]["rules"][-1]["outboundTag"] == "proxy"
 
 
 @pytest.mark.unit

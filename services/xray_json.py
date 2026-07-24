@@ -42,12 +42,38 @@ _PROBE_INTERVAL = "3m"
 
 AUTO_REMARKS = "⚡️ Авто-обход"
 
+# Resolver for routing decisions (matching a destination against geoip:ru).
+# geoip:ru needs the destination IP; IPOnDemand resolves domains through this.
+_DNS = {"servers": ["1.1.1.1", "8.8.8.8"]}
+
 
 def _tail_outbounds() -> list[dict]:
     return [
         {"tag": "direct", "protocol": "freedom"},
         {"tag": "block", "protocol": "blackhole"},
     ]
+
+
+# Send Russian destinations straight out the device (real local IP) instead of
+# tunnelling them to a foreign exit and back: RU banks / gosuslugi / apps then
+# see a Russian IP and work, and RU traffic — most of a user's day — takes zero
+# VPN detour, which is the biggest lever on felt latency. geoip:ru only (in
+# every client's bundled geoip.dat, unlike geosite tags that differ per client),
+# with IPIfNonMatch so a RU domain is resolved and matched too. `final_rule`
+# routes everything else (the foreign traffic that actually needs bypass).
+def _split_routing(final_rule: dict) -> dict:
+    # IPOnDemand (not IPIfNonMatch): the catch-all `final_rule` matches every
+    # domain, so IPIfNonMatch never resolves and geoip:ru never fires. IPOnDemand
+    # resolves the domain the instant the geoip:ru rule is evaluated, so a RU
+    # domain is correctly matched and sent direct (verified: ya.ru → direct).
+    return {
+        "domainStrategy": "IPOnDemand",
+        "rules": [
+            {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
+            {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"},
+            final_rule,
+        ],
+    }
 
 
 def _parse_uri(uri: str) -> tuple[str, str, str, int, dict, str] | None:
@@ -142,12 +168,12 @@ def build_server_config(uri: str, tag_index: int) -> dict | None:
     return {
         "remarks": _remark(uri, f"Сервер {tag_index + 1}"),
         "log": {"loglevel": "warning"},
+        "dns": _DNS,
         "inbounds": _INBOUNDS,
         "outbounds": [outbound, *_tail_outbounds()],
-        "routing": {
-            "domainStrategy": "AsIs",
-            "rules": [{"type": "field", "network": "tcp,udp", "outboundTag": "proxy"}],
-        },
+        "routing": _split_routing(
+            {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"}
+        ),
     }
 
 
@@ -169,14 +195,14 @@ def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict 
     return {
         "remarks": remarks,
         "log": {"loglevel": "warning"},
+        "dns": _DNS,
         "inbounds": _INBOUNDS,
         "outbounds": [*outbounds, *_tail_outbounds()],
         "routing": {
-            "domainStrategy": "AsIs",
+            **_split_routing({"type": "field", "network": "tcp,udp", "balancerTag": "auto"}),
             "balancers": [
                 {"tag": "auto", "selector": ["proxy-"], "strategy": {"type": "leastPing"}}
             ],
-            "rules": [{"type": "field", "network": "tcp,udp", "balancerTag": "auto"}],
         },
         "observatory": {
             "subjectSelector": ["proxy-"],
