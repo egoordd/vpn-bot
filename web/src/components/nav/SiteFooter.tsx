@@ -17,7 +17,7 @@ const COLUMNS = [
     links: [
       { href: "#faq", label: "Частые вопросы" },
       { href: botLink(), label: "Написать в бота" },
-      { href: "#", label: "Статус сервиса" },
+      { href: `mailto:${SITE.supportEmail}`, label: "Почта поддержки" },
     ],
   },
   {
