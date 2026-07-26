@@ -2,13 +2,13 @@ import { WorldMap } from "./WorldMap";
 import "./locations.css";
 
 const LIVE = [
+  { flag: "🇩🇪", name: "Германия", note: "новый · Франкфурт" },
   { flag: "🇺🇸", name: "США", note: "стабильно и быстро" },
   { flag: "🇳🇱", name: "Нидерланды", note: "стабильно и быстро" },
   { flag: "🇵🇱", name: "Польша", note: "стабильно и быстро" },
 ];
 
 const SOON = [
-  { flag: "🇩🇪", name: "Германия" },
   { flag: "🇫🇮", name: "Финляндия" },
   { flag: "🇬🇧", name: "Англия" },
   { flag: "🗽", name: "Нью-Йорк" },

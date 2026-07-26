@@ -54,7 +54,7 @@ const NODES: readonly Node[] = [
   { id: "nl", flag: "🇳🇱", name: "Нидерланды", status: "live", col: 22, row: 4 },
   { id: "pl", flag: "🇵🇱", name: "Польша", status: "live", col: 24, row: 5, labelBelow: true },
   { id: "uk", flag: "🇬🇧", name: "Англия", status: "soon", col: 20, row: 4 },
-  { id: "de", flag: "🇩🇪", name: "Германия", status: "soon", col: 22, row: 6 },
+  { id: "de", flag: "🇩🇪", name: "Германия", status: "live", col: 22, row: 6, labelBelow: true },
   { id: "fi", flag: "🇫🇮", name: "Финляндия", status: "soon", col: 25, row: 3 },
   { id: "ny", flag: "🗽", name: "Нью-Йорк", status: "soon", col: 14, row: 6 },
   { id: "la", flag: "🌴", name: "Лос-Анджелес", status: "soon", col: 8, row: 7 },
@@ -86,7 +86,7 @@ export function WorldMap() {
         viewBox={`0 0 ${W} ${H}`}
         className="wmap__svg"
         role="img"
-        aria-label="Карта мира: активные локации UnLock — США, Нидерланды, Польша; скоро — Германия, Финляндия, Англия, Нью-Йорк, Лос-Анджелес, ОАЭ"
+        aria-label="Карта мира: активные локации UnLock — США, Нидерланды, Польша, Германия; скоро — Финляндия, Англия, Нью-Йорк, Лос-Анджелес, ОАЭ"
       >
         <g className="wmap__land">
           {dots.map((d, i) => (
