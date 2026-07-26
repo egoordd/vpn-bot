@@ -4,9 +4,8 @@
   },
   "dns": {
     "servers": [
-      "1.1.1.1",
-      "8.8.8.8",
-      "localhost"
+      "77.88.8.8",
+      "8.8.8.8"
     ]
   },
   "inbounds": [
@@ -297,7 +296,7 @@
     }
   ],
   "routing": {
-    "domainStrategy": "IPOnDemand",
+    "domainStrategy": "AsIs",
     "rules": [
       {
         "type": "field",
