@@ -103,10 +103,17 @@ def _parse_uri(uri: str) -> tuple[str, str, str, int, dict, str] | None:
     return scheme.lower(), userinfo, host, port, query, remark
 
 
+# Client-side TCP keepalive: a carrier CGNAT drops an idle tunnel mapping at
+# ~15-30min, leaving the connection half-open («подключён, но не грузит»).
+# Probing every ~25s (after 30s idle) keeps the mapping fresh from the outbound
+# direction — the server inbounds carry the same option for the return path.
+_KEEPALIVE_SOCKOPT = {"tcpKeepAliveIdle": 30, "tcpKeepAliveInterval": 25}
+
+
 def _stream_settings(query: dict) -> dict:
     network = query.get("type", "tcp") or "tcp"
     security = query.get("security", "none") or "none"
-    stream: dict = {"network": network, "security": security}
+    stream: dict = {"network": network, "security": security, "sockopt": dict(_KEEPALIVE_SOCKOPT)}
     sni = query.get("sni") or query.get("host") or ""
     fingerprint = query.get("fp", "")
     if security == "reality":
