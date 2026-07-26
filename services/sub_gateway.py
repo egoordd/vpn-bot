@@ -135,12 +135,14 @@ CASCADE_UUID = os.environ.get("CASCADE_UUID", "02ef44d5-0588-470f-a3e0-fdb498a3b
 CASCADE_PBK = os.environ.get("CASCADE_PBK", "Z6NNgVuRJ2lFsgLLNv7aSMt-CS8Ywy5ZeZu898zoqno")
 CASCADE_SID = os.environ.get("CASCADE_SID", "9a5e913a359a98a8")
 # (relay port, remark) per exit country — mirrors the relay's per-country
-# inbounds. Closest-first so the top cascade a user taps is the nearest exit.
+# inbounds. These are the split-routing entries where RU sites/apps still work
+# (RU traffic exits locally), so the label is the exit flag + a «РУ сервисы ✅»
+# marker rather than the old «каскад» wording. Closest-first.
 CASCADE_COUNTRIES = (
-    (2091, "🇷🇺→🇵🇱 Каскад"),
-    (2096, "🇷🇺→🇩🇪 Каскад"),
-    (2092, "🇷🇺→🇳🇱 Каскад"),
-    (2093, "🇷🇺→🇺🇸 Каскад"),
+    (2091, "🇵🇱 Польша ✅ РУ сервисы"),
+    (2096, "🇩🇪 Германия ✅ РУ сервисы"),
+    (2092, "🇳🇱 Нидерланды ✅ РУ сервисы"),
+    (2093, "🇺🇸 США ✅ РУ сервисы"),
 )
 
 # The gateway calls our own Marzban panel (same host in prod), so TLS
