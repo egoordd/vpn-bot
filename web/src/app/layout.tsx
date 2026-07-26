@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope } from "next/font/google";
 
+import { CookieBanner } from "@/components/legal/CookieBanner";
 import { SITE } from "@/lib/site";
 import "./globals.css";
 
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           К основному содержимому
         </a>
         {children}
+        <CookieBanner />
       </body>
     </html>
   );
