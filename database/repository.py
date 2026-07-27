@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from database.models import (
     AmneziaWgClient,
     FunnelEvent,
+    Review,
     Node,
     Payment,
     Plan,
@@ -1077,3 +1078,15 @@ class Repository:
             query = query.where(FunnelEvent.created_at >= since)
         result = await self.session.execute(query)
         return {event: int(count) for event, count in result.all()}
+
+    async def create_review(self, *, user_id: int, rating: int, text: str) -> Review:
+        """Persist a user's review (rating + text) and return it."""
+        review = Review(user_id=user_id, rating=rating, text=text)
+        self.session.add(review)
+        return await self._commit_refresh(review)
+
+    async def count_reviews(self, since: datetime | None = None) -> int:
+        query = select(func.count(Review.id))
+        if since is not None:
+            query = query.where(Review.created_at >= since)
+        return int((await self.session.execute(query)).scalar_one())

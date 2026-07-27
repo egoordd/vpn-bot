@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from services.alerts import send_alert
 
-from bot.handlers import admin, buy, connect_device, help, instructions, locations, start, subscription, support, wallet
+from bot.handlers import admin, buy, connect_device, help, instructions, locations, review, start, subscription, support, wallet
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
 from bot.middlewares.update_timing import SlowUpdateLoggingMiddleware
 from config import settings
@@ -82,6 +82,7 @@ async def main() -> None:
     dispatcher.include_router(connect_device.router)
     dispatcher.include_router(instructions.router)
     dispatcher.include_router(support.router)
+    dispatcher.include_router(review.router)
 
     @dispatcher.errors()
     async def on_update_error(event: ErrorEvent) -> bool:

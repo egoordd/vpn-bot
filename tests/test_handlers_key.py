@@ -127,25 +127,25 @@ async def test_connect_help_handler_shows_manual_instructions(session_pool):
     assert "https://sub.example/api/sub/short" in text
 
 
-def test_connect_keyboard_has_site_auto_happ_and_help():
+def test_connect_keyboard_has_site_auto_and_help_only():
     kb = connect_device._connect_device_keyboard(
-        happ_url="https://sub.example/happ/x",
         sub_id=7,
         site_url="https://site/connect",
         auto_url="https://sub.example/happ/x/auto",
     )
     urls = [b.url for row in kb.inline_keyboard for b in row if b.url]
     datas = [b.callback_data for row in kb.inline_keyboard for b in row if b.callback_data]
-    # site, «Авто-обход» (auto flavor) and manual Happ import are all offered
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    # only site link + «Авто-обход» (all locations) + manual help — no manual Happ, no AWG
     assert "https://site/connect" in urls
     assert "https://sub.example/happ/x/auto" in urls
-    assert "https://sub.example/happ/x" in urls
     assert "connect_help:7" in datas
-    # AmneziaWG is gone
     assert "connect_awg" not in datas
+    assert not any("выбор вручную" in t for t in labels)
+    assert any("Авто-обход" in t for t in labels)
 
 
-def test_connect_keyboard_omits_auto_when_absent():
+def test_connect_keyboard_omits_urls_when_absent():
     datas = [
         b.callback_data
         for row in connect_device._connect_device_keyboard().inline_keyboard
@@ -154,4 +154,4 @@ def test_connect_keyboard_omits_auto_when_absent():
     ]
     urls = [b.url for row in connect_device._connect_device_keyboard().inline_keyboard for b in row if b.url]
     assert "connect_help" in datas
-    assert urls == []  # no site/auto/happ urls when none passed
+    assert urls == []

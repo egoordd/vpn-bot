@@ -37,7 +37,6 @@ def _sub_choice_label(subscription: Subscription) -> str:
 
 
 def _connect_device_keyboard(
-    happ_url: str | None = None,
     sub_id: int | None = None,
     site_url: str | None = None,
     auto_url: str | None = None,
@@ -47,9 +46,7 @@ def _connect_device_keyboard(
     if site_url:
         rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=site_url)])
     if auto_url:
-        rows.append([InlineKeyboardButton(text="⚡️ Авто-обход (импорт в Happ)", url=auto_url)])
-    if happ_url:
-        rows.append([InlineKeyboardButton(text="📲 Импорт в Happ (выбор вручную)", url=happ_url)])
+        rows.append([InlineKeyboardButton(text="⚡️ Авто-обход — все локации", url=auto_url)])
     rows.append([InlineKeyboardButton(text="❓ Как подключить вручную", callback_data=f"connect_help{suffix}")])
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -87,8 +84,8 @@ def _subscription_access_text(subscription_url: str, location: str | None = None
             "🔗 «Подключить VPN» — откроется страница, где всё делается в пару",
             "касаний: установка приложения и импорт подписки со всеми серверами.",
         )
-        + "\n\n📲 Happ уже установлен? «Импорт в Happ» добавит подписку сразу.\n"
-        "🌍 В списке будут все страны (🇺🇸 🇳🇱 🇵🇱) и протоколы — выберите любой сервер.\n"
+        + "\n\n⚡️ Happ уже установлен? «Авто-обход» добавит все локации сразу и\n"
+        "сам выберет самый быстрый сервер (🇵🇱 🇩🇪 🇳🇱 🇺🇸) — ничего выбирать не нужно.\n"
         "❓ Другое приложение? Нажмите «Как подключить вручную».\n"
         "♻️ Сменили тариф или локацию? Нажмите «Обновить подписку» в приложении."
     )
@@ -119,7 +116,6 @@ async def _send_subscription_screen(callback: CallbackQuery, subscription: Subsc
         callback,
         _subscription_access_text(url, _location_label(subscription)),
         _connect_device_keyboard(
-            to_happ_import_url(url),
             subscription.id,
             site_url=connect_page_url(url),
             auto_url=to_happ_import_url(url, auto=True),

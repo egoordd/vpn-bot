@@ -23,7 +23,10 @@ def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = F
                 InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu"),
             ]
         )
-    rows.append([InlineKeyboardButton(text="❓ Помощь", callback_data="help")])
+    help_row = [InlineKeyboardButton(text="❓ Помощь", callback_data="help")]
+    if has_subscription:
+        help_row.append(InlineKeyboardButton(text="💬 Отзыв", callback_data="leave_review"))
+    rows.append(help_row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

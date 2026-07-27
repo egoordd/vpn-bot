@@ -316,3 +316,24 @@ class FunnelEvent(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+
+class Review(Base):
+    """A user-submitted review (rating + text). Owner is notified on each one
+    and can reward detailed reviews; `rewarded` guards against double gifts."""
+
+    __tablename__ = "reviews"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    rewarded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship()
