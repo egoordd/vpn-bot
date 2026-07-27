@@ -231,18 +231,32 @@ def _funnel_report(counts: dict[str, int], title: str) -> str:
     return f"<b>{title}</b>\n" + bq(*lines)
 
 
-def _source_report(by_source: dict[str, dict[str, int]]) -> str:
-    """Compact per-source funnel: start → trial → payment for each channel,
-    sorted by starts so the biggest sources come first."""
-    if not by_source:
+def _source_report(
+    by_source: dict[str, dict[str, int]], clicks: dict[str, int] | None = None
+) -> str:
+    """Compact per-source funnel for each channel, biggest first.
+
+    Starts with clicks on the /go/<campaign> link where we have them, so a
+    channel that gets taps but no starts (bad landing, wrong audience) is
+    visibly different from one nobody clicked at all. Campaigns with clicks but
+    zero starts still get a row — that gap is exactly what needs fixing."""
+    clicks = clicks or {}
+    if not by_source and not clicks:
         return "<b>По источникам</b>\n" + bq("Пока нет данных.")
-    ordered = sorted(by_source.items(), key=lambda kv: kv[1].get("start", 0), reverse=True)
+    names = set(by_source) | set(clicks)
+    ordered = sorted(
+        names,
+        key=lambda name: (clicks.get(name, 0), by_source.get(name, {}).get("start", 0)),
+        reverse=True,
+    )
     lines = []
-    for source, counts in ordered:
+    for source in ordered:
+        counts = by_source.get(source, {})
         starts = counts.get("start", 0)
         trials = counts.get("trial", 0)
         paid = counts.get("payment", 0)
-        lines.append(f"{source}: {starts} старт → {trials} триал → {paid} оплат")
+        head = f"{clicks[source]} переход → " if source in clicks else ""
+        lines.append(f"{source}: {head}{starts} старт → {trials} триал → {paid} оплат")
     return "<b>По источникам</b>\n" + bq(*lines)
 
 
@@ -255,6 +269,7 @@ async def funnel_handler(message: Message, session_pool: async_sessionmaker[Asyn
         total = await repo.funnel_counts()
         week = await repo.funnel_counts(since=datetime.now(timezone.utc) - timedelta(days=7))
         by_source = await repo.source_funnel_counts()
+        clicks = await repo.link_click_counts()
 
     text = (
         "🧭 <b>Воронка</b>\n\n"
@@ -262,11 +277,12 @@ async def funnel_handler(message: Message, session_pool: async_sessionmaker[Asyn
         + "\n\n"
         + _funnel_report(week, "За 7 дней")
         + "\n\n"
-        + _source_report(by_source)
+        + _source_report(by_source, clicks)
         + "\n\n"
         + bq(
             "События пишутся один раз на пользователя; проценты — конверсия из предыдущего шага.",
-            "Источник задаётся ссылкой t.me/unlkvpn_bot?start=src_ИМЯ (первое касание).",
+            "Ссылка кампании: unlockvpn.site/go/ИМЯ — считает переходы и ведёт в бота.",
+            "Прямая ссылка без счётчика переходов: t.me/unlkvpn_bot?start=src_ИМЯ.",
         )
     )
     await message.answer(text)

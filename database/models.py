@@ -337,3 +337,27 @@ class Review(Base):
     )
 
     user: Mapped["User"] = relationship()
+
+
+class LinkClick(Base):
+    """One tap on a /go/<campaign> tracking link — the step before «start».
+
+    Deliberately stores no IP, user agent or any other identifier: the only
+    question it answers is "how many taps did this campaign get", so an
+    anonymous counter row is enough and there is nothing personal to protect.
+    ``target`` records where the tap was sent (bot or site) so one campaign can
+    be split across both funnels.
+    """
+
+    __tablename__ = "link_clicks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    campaign: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    target: Mapped[str] = mapped_column(String(16), default="bot", server_default="bot", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        index=True,
+        nullable=False,
+    )

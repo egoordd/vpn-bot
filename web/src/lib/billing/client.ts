@@ -247,3 +247,22 @@ export async function activateWebTrial(telegramId: number): Promise<TrialActivat
   }
   return { ok: false, error: "unavailable" };
 }
+
+/** Count a tap on a /go/<campaign> tracking link. Best-effort: a tracking
+ *  failure must never block the visitor's redirect, so this swallows errors. */
+export async function recordLinkClick(campaign: string, target: "bot" | "site"): Promise<void> {
+  if (!API_URL) return;
+  try {
+    await fetch(`${API_URL}/web/track/click`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+      },
+      body: JSON.stringify({ campaign, target }),
+      cache: "no-store",
+    });
+  } catch {
+    // tracking is not worth a failed redirect
+  }
+}

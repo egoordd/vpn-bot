@@ -76,6 +76,21 @@ _SRC_MAX_LEN = 32
 _SRC_RE = re.compile(r"[^a-z0-9_-]+")
 
 
+def normalize_source_slug(raw: str | None) -> str | None:
+    """Canonical campaign slug: lowercase, ``[a-z0-9_-]`` only, ≤32 chars.
+
+    Shared by the bot deep-link and the site's /go/<campaign> redirect so the
+    same campaign never splits into two rows in the funnel (e.g. "Instagram"
+    from a link and "instagram" from another both become ``instagram``).
+    Returns None when nothing usable survives — notably for Cyrillic-only
+    names, which sanitise away entirely.
+    """
+    if not raw:
+        return None
+    slug = _SRC_RE.sub("", raw.strip().lower())[:_SRC_MAX_LEN].strip("-_")
+    return slug or None
+
+
 def parse_source_start_payload(payload: str | None) -> str | None:
     """Extract an acquisition source from a ``/start src_<name>`` deep-link.
 
@@ -87,9 +102,7 @@ def parse_source_start_payload(payload: str | None) -> str | None:
     payload = payload.strip()
     if not payload.startswith(_START_SRC_PREFIX):
         return None
-    raw = payload[len(_START_SRC_PREFIX):].strip().lower()
-    slug = _SRC_RE.sub("", raw)[:_SRC_MAX_LEN].strip("-_")
-    return slug or None
+    return normalize_source_slug(payload[len(_START_SRC_PREFIX):])
 
 
 def build_referral_link(bot_username: str, ref_code: str) -> str:

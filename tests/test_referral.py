@@ -162,3 +162,32 @@ async def test_get_referral_stats_counts_and_sums(db_session):
     assert stats.total_earned_kopecks == 2980
     assert stats.reward_percent == 20
     assert stats.ref_code == referrer.ref_code
+
+
+# --- campaign slug normalization (shared by bot deep-link and site /go/) ------
+
+def test_normalize_source_slug_canonicalises_case_and_charset():
+    from services.referral import normalize_source_slug
+
+    # same campaign written differently must collapse to one slug, or the
+    # funnel would show it as two separate channels
+    assert normalize_source_slug("Instagram") == "instagram"
+    assert normalize_source_slug("  TG-Ads_Jul  ") == "tg-ads_jul"
+    assert normalize_source_slug("blogger ivan!") == "bloggerivan"
+
+
+def test_normalize_source_slug_truncates_and_trims():
+    from services.referral import normalize_source_slug
+
+    assert normalize_source_slug("a" * 50) == "a" * 32
+    assert normalize_source_slug("__promo--") == "promo"
+
+
+def test_normalize_source_slug_none_when_nothing_usable():
+    from services.referral import normalize_source_slug
+
+    # Cyrillic sanitises away entirely — must be None, not an empty label
+    assert normalize_source_slug("инстаграм") is None
+    assert normalize_source_slug("___") is None
+    assert normalize_source_slug("") is None
+    assert normalize_source_slug(None) is None

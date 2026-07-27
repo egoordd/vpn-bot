@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from database.models import (
     AmneziaWgClient,
     FunnelEvent,
+    LinkClick,
     Review,
     Node,
     Payment,
@@ -125,6 +126,19 @@ class Repository:
             key = source or "(без источника)"
             grouped.setdefault(key, {})[event] = int(count)
         return grouped
+
+    async def record_link_click(self, campaign: str, *, target: str = "bot") -> None:
+        """Count one tap on a /go/<campaign> link (anonymous, no identifiers)."""
+        self.session.add(LinkClick(campaign=campaign, target=target))
+        await self.session.commit()
+
+    async def link_click_counts(self, since: datetime | None = None) -> dict[str, int]:
+        """Taps per campaign, so the funnel can start from clicks, not starts."""
+        query = select(LinkClick.campaign, func.count()).group_by(LinkClick.campaign)
+        if since is not None:
+            query = query.where(LinkClick.created_at >= since)
+        result = await self.session.execute(query)
+        return {campaign: int(count) for campaign, count in result.all()}
 
     async def delete_user(self, user_id: int) -> bool:
         user = await self.get_user(user_id)

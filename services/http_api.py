@@ -17,7 +17,7 @@ from database.repository import Repository
 from services import billing_api, moynalog, promo, tribute, wallet, yookassa
 from services.billing_api import AccountOverview, BillingPlan, BillingRegion, SubscriptionSnapshot
 from services.payment import parse_invoice_payload_details
-from services.referral import reward_referrer_for_payment, ReferralStats
+from services.referral import normalize_source_slug, reward_referrer_for_payment, ReferralStats
 from services.subscription import activate_panel_subscription, to_gateway_subscription_url
 from services.tariffs import resolve_tariff
 from services.wallet import UnknownWalletUserError, WalletEntry, WalletSnapshot
@@ -104,6 +104,13 @@ class WebTrialRequest(BaseModel):
 
     # Site accounts include email-only buyers with synthetic negative ids.
     telegram_id: int = Field(alias="telegramId")
+
+
+class LinkClickRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    campaign: str = Field(min_length=1, max_length=32)
+    target: str = Field(default="bot", max_length=16)
 
 
 _AUTH_IP_LIMIT = 10
@@ -482,6 +489,22 @@ def create_app() -> FastAPI:
             "ok": True,
             "subscriptionUrl": to_gateway_subscription_url(subscription.subscription_url),
         }
+
+    @application.post("/web/track/click")
+    async def web_track_click(body: LinkClickRequest, session: SessionDep) -> dict[str, Any]:
+        """Count a tap on a /go/<campaign> tracking link.
+
+        Called server-side by the site's redirect route, so the caller is
+        already token-authed. Never fails the redirect: an unusable campaign
+        name is simply not counted rather than erroring, because losing a
+        counter row must never cost a real visitor their click-through.
+        """
+        campaign = normalize_source_slug(body.campaign)
+        if campaign is None:
+            return {"ok": False, "counted": False}
+        target = "site" if body.target == "site" else "bot"
+        await Repository(session).record_link_click(campaign, target=target)
+        return {"ok": True, "counted": True, "campaign": campaign}
 
     # --- «Мой налог» receipts -------------------------------------------------
     # lknpd.nalog.ru answers only to Russian IPs, so the income registration
