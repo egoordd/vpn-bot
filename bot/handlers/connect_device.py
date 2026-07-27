@@ -9,10 +9,8 @@ from bot.keyboards.main_menu import back_to_menu_keyboard
 from bot.navigation import show_screen
 from bot.texts import bq, format_msk
 from services.tariffs import resolve_tariff
-from config import settings
 from database.models import Subscription
 from database.repository import Repository
-from services.awg_provision import AwgProvisionError, ensure_client_configs
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.qrcode import generate_qr_png_bytes
 from services.subscription import connect_page_url, to_gateway_subscription_url, to_happ_import_url
@@ -38,23 +36,20 @@ def _sub_choice_label(subscription: Subscription) -> str:
     return f"{_location_label(subscription)} · {title} · до {format_msk(subscription.expires_at)}"
 
 
-def _awg_available() -> bool:
-    return bool(settings.awg_nodes_dict)
-
-
 def _connect_device_keyboard(
     happ_url: str | None = None,
     sub_id: int | None = None,
     site_url: str | None = None,
+    auto_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     suffix = f":{sub_id}" if sub_id is not None else ""
     rows: list[list[InlineKeyboardButton]] = []
     if site_url:
         rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=site_url)])
+    if auto_url:
+        rows.append([InlineKeyboardButton(text="⚡️ Авто-обход (импорт в Happ)", url=auto_url)])
     if happ_url:
         rows.append([InlineKeyboardButton(text="📲 Импорт в Happ (выбор вручную)", url=happ_url)])
-    if _awg_available():
-        rows.append([InlineKeyboardButton(text="🔒 AmneziaWG (запасной канал)", callback_data="connect_awg")])
     rows.append([InlineKeyboardButton(text="❓ Как подключить вручную", callback_data=f"connect_help{suffix}")])
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -127,6 +122,7 @@ async def _send_subscription_screen(callback: CallbackQuery, subscription: Subsc
             to_happ_import_url(url),
             subscription.id,
             site_url=connect_page_url(url),
+            auto_url=to_happ_import_url(url, auto=True),
         ),
     )
 
@@ -310,58 +306,3 @@ async def connect_help_handler(
         )
 
 
-_AWG_INTRO = (
-    "🔒 <b>AmneziaWG — запасной канал</b>\n\n"
-    + bq(
-        "Отдельный протокол на случай, если основной где-то не проходит.",
-        "Нужно приложение AmneziaVPN (App Store / Google Play).",
-        "Импортируйте файл .conf или отсканируйте QR — по одному на страну.",
-    )
-)
-
-
-@router.callback_query(F.data == "connect_awg", flags={"subscription_required": True})
-async def connect_awg_handler(
-    callback: CallbackQuery,
-    session_pool: async_sessionmaker[AsyncSession],
-) -> None:
-    await callback.answer()
-    if callback.message:
-        await callback.message.answer("🔒 Готовлю конфиги AmneziaWG — несколько секунд…")
-
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.get_user_by_telegram_id(callback.from_user.id)
-        if user is None:
-            await _send_processing_error(callback, "Пользователь не найден. Нажмите /start.")
-            return
-        try:
-            configs = await ensure_client_configs(session, user.id)
-        except AwgProvisionError:
-            logger.exception("AmneziaWG provisioning failed for user_id=%s", user.id)
-            await _send_processing_error(callback, "Не удалось подготовить AmneziaWG. Напишите в поддержку.")
-            return
-
-    if not configs:
-        await _send_processing_error(callback, "AmneziaWG сейчас недоступен.")
-        return
-
-    if not callback.message:
-        return
-
-    await callback.message.answer(_AWG_INTRO)
-    for cfg in configs:
-        label = f"{cfg.flag} {cfg.name}".strip()
-        await callback.message.answer_document(
-            BufferedInputFile(cfg.config_text.encode("utf-8"), filename=f"unlock-awg-{cfg.node_code}.conf"),
-            caption=f"{label} — AmneziaWG",
-        )
-        qr_bytes = await generate_qr_png_bytes(cfg.config_text)
-        await callback.message.answer_photo(
-            BufferedInputFile(qr_bytes, filename=f"awg-{cfg.node_code}.png"),
-            caption=f"QR · {label}",
-        )
-    await callback.message.answer(
-        "Готово. Импортируйте конфиг в приложение AmneziaVPN — и подключайтесь.",
-        reply_markup=back_to_menu_keyboard(),
-    )

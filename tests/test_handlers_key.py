@@ -127,55 +127,31 @@ async def test_connect_help_handler_shows_manual_instructions(session_pool):
     assert "https://sub.example/api/sub/short" in text
 
 
-def test_connect_keyboard_has_happ_help_and_awg_when_configured(monkeypatch):
-    monkeypatch.setattr(connect_device, "_awg_available", lambda: True)
-    kb_on = connect_device._connect_device_keyboard(happ_url="https://sub.example/happ/x", sub_id=7)
-    datas_on = [b.callback_data for row in kb_on.inline_keyboard for b in row]
-    urls_on = [b.url for row in kb_on.inline_keyboard for b in row]
-    assert "https://sub.example/happ/x" in urls_on
-    assert "connect_awg" in datas_on
-    assert "connect_help:7" in datas_on
+def test_connect_keyboard_has_site_auto_happ_and_help():
+    kb = connect_device._connect_device_keyboard(
+        happ_url="https://sub.example/happ/x",
+        sub_id=7,
+        site_url="https://site/connect",
+        auto_url="https://sub.example/happ/x/auto",
+    )
+    urls = [b.url for row in kb.inline_keyboard for b in row if b.url]
+    datas = [b.callback_data for row in kb.inline_keyboard for b in row if b.callback_data]
+    # site, «Авто-обход» (auto flavor) and manual Happ import are all offered
+    assert "https://site/connect" in urls
+    assert "https://sub.example/happ/x/auto" in urls
+    assert "https://sub.example/happ/x" in urls
+    assert "connect_help:7" in datas
+    # AmneziaWG is gone
+    assert "connect_awg" not in datas
 
-    monkeypatch.setattr(connect_device, "_awg_available", lambda: False)
-    datas_off = [b.callback_data for row in connect_device._connect_device_keyboard().inline_keyboard for b in row]
-    assert "connect_awg" not in datas_off
-    assert "connect_help" in datas_off
 
-
-@pytest.mark.integration
-async def test_connect_awg_handler_sends_configs(session_pool, monkeypatch):
-    from services.awg_provision import AwgClientConfig
-
-    async with session_pool() as session:
-        await Repository(session).create_user(telegram_id=904, username="awg")
-
-    message = SimpleNamespace(answer=AsyncMock(), answer_document=AsyncMock(), answer_photo=AsyncMock())
-    callback = SimpleNamespace(from_user=SimpleNamespace(id=904), message=message, answer=AsyncMock())
-
-    configs = [
-        AwgClientConfig(node_code="us", flag="🇺🇸", name="США", config_text="[Interface]\nPrivateKey = a"),
-        AwgClientConfig(node_code="nl", flag="🇳🇱", name="Нидерланды", config_text="[Interface]\nPrivateKey = b"),
+def test_connect_keyboard_omits_auto_when_absent():
+    datas = [
+        b.callback_data
+        for row in connect_device._connect_device_keyboard().inline_keyboard
+        for b in row
+        if b.callback_data
     ]
-    monkeypatch.setattr(connect_device, "ensure_client_configs", AsyncMock(return_value=configs))
-    monkeypatch.setattr(connect_device, "generate_qr_png_bytes", AsyncMock(return_value=b"png"))
-
-    await connect_device.connect_awg_handler(callback, session_pool)
-
-    callback.answer.assert_awaited_once()
-    assert message.answer_document.await_count == 2
-    assert message.answer_photo.await_count == 2
-
-
-@pytest.mark.integration
-async def test_connect_awg_handler_handles_unavailable(session_pool, monkeypatch):
-    async with session_pool() as session:
-        await Repository(session).create_user(telegram_id=905, username="awg2")
-
-    message = SimpleNamespace(answer=AsyncMock(), answer_document=AsyncMock(), answer_photo=AsyncMock())
-    callback = SimpleNamespace(from_user=SimpleNamespace(id=905), message=message, answer=AsyncMock())
-    monkeypatch.setattr(connect_device, "ensure_client_configs", AsyncMock(return_value=[]))
-
-    await connect_device.connect_awg_handler(callback, session_pool)
-
-    callback.answer.assert_awaited_once()
-    message.answer_document.assert_not_awaited()
+    urls = [b.url for row in connect_device._connect_device_keyboard().inline_keyboard for b in row if b.url]
+    assert "connect_help" in datas
+    assert urls == []  # no site/auto/happ urls when none passed
