@@ -278,6 +278,14 @@ def test_is_browser_true_for_real_browsers():
     assert sub_gateway._is_browser(safari_ios) is True
 
 
+def test_supports_xray_json_only_for_known_json_clients():
+    assert sub_gateway._supports_xray_json("Happ/1.0") is True
+    assert sub_gateway._supports_xray_json("happ") is True
+    # base64-only clients must keep the URI list
+    for ua in ("v2rayNG/1.8.5", "Hiddify/2.0", "Streisand", "sing-box 1.9", "", None):
+        assert sub_gateway._supports_xray_json(ua) is False, ua
+
+
 def test_is_browser_false_for_vpn_clients_and_empty():
     for ua in ("v2rayNG/1.8.5", "Happ/1.0", "Hiddify/2.0", "Streisand", "clash-verge/1.0",
                "sing-box 1.9", "Shadowrocket/2.2", "v2rayTun/3", "", None):

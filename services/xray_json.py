@@ -37,7 +37,13 @@ _INBOUNDS = [
     },
 ]
 
-_PROBE_URL = "https://www.gstatic.com/generate_204"
+# Plain http:// on purpose: the observatory measures a server's latency by
+# fetching this, and an https:// probe adds a full TLS handshake to gstatic
+# *inside* the tunnel to every measurement. That inflates each reading by a
+# round-trip or three on a throttled RU link and distorts which server
+# leastPing considers fastest. 204-generators are served over HTTP for exactly
+# this reason.
+_PROBE_URL = "http://www.gstatic.com/generate_204"
 _PROBE_INTERVAL = "3m"
 
 AUTO_REMARKS = "⚡️ Авто-обход"

@@ -80,6 +80,23 @@ def _is_browser(user_agent: str) -> bool:
     return "mozilla" in ua
 
 
+# Clients that accept an xray-JSON array body (a list of whole xray configs)
+# instead of the base64 URI list. Only they can be served the «⚡️ Авто-обход»
+# balancer inside the plain subscription: a balancer is an entire config and
+# cannot be expressed as a `scheme://` URI, so a base64-only client would
+# silently lose it. Happ is the app we ship and its JSON handling is verified
+# live on the /auto flavor. AUTO_IN_SUB switches the behaviour off without a
+# code deploy if a client turns out to choke on it.
+AUTO_IN_SUB = os.environ.get("AUTO_IN_SUB", "1").lower() not in ("0", "false", "no", "")
+_XRAY_JSON_UA = ("happ",)
+
+
+def _supports_xray_json(user_agent: str) -> bool:
+    """True for clients known to parse an xray-JSON array subscription."""
+    ua = (user_agent or "").lower()
+    return any(client in ua for client in _XRAY_JSON_UA)
+
+
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 # Display name clients show for the subscription (Happ reads `profile-title`,
@@ -558,18 +575,25 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        # «Авто-обход» (xray-JSON balancer) is served ONLY on the explicit /auto
-        # path for now. The plain /sub/<token> stays the base64 URI list so it
-        # keeps every protocol including Hysteria2 (which xray-JSON can't carry)
-        # — owner's call 2026-07-16: hy2 delivery over the balancer entry.
-        if is_auto:
+        # «⚡️ Авто-обход» rides inside the ordinary subscription for clients that
+        # can parse xray-JSON, so a user who imports the one link already has it
+        # as the first server — no second link to hand out. Historically this was
+        # /auto-only because the base64 body was needed to carry Hysteria2, which
+        # xray-JSON cannot express; Hy2 has since been dropped, and VLESS/Trojan
+        # both round-trip through JSON, so the JSON body now loses nothing.
+        # Other clients keep the base64 URI list unchanged.
+        ua = self.headers.get("User-Agent", "")
+        wants_json = is_auto or (AUTO_IN_SUB and _supports_xray_json(ua))
+        if wants_json:
             auto = build_auto_json(token)
             if auto is None:
                 self._send(404, b"invalid subscription", "text/plain")
                 return
             body, userinfo, is_json = auto
             extra = {"profile-title": PROFILE_TITLE_HEADER}
-            if is_json:
+            # Autoconnect/1h-refresh headers stay exclusive to the explicit /auto
+            # link: the plain subscription must not start dialling on its own.
+            if is_json and is_auto:
                 extra.update(AUTO_HEADERS)
             if userinfo:
                 extra["subscription-userinfo"] = userinfo
