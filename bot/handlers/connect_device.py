@@ -72,22 +72,25 @@ def _manual_help_keyboard(sub_id: int | None = None) -> InlineKeyboardMarkup:
 
 
 def _subscription_access_text(subscription_url: str, location: str | None = None) -> str:
+    """Screen text for a ready subscription.
+
+    Deliberately short: the buttons below already name what they do, so
+    narrating each one just buries the two things the text alone can carry —
+    which button to press first, and the link itself. Emphasis is spent on the
+    single primary action; an emoji on every line (as before) flattens the
+    hierarchy until nothing stands out.
+    """
     escaped_url = html.escape(subscription_url)
     header = "📱 <b>Подключение устройства</b>"
     if location:
         header += f"\n{location}"
     return (
         f"{header}\n\n"
-        "🔗 <b>Ссылка-подписка:</b>\n"
+        "Нажмите <b>«Подключить VPN»</b> — приложение и серверы\n"
+        "настроятся сами.\n\n"
+        "Ссылка-подписка:\n"
         f"<code>{escaped_url}</code>\n\n"
-        + bq(
-            "🔗 «Подключить VPN» — откроется страница, где всё делается в пару",
-            "касаний: установка приложения и импорт подписки со всеми серверами.",
-        )
-        + "\n\n⚡️ Happ уже установлен? «Авто-обход» добавит все локации сразу и\n"
-        "сам выберет самый быстрый сервер (🇵🇱 🇩🇪 🇳🇱 🇺🇸) — ничего выбирать не нужно.\n"
-        "❓ Другое приложение? Нажмите «Как подключить вручную».\n"
-        "♻️ Сменили тариф или локацию? Нажмите «Обновить подписку» в приложении."
+        + bq("♻️ Сменили тариф или локацию — «Обновить подписку» в приложении.")
     )
 
 
