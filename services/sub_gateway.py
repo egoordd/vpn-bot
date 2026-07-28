@@ -158,7 +158,12 @@ CASCADE_SID = os.environ.get("CASCADE_SID", "9a5e913a359a98a8")
 CASCADE_COUNTRIES = (
     (2091, "🇵🇱 Польша ✅ РУ сервисы"),
     (2096, "🇩🇪 Германия ✅ РУ сервисы"),
-    (2092, "🇳🇱 Нидерланды ✅ РУ сервисы"),
+    # 🇳🇱 (relay port 2092) pulled 2026-07-28: the Amsterdam node is unreliable
+    # from RU lines — its direct endpoint stopped passing traffic entirely and
+    # the cascade through it answers only intermittently. It has no shell
+    # access, so it cannot be diagnosed or repaired from here; serving it only
+    # hands users a server that sometimes silently fails. Restore this line
+    # once the node is fixed or replaced.
     (2093, "🇺🇸 США ✅ РУ сервисы"),
 )
 
