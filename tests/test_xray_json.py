@@ -68,7 +68,7 @@ def test_build_balancer_config_structure():
     assert rules[1]["ip"] == ["geoip:ru"] and rules[1]["outboundTag"] == "direct"
     # everything else load-balances across the foreign nodes
     assert rules[-1]["balancerTag"] == "auto"
-    assert cfg["observatory"]["subjectSelector"] == ["proxy-"]
+    assert (cfg.get("burstObservatory") or cfg["observatory"])["subjectSelector"] == ["proxy-"]
     # a socks + http inbound the client's TUN bridges to
     assert {i["protocol"] for i in cfg["inbounds"]} == {"socks", "http"}
 
@@ -100,3 +100,76 @@ def test_build_json_subscription_balancer_first_then_servers():
 @pytest.mark.unit
 def test_build_json_subscription_empty_without_xray_nodes():
     assert xray_json.build_json_subscription([HY2]) == []
+
+
+# --- «Авто-обход» failover behaviour ------------------------------------------
+
+def _balancer(hosts=("h1", "h2")):
+    uris = [
+        f"vless://uuid@{h}:2096?security=reality&type=tcp&sni={h}&pbk=PBK&sid=SID#{h}"
+        for h in hosts
+    ]
+    return xray_json.build_balancer_config(uris)
+
+
+def _prober(config):
+    """The health-probe block, whichever strategy built it."""
+    return config.get("burstObservatory") or config["observatory"]
+
+
+def _interval(config):
+    b = config.get("burstObservatory")
+    return b["pingConfig"]["interval"] if b else config["observatory"]["probeInterval"]
+
+
+def test_probe_interval_is_short_enough_to_fail_over():
+    """The probe interval IS the outage a user sits through when a node dies:
+    the balancer cannot route around it until a fresh sample judges it."""
+    interval = _interval(_balancer())
+    assert interval.endswith("s"), f"expected seconds granularity, got {interval}"
+    assert int(interval.rstrip("s")) <= 60, "failover would take over a minute"
+
+
+def test_probe_url_is_plain_http():
+    # https:// would add a TLS handshake to gstatic inside the tunnel on every
+    # sample, inflating readings and skewing which node gets picked.
+    prober = _prober(_balancer())
+    url = prober.get("probeUrl") or prober["pingConfig"]["destination"]
+    assert url.startswith("http://")
+
+
+def test_default_strategy_ranks_on_latency(monkeypatch):
+    """Latency ranking is what demotes a server that merely got slow — the
+    "долго грузит" case — and it benchmarked faster than leastLoad on a real
+    RU line, so it is the default."""
+    config = _balancer()
+    assert config["routing"]["balancers"][0]["strategy"] == {"type": "leastPing"}
+    assert "observatory" in config and "burstObservatory" not in config
+
+
+def test_leastload_alternative_pairs_with_burst_observatory(monkeypatch):
+    # Opt-in alternative: ranks on stability rather than raw latency.
+    monkeypatch.setattr(xray_json, "BALANCER_STRATEGY", "leastload")
+    config = _balancer()
+    strategy = config["routing"]["balancers"][0]["strategy"]
+    assert strategy["type"] == "leastLoad"
+    assert strategy["settings"]["maxRTT"].endswith("s")
+    assert "burstObservatory" in config, "leastLoad requires burstObservatory"
+    assert config["burstObservatory"]["pingConfig"]["sampling"] >= 2
+
+
+def test_dns_prefers_the_system_resolver():
+    """A remote resolver first would be routed through the balancer itself: if
+    the picked node is dead the DNS query dies with it and the client wedges,
+    unable even to fail over. The system resolver always answers."""
+    servers = _balancer()["dns"]["servers"]
+    assert servers[0] == "localhost"
+    assert len(servers) > 1, "keep public resolvers as fallback"
+
+
+def test_balancer_covers_every_proxy_outbound():
+    config = _balancer(("h1", "h2", "h3"))
+    proxies = [o["tag"] for o in config["outbounds"] if o["tag"].startswith("proxy-")]
+    assert len(proxies) == 3
+    assert config["routing"]["balancers"][0]["selector"] == ["proxy-"]
+    assert _prober(config)["subjectSelector"] == ["proxy-"]

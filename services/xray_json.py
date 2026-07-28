@@ -16,6 +16,7 @@ Pure functions, stdlib only — mirrors the gateway it feeds.
 """
 from __future__ import annotations
 
+import os
 import urllib.parse
 
 # Standard local inbounds an xray-json client bridges its TUN to (socks + http).
@@ -44,13 +45,47 @@ _INBOUNDS = [
 # leastPing considers fastest. 204-generators are served over HTTP for exactly
 # this reason.
 _PROBE_URL = "http://www.gstatic.com/generate_204"
-_PROBE_INTERVAL = "3m"
+# Failover speed: this interval *is* the outage a user sits through, because a
+# balancer can only route around a server once a fresh probe has judged it. The
+# old 3m let a node black-hole traffic for three minutes — "connected but
+# nothing loads", switch by hand. A probe is one 204 request per node, so
+# frequent sampling costs nothing worth counting.
+_PROBE_INTERVAL = "15s"
+_PROBE_TIMEOUT = "4s"
+# Samples kept per server: the strategy judges on the recent window, so a node
+# that degrades (rather than dies outright) is demoted after a couple of bad
+# samples instead of staying selected on one stale good reading.
+_PROBE_SAMPLING = 3
+# A server slower than this is treated as unusable, which is what makes
+# "switches when a server just gets slow" work at all — pure latency ranking
+# keeps picking the least-bad node even when every reading is terrible.
+_MAX_RTT = "4s"
+
+# leastPing ranks purely on measured latency, which is exactly what a user
+# feels: a node that merely gets slow sinks in the ranking on the next probe
+# and stops being picked, so short _PROBE_INTERVAL covers both "died" and
+# "долго грузит". leastLoad optimises for *stability* instead and measurably
+# picked worse servers here — benchmarked from a real RU line 2026-07-28,
+# leastPing 295/421ms via Frankfurt vs leastLoad 465/616ms via Amsterdam — so
+# it stays available (BALANCER_STRATEGY=leastload) but is not the default.
+BALANCER_STRATEGY = os.environ.get("BALANCER_STRATEGY", "leastping").strip().lower()
 
 AUTO_REMARKS = "⚡️ Авто-обход"
 
 # Resolver for routing decisions (matching a destination against geoip:ru).
-# geoip:ru needs the destination IP; IPOnDemand resolves domains through this.
-_DNS = {"servers": ["1.1.1.1", "8.8.8.8"]}
+# geoip:ru needs the destination IP, so IPOnDemand resolves every domain here
+# before it can route — which puts DNS squarely in the hot path.
+#
+# `localhost` (the device's own resolver) must come first. With a remote
+# resolver first, those queries are themselves routed — and since 1.1.1.1 is
+# not RU they go through the balancer, i.e. through the tunnel. If the picked
+# node is dead the DNS query dies with it, routing can never resolve, and the
+# whole client wedges *including* its ability to fail over. The system resolver
+# always answers, is the fastest hop available, and breaks that deadlock; the
+# public resolvers stay as fallback. Only routing decisions use this — proxied
+# traffic is still resolved at the exit node, so this leaks no browsing target
+# that the device wasn't already resolving itself.
+_DNS = {"servers": ["localhost", "1.1.1.1", "8.8.8.8"]}
 
 
 def _tail_outbounds() -> list[dict]:
@@ -190,13 +225,51 @@ def build_server_config(uri: str, tag_index: int) -> dict | None:
     }
 
 
-def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict | None:
-    """A single config that load-balances (leastPing) across all servers.
+def _health_check(strategy: str) -> tuple[dict, dict]:
+    """(balancer strategy, health-probe block) for the configured strategy.
 
-    xray's observatory pings each `proxy-*` outbound; the balancer routes every
-    connection through the lowest-latency healthy one and re-picks when it
-    degrades — automatic bypass with no user action. None when no xray-core
-    outbound could be built.
+    leastLoad needs `burstObservatory` (rolling samples + a timeout), leastPing
+    needs the plain `observatory`; the two are not interchangeable, so the pair
+    is built together to keep them consistent.
+    """
+    if strategy != "leastload":
+        return (
+            {"type": "leastPing"},
+            {
+                "observatory": {
+                    "subjectSelector": ["proxy-"],
+                    "probeUrl": _PROBE_URL,
+                    "probeInterval": _PROBE_INTERVAL,
+                    "enableConcurrency": True,
+                }
+            },
+        )
+    return (
+        # `expected: 2` keeps a second healthy server in play instead of pinning
+        # every connection to a single "best" one, so one node degrading never
+        # takes the whole session down with it.
+        {"type": "leastLoad", "settings": {"expected": 2, "maxRTT": _MAX_RTT, "tolerance": 0.3}},
+        {
+            "burstObservatory": {
+                "subjectSelector": ["proxy-"],
+                "pingConfig": {
+                    "destination": _PROBE_URL,
+                    "interval": _PROBE_INTERVAL,
+                    "timeout": _PROBE_TIMEOUT,
+                    "sampling": _PROBE_SAMPLING,
+                },
+            }
+        },
+    )
+
+
+def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict | None:
+    """A single config that balances across every server, healthiest first.
+
+    A health prober samples each `proxy-*` outbound continuously; the balancer
+    routes each connection through a server that is currently fast, and demotes
+    one that dies *or merely gets slow* (see _MAX_RTT) without the user
+    touching anything. None when no xray-core outbound could be built.
     """
     outbounds: list[dict] = []
     for uri in uris:
@@ -205,6 +278,7 @@ def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict 
             outbounds.append(outbound)
     if not outbounds:
         return None
+    strategy, prober = _health_check(BALANCER_STRATEGY)
     return {
         "remarks": remarks,
         "log": {"loglevel": "warning"},
@@ -213,16 +287,9 @@ def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict 
         "outbounds": [*outbounds, *_tail_outbounds()],
         "routing": {
             **_split_routing({"type": "field", "network": "tcp,udp", "balancerTag": "auto"}),
-            "balancers": [
-                {"tag": "auto", "selector": ["proxy-"], "strategy": {"type": "leastPing"}}
-            ],
+            "balancers": [{"tag": "auto", "selector": ["proxy-"], "strategy": strategy}],
         },
-        "observatory": {
-            "subjectSelector": ["proxy-"],
-            "probeUrl": _PROBE_URL,
-            "probeInterval": _PROBE_INTERVAL,
-            "enableConcurrency": True,
-        },
+        **prober,
     }
 
 
