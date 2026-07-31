@@ -508,3 +508,55 @@ def test_resolve_links_omits_cascade_when_disabled(monkeypatch):
     # no relay-host entries at all; Frankfurt direct leads
     assert all(sub_gateway._uri_host(u) != sub_gateway.RU_RELAY_HOST for u in links)
     assert sub_gateway._uri_host(links[0]) == DE_HOST
+
+
+# --- end-to-end prober verdicts ----------------------------------------------
+
+def _write_health(tmp_path, monkeypatch, nodes, age_seconds=0):
+    import time as _time
+    path = tmp_path / "health.json"
+    path.write_text(json.dumps({"checked_at": _time.time() - age_seconds, "nodes": nodes}))
+    monkeypatch.setattr(sub_gateway, "NODE_HEALTH_FILE", str(path))
+    return path
+
+
+def test_probed_dead_host_is_dropped_even_though_tcp_answers(tmp_path, monkeypatch, health):
+    """The whole point: a node can accept TCP and still pass no traffic. The
+    socket check calls it healthy, so only the prober's verdict removes it."""
+    _write_health(tmp_path, monkeypatch, {"h1": False, "h2": True})
+    links = [_vless("h1"), _vless("h2")]
+    sub_gateway._register_probe_targets(links)  # both look alive over TCP
+    assert sub_gateway.filter_alive(links) == [_vless("h2")]
+
+
+def test_probed_dead_host_drops_its_udp_links_too(tmp_path, monkeypatch, health):
+    _write_health(tmp_path, monkeypatch, {"h1": False, "h2": True})
+    links = [_vless("h1"), _hy2("h1"), _vless("h2")]
+    sub_gateway._register_probe_targets(links)
+    assert sub_gateway.filter_alive(links) == [_vless("h2")]
+
+
+def test_stale_health_file_is_ignored(tmp_path, monkeypatch, health):
+    """A stalled prober must not strip working nodes on old verdicts."""
+    _write_health(tmp_path, monkeypatch, {"h1": False}, age_seconds=99999)
+    links = [_vless("h1")]
+    sub_gateway._register_probe_targets(links)
+    assert sub_gateway.filter_alive(links) == links
+
+
+def test_missing_or_broken_health_file_fails_open(tmp_path, monkeypatch, health):
+    monkeypatch.setattr(sub_gateway, "NODE_HEALTH_FILE", str(tmp_path / "nope.json"))
+    assert sub_gateway._probed_dead_hosts() == set()
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    monkeypatch.setattr(sub_gateway, "NODE_HEALTH_FILE", str(bad))
+    assert sub_gateway._probed_dead_hosts() == set()
+
+
+def test_never_serves_an_empty_sub_even_if_all_probed_dead(tmp_path, monkeypatch, health):
+    """Filtering everything away would leave a paying user with nothing; the
+    unfiltered list is the safer failure."""
+    _write_health(tmp_path, monkeypatch, {"h1": False, "h2": False})
+    links = [_vless("h1"), _vless("h2")]
+    sub_gateway._register_probe_targets(links)
+    assert sub_gateway.filter_alive(links) == links

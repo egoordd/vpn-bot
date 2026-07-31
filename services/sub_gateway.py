@@ -221,28 +221,59 @@ def _register_probe_targets(links: list[str]) -> None:
                 _probe_fails[endpoint] = 0
 
 
+# Verdicts from scripts/node_probe.py, which dials each node with xray and
+# fetches a 204 through the tunnel. The in-process check below can only open a
+# TCP socket, and a node that accepts connections then silently drops traffic
+# passes that trivially — which is how Amsterdam stayed in every subscription
+# while users sat on "connected but nothing loads". This file is the only
+# signal that reflects bytes actually returning.
+NODE_HEALTH_FILE = os.environ.get("NODE_HEALTH_FILE", "/run/unlock-node-health.json")
+# Older than this and the prober is presumed broken, so its verdicts are
+# ignored rather than trusted — a stalled prober must not strip a good node.
+NODE_HEALTH_MAX_AGE = float(os.environ.get("NODE_HEALTH_MAX_AGE", "900"))
+
+
+def _probed_dead_hosts() -> set[str]:
+    """Hosts the end-to-end prober most recently found unable to pass traffic.
+
+    Fails open on every error: an unreadable, malformed or stale file yields an
+    empty set, so a prober problem can never blank a paying user's servers."""
+    try:
+        with open(NODE_HEALTH_FILE) as handle:
+            payload = json.load(handle)
+        checked_at = float(payload.get("checked_at", 0))
+        if time.time() - checked_at > NODE_HEALTH_MAX_AGE:
+            return set()
+        return {host for host, ok in payload.get("nodes", {}).items() if not ok}
+    except Exception:
+        return set()
+
+
 def filter_alive(links: list[str]) -> list[str]:
     if not HEALTH_ENABLED:
         return links
     with _health_lock:
         snapshot = dict(_probe_fails)
     dead = {target for target, fails in snapshot.items() if fails >= HEALTH_FAILS}
-    if not dead:
+    probed_dead = _probed_dead_hosts()
+    if not dead and not probed_dead:
         return links
 
     host_targets: dict[str, set[tuple[str, int]]] = {}
     for host, port in snapshot:
         host_targets.setdefault(host, set()).add((host, port))
     dead_hosts = {host for host, targets in host_targets.items() if targets <= dead}
+    dead_hosts |= probed_dead
 
     kept: list[str] = []
     for uri in links:
         endpoint = _uri_endpoint(uri)
         if endpoint is None:
             kept.append(uri)
+        elif endpoint[0] in dead_hosts:
+            continue  # host-level verdict covers every protocol on it
         elif _is_udp_uri(uri):
-            if endpoint[0] not in dead_hosts:
-                kept.append(uri)
+            kept.append(uri)
         elif endpoint not in dead:
             kept.append(uri)
     return kept or links
