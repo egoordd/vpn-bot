@@ -109,6 +109,28 @@ async def main() -> None:
                 BotCommand(command="invite", description="Пригласить друга"),
             ]
         )
+        site = (settings.WEB_BASE_URL or "https://unlockvpn.site").rstrip("/")
+        # Profile copy. The short description shows on the bot's card before a
+        # user ever presses Start, so it carries the site; the full one is the
+        # empty-chat screen and gets the detail.
+        await bot.set_my_short_description(
+            short_description=(
+                "VPN без ограничений: ютуб, инстаграм, тикток. "
+                f"Подключение за минуту. Сайт: {site}"
+            )
+        )
+        await bot.set_my_description(
+            description=(
+                "UnLock VPN — быстрый доступ к сайтам и приложениям, "
+                "которые перестали открываться.\n\n"
+                "• Ютуб без тормозов, Инстаграм, ТикТок и другие сервисы\n"
+                "• Работает на телефоне и компьютере, до 5 устройств\n"
+                "• Российские сайты и банки продолжают работать как обычно\n"
+                "• Подключение занимает около минуты\n\n"
+                f"Сайт и личный кабинет: {site}\n"
+                "Нажмите «Запустить», чтобы получить пробный доступ."
+            )
+        )
         await dispatcher.start_polling(bot)
     finally:
         scheduler.shutdown(wait=False)

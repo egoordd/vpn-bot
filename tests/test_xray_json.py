@@ -185,7 +185,8 @@ def test_blocked_platforms_are_pinned_to_the_tunnel():
     assert rules.index(pinned) < geo_ru
     assert pinned.get("balancerTag") == "auto"
     joined = " ".join(pinned["domain"])
-    for host in ("tiktok.com", "instagram.com", "cdninstagram.com", "fbcdn.net"):
+    for host in ("tiktok.com", "instagram.com", "cdninstagram.com", "fbcdn.net",
+                 "googlevideo.com", "youtube.com", "ibytedtos.com", "byteoversea.com"):
         assert f"domain:{host}" in joined
 
 

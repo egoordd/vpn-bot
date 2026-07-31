@@ -87,25 +87,65 @@ AUTO_REMARKS = "⚡️ Авто-обход"
 _DNS = {"servers": ["1.1.1.1", "8.8.8.8"]}
 
 # Domains that must never take the geoip:ru direct path, whatever their address
-# resolves to. These platforms are blocked in RU and run CDN edges inside the
-# country; if a lookup lands on one of those, the geoip:ru rule would send the
-# request straight out of the device — to an edge that is frozen or filtered,
-# which surfaces as stale feeds rather than an honest error. Matching on the
-# domain (before any IP rule) pins them to the tunnel regardless.
+# resolves to.
+#
+# This is the sharp edge of the RU-split feature. Sending `geoip:ru` straight
+# out of the device is right for banks and gosuslugi, but every one of these
+# platforms is blocked or throttled in RU *and* keeps CDN capacity inside the
+# country — YouTube most of all, whose Google Global Cache nodes sit in Russian
+# ISPs. A lookup landing on one of those returns a Russian address, geoip:ru
+# then routes it out of the device, and the request arrives at an edge that is
+# frozen (TikTok has served no new RU content since 2022), filtered, or
+# deliberately throttled. The user sees stale feeds and crawling video rather
+# than an error — the VPN looks connected and broken at the same time, which is
+# exactly what was reported and what competitors without RU-split don't suffer.
+#
+# Matching on the domain, ahead of every IP rule, decides before an address is
+# even known, so no CDN placement can undo it.
 _FORCE_PROXY_DOMAINS = [
+    # TikTok / ByteDance
     "domain:tiktok.com",
     "domain:tiktokcdn.com",
     "domain:tiktokcdn-us.com",
+    "domain:tiktokcdn-eu.com",
+    "domain:tiktokcdn-in.com",
     "domain:tiktokv.com",
+    "domain:tiktokv.us",
+    "domain:ttlivecdn.com",
+    "domain:ttwstatic.com",
     "domain:byteoversea.com",
+    "domain:byteicdn.com",
+    "domain:bytedance.com",
+    "domain:bytedapm.com",
     "domain:ibytedtos.com",
+    "domain:ipstatp.com",
+    "domain:sgpstatp.com",
+    "domain:snssdk.com",
+    "domain:isnssdk.com",
     "domain:muscdn.com",
     "domain:musical.ly",
+    "domain:capcut.com",
+    # Meta
     "domain:instagram.com",
     "domain:cdninstagram.com",
     "domain:fbcdn.net",
     "domain:facebook.com",
+    "domain:fb.com",
     "domain:threads.net",
+    "domain:whatsapp.com",
+    "domain:whatsapp.net",
+    # YouTube / Google video — googlevideo.com is the throttled one, and its
+    # cache nodes are physically inside RU networks.
+    "domain:youtube.com",
+    "domain:youtu.be",
+    "domain:googlevideo.com",
+    "domain:ytimg.com",
+    "domain:ggpht.com",
+    "domain:youtubei.googleapis.com",
+    # Other blocked platforms with RU-facing infrastructure
+    "domain:twitter.com",
+    "domain:x.com",
+    "domain:twimg.com",
 ]
 
 
