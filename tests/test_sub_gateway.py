@@ -560,3 +560,34 @@ def test_never_serves_an_empty_sub_even_if_all_probed_dead(tmp_path, monkeypatch
     links = [_vless("h1"), _vless("h2")]
     sub_gateway._register_probe_targets(links)
     assert sub_gateway.filter_alive(links) == links
+
+
+# --- client-facing headers ----------------------------------------------------
+
+def test_announce_is_base64_because_headers_are_latin1():
+    """Cyrillic in a raw header would break the response, so Happ's base64
+    form is mandatory here, not cosmetic."""
+    headers = sub_gateway._client_headers()
+    assert headers["announce"].startswith("base64:")
+    decoded = base64.b64decode(headers["announce"][len("base64:"):]).decode("utf-8")
+    assert "Обновите подписку" in decoded
+    decoded.encode("ascii", "ignore")  # sanity: it really was non-latin1
+
+
+def test_announce_respects_happ_length_limit(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "SUB_ANNOUNCE", "я" * 500)
+    headers = sub_gateway._client_headers()
+    decoded = base64.b64decode(headers["announce"][len("base64:"):]).decode("utf-8")
+    assert len(decoded) == 200
+
+
+def test_announce_omitted_when_blank(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "SUB_ANNOUNCE", "   ")
+    assert "announce" not in sub_gateway._client_headers()
+
+
+def test_headers_carry_support_and_site_buttons():
+    headers = sub_gateway._client_headers()
+    assert headers["support-url"].startswith("https://t.me/")
+    assert headers["profile-web-page-url"].startswith("https://")
+    assert headers["profile-title"].startswith("base64:")

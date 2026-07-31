@@ -104,6 +104,35 @@ _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 SUB_TITLE = os.environ.get("SUB_TITLE", "UnLock VPN")
 PROFILE_TITLE_HEADER = "base64:" + base64.b64encode(SUB_TITLE.encode("utf-8")).decode("ascii")
 
+# Announcement shown above the server list in Happ (max 200 chars). It answers
+# the one question that otherwise becomes a support ticket — "connected but a
+# site won't open" — with the fix the user can apply themselves, and carries
+# the referral offer to the audience most likely to act on it. HTTP headers are
+# latin-1 only, so Cyrillic must ride as base64, which Happ decodes.
+SUB_ANNOUNCE = os.environ.get(
+    "SUB_ANNOUNCE",
+    "Сайт не открывается? Обновите подписку в приложении и выберите сервер "
+    "с меньшим ms. Приводите друзей — 20% с каждой их оплаты на ваш баланс.",
+)
+# Buttons Happ renders next to the subscription.
+SUPPORT_URL = os.environ.get("SUB_SUPPORT_URL", "https://t.me/unlock_support_bot")
+PROFILE_WEB_PAGE_URL = os.environ.get("SUB_WEB_PAGE_URL", "https://unlockvpn.site")
+
+
+def _client_headers() -> dict[str, str]:
+    """Presentation headers every subscription response carries."""
+    headers = {"profile-title": PROFILE_TITLE_HEADER}
+    if SUB_ANNOUNCE.strip():
+        announce = SUB_ANNOUNCE.strip()[:200]
+        headers["announce"] = "base64:" + base64.b64encode(
+            announce.encode("utf-8")
+        ).decode("ascii")
+    if SUPPORT_URL:
+        headers["support-url"] = SUPPORT_URL
+    if PROFILE_WEB_PAGE_URL:
+        headers["profile-web-page-url"] = PROFILE_WEB_PAGE_URL
+    return headers
+
 # vless host -> location + its Hysteria2 endpoint
 NODES = {
     "144.172.101.217.sslip.io": {
@@ -626,7 +655,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b"invalid subscription", "text/plain")
                 return
             body, userinfo, is_json = auto
-            extra = {"profile-title": PROFILE_TITLE_HEADER}
+            extra = _client_headers()
             # Autoconnect/1h-refresh headers stay exclusive to the explicit /auto
             # link: the plain subscription must not start dialling on its own.
             if is_json and is_auto:
@@ -642,7 +671,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"invalid subscription", "text/plain")
             return
         payload, userinfo = result
-        extra = {"profile-title": PROFILE_TITLE_HEADER}
+        extra = _client_headers()
         if userinfo:
             extra["subscription-userinfo"] = userinfo
         self._send(200, payload.encode("ascii"), "text/plain; charset=utf-8", extra)
