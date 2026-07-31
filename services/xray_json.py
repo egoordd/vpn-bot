@@ -16,6 +16,7 @@ Pure functions, stdlib only — mirrors the gateway it feeds.
 """
 from __future__ import annotations
 
+import json
 import os
 import urllib.parse
 
@@ -221,10 +222,36 @@ def _parse_uri(uri: str) -> tuple[str, str, str, int, dict, str] | None:
 _KEEPALIVE_SOCKOPT = {"tcpKeepAliveIdle": 30, "tcpKeepAliveInterval": 25}
 
 
+def _xhttp_settings(query: dict) -> dict:
+    """Transport block for an XHTTP link.
+
+    XHTTP carries the tunnel inside ordinary HTTP requests, which survives DPI
+    that recognises and kills a raw TLS-shaped stream — the transport a client
+    falls back to when Reality-over-TCP stops connecting. Without this block the
+    JSON config would name the network but omit its path, and the connection
+    would fail; the panel puts the tuning knobs in `extra` as JSON.
+    """
+    settings: dict = {"path": query.get("path", "/"), "mode": query.get("mode", "auto")}
+    host = query.get("host", "")
+    if host:
+        settings["host"] = host
+    extra = query.get("extra", "")
+    if extra:
+        try:
+            parsed = json.loads(extra)
+        except (TypeError, ValueError):
+            parsed = None
+        if isinstance(parsed, dict):
+            settings["extra"] = parsed
+    return settings
+
+
 def _stream_settings(query: dict) -> dict:
     network = query.get("type", "tcp") or "tcp"
     security = query.get("security", "none") or "none"
     stream: dict = {"network": network, "security": security, "sockopt": dict(_KEEPALIVE_SOCKOPT)}
+    if network == "xhttp":
+        stream["xhttpSettings"] = _xhttp_settings(query)
     sni = query.get("sni") or query.get("host") or ""
     fingerprint = query.get("fp", "")
     if security == "reality":

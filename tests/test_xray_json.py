@@ -202,3 +202,45 @@ def test_dns_stays_remote_so_blocked_domains_resolve():
     """The RU ISP resolver answers nothing for blocked domains, so the device's
     own resolver cannot be trusted to look up TikTok/Instagram CDNs."""
     assert _balancer()["dns"]["servers"] == ["1.1.1.1", "8.8.8.8"]
+
+
+# --- XHTTP transport ----------------------------------------------------------
+
+XHTTP_URI = (
+    "vless://uuid@78.17.154.225.sslip.io:2097?security=reality&type=xhttp"
+    "&path=%2Fabc123&mode=auto&extra=%7B%22xPaddingBytes%22%3A+%22100-1000%22%7D"
+    "&sni=78.17.154.225.sslip.io&fp=chrome&pbk=PBK&sid=SID#PL-XHTTP"
+)
+
+
+def test_xhttp_link_carries_its_transport_block():
+    """Naming the network without its path yields a config that simply cannot
+    connect — the path is where the tunnel actually lives."""
+    stream = xray_json.build_outbound(XHTTP_URI, "proxy")["streamSettings"]
+    assert stream["network"] == "xhttp"
+    assert stream["xhttpSettings"]["path"] == "/abc123"
+    assert stream["xhttpSettings"]["mode"] == "auto"
+    assert stream["realitySettings"]["publicKey"] == "PBK"
+
+
+def test_xhttp_extra_is_decoded_into_an_object():
+    stream = xray_json.build_outbound(XHTTP_URI, "proxy")["streamSettings"]
+    assert stream["xhttpSettings"]["extra"] == {"xPaddingBytes": "100-1000"}
+
+
+def test_xhttp_malformed_extra_is_dropped_not_fatal():
+    uri = XHTTP_URI.replace("extra=%7B%22xPaddingBytes%22%3A+%22100-1000%22%7D", "extra=not-json")
+    stream = xray_json.build_outbound(uri, "proxy")["streamSettings"]
+    assert "extra" not in stream["xhttpSettings"]
+    assert stream["xhttpSettings"]["path"] == "/abc123"
+
+
+def test_tcp_links_get_no_xhttp_block():
+    stream = xray_json.build_outbound(REALITY, "proxy")["streamSettings"]
+    assert "xhttpSettings" not in stream
+
+
+def test_xhttp_joins_the_balancer():
+    config = xray_json.build_balancer_config([REALITY, XHTTP_URI])
+    tags = [o["tag"] for o in config["outbounds"] if o["tag"].startswith("proxy-")]
+    assert len(tags) == 2
