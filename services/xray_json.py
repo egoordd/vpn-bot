@@ -74,18 +74,39 @@ AUTO_REMARKS = "⚡️ Авто-обход"
 
 # Resolver for routing decisions (matching a destination against geoip:ru).
 # geoip:ru needs the destination IP, so IPOnDemand resolves every domain here
-# before it can route — which puts DNS squarely in the hot path.
+# before it can route.
 #
-# `localhost` (the device's own resolver) must come first. With a remote
-# resolver first, those queries are themselves routed — and since 1.1.1.1 is
-# not RU they go through the balancer, i.e. through the tunnel. If the picked
-# node is dead the DNS query dies with it, routing can never resolve, and the
-# whole client wedges *including* its ability to fail over. The system resolver
-# always answers, is the fastest hop available, and breaks that deadlock; the
-# public resolvers stay as fallback. Only routing decisions use this — proxied
-# traffic is still resolved at the exit node, so this leaks no browsing target
-# that the device wasn't already resolving itself.
-_DNS = {"servers": ["localhost", "1.1.1.1", "8.8.8.8"]}
+# These MUST stay remote. The device's own resolver is the RU ISP's, and it
+# refuses to answer for blocked domains at all — measured 2026-07-29 from an
+# MTS line: tiktok.com, instagram.com, cdninstagram.com and tiktokcdn.com all
+# return an empty answer, while 1.1.1.1 resolves every one. Putting `localhost`
+# first (briefly done on 2026-07-28) therefore left those apps unable to look
+# up fresh CDN hosts, so they fell back to cached content — "Instagram shows
+# old posts, TikTok doesn't work". Resolving through the tunnel also keeps the
+# ISP from seeing which sites are being looked up.
+_DNS = {"servers": ["1.1.1.1", "8.8.8.8"]}
+
+# Domains that must never take the geoip:ru direct path, whatever their address
+# resolves to. These platforms are blocked in RU and run CDN edges inside the
+# country; if a lookup lands on one of those, the geoip:ru rule would send the
+# request straight out of the device — to an edge that is frozen or filtered,
+# which surfaces as stale feeds rather than an honest error. Matching on the
+# domain (before any IP rule) pins them to the tunnel regardless.
+_FORCE_PROXY_DOMAINS = [
+    "domain:tiktok.com",
+    "domain:tiktokcdn.com",
+    "domain:tiktokcdn-us.com",
+    "domain:tiktokv.com",
+    "domain:byteoversea.com",
+    "domain:ibytedtos.com",
+    "domain:muscdn.com",
+    "domain:musical.ly",
+    "domain:instagram.com",
+    "domain:cdninstagram.com",
+    "domain:fbcdn.net",
+    "domain:facebook.com",
+    "domain:threads.net",
+]
 
 
 def _tail_outbounds() -> list[dict]:
@@ -107,10 +128,19 @@ def _split_routing(final_rule: dict) -> dict:
     # domain, so IPIfNonMatch never resolves and geoip:ru never fires. IPOnDemand
     # resolves the domain the instant the geoip:ru rule is evaluated, so a RU
     # domain is correctly matched and sent direct (verified: ya.ru → direct).
+    # Whatever `final_rule` sends traffic to (a single proxy outbound, or the
+    # balancer) is where the pinned domains must go too.
+    destination = {
+        key: value for key, value in final_rule.items() if key in ("outboundTag", "balancerTag")
+    }
     return {
         "domainStrategy": "IPOnDemand",
         "rules": [
             {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
+            # Before the geoip rule on purpose: this matches on the domain, so it
+            # decides without resolving and cannot be undone by an address that
+            # happens to sit in a Russian CDN edge.
+            {"type": "field", "domain": _FORCE_PROXY_DOMAINS, **destination},
             {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"},
             final_rule,
         ],

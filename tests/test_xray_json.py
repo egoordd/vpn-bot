@@ -65,7 +65,8 @@ def test_build_balancer_config_structure():
     # Russian destinations bypass the tunnel (real IP → RU apps work, no detour)
     assert cfg["routing"]["domainStrategy"] == "IPOnDemand"
     assert rules[0]["ip"] == ["geoip:private"] and rules[0]["outboundTag"] == "direct"
-    assert rules[1]["ip"] == ["geoip:ru"] and rules[1]["outboundTag"] == "direct"
+    ru = next(r for r in rules if r.get("ip") == ["geoip:ru"])
+    assert ru["outboundTag"] == "direct"
     # everything else load-balances across the foreign nodes
     assert rules[-1]["balancerTag"] == "auto"
     assert (cfg.get("burstObservatory") or cfg["observatory"])["subjectSelector"] == ["proxy-"]
@@ -85,7 +86,7 @@ def test_build_server_config_uses_uri_remark():
     assert cfg["remarks"] == "🇺🇸 США"
     assert [o["tag"] for o in cfg["outbounds"]] == ["proxy", "direct", "block"]
     # RU-bypass rules first, then everything else through the picked server
-    assert cfg["routing"]["rules"][1]["ip"] == ["geoip:ru"]
+    assert any(r.get("ip") == ["geoip:ru"] for r in cfg["routing"]["rules"])
     assert cfg["routing"]["rules"][-1]["outboundTag"] == "proxy"
 
 
@@ -158,13 +159,9 @@ def test_leastload_alternative_pairs_with_burst_observatory(monkeypatch):
     assert config["burstObservatory"]["pingConfig"]["sampling"] >= 2
 
 
-def test_dns_prefers_the_system_resolver():
-    """A remote resolver first would be routed through the balancer itself: if
-    the picked node is dead the DNS query dies with it and the client wedges,
-    unable even to fail over. The system resolver always answers."""
+def test_dns_has_a_fallback_resolver():
     servers = _balancer()["dns"]["servers"]
-    assert servers[0] == "localhost"
-    assert len(servers) > 1, "keep public resolvers as fallback"
+    assert len(servers) > 1, "keep a second resolver as fallback"
 
 
 def test_balancer_covers_every_proxy_outbound():
@@ -173,3 +170,34 @@ def test_balancer_covers_every_proxy_outbound():
     assert len(proxies) == 3
     assert config["routing"]["balancers"][0]["selector"] == ["proxy-"]
     assert _prober(config)["subjectSelector"] == ["proxy-"]
+
+
+# --- blocked platforms must never leak outside the tunnel ---------------------
+
+def test_blocked_platforms_are_pinned_to_the_tunnel():
+    """TikTok/Instagram run CDN edges inside RU. If a lookup lands on one, the
+    geoip:ru rule would send the request straight out of the device to an edge
+    that is frozen — which shows up as a stale feed, not an error."""
+    rules = _balancer()["routing"]["rules"]
+    pinned = next(r for r in rules if "domain" in r)
+    geo_ru = next(i for i, r in enumerate(rules) if r.get("ip") == ["geoip:ru"])
+    # decided by domain, before any IP rule can send it direct
+    assert rules.index(pinned) < geo_ru
+    assert pinned.get("balancerTag") == "auto"
+    joined = " ".join(pinned["domain"])
+    for host in ("tiktok.com", "instagram.com", "cdninstagram.com", "fbcdn.net"):
+        assert f"domain:{host}" in joined
+
+
+def test_single_server_config_pins_the_same_domains():
+    config = xray_json.build_server_config(
+        "vless://uuid@h1:2096?security=reality&sni=h1&pbk=P&sid=S#h1", 0
+    )
+    pinned = next(r for r in config["routing"]["rules"] if "domain" in r)
+    assert pinned.get("outboundTag") == "proxy"
+
+
+def test_dns_stays_remote_so_blocked_domains_resolve():
+    """The RU ISP resolver answers nothing for blocked domains, so the device's
+    own resolver cannot be trusted to look up TikTok/Instagram CDNs."""
+    assert _balancer()["dns"]["servers"] == ["1.1.1.1", "8.8.8.8"]
