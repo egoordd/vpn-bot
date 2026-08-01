@@ -123,3 +123,51 @@ def test_host_is_alive_if_any_of_its_entrypoints_works(monkeypatch):
     import json as _json
     assert _json.loads(written["body"])["nodes"]["h1"] is True
     assert len(calls) == 2  # both entrypoints were tried
+
+
+# --- endpoints outside the panel ----------------------------------------------
+
+def test_extra_links_are_probed_alongside_the_subscription(monkeypatch):
+    """The Moscow relay is not a Marzban node, yet every 🇷🇺→<country> entry
+    terminates on it. Unprobed, it could black-hole the top of every
+    subscription indefinitely with nothing noticing."""
+    relay = ("vless://uuid@130.49.143.41.sslip.io:2091?security=reality"
+             "&sni=130.49.143.41.sslip.io&pbk=P&sid=S&fp=chrome")
+    seen = []
+    monkeypatch.setattr(node_probe, "PROBE_SUB_URL", "https://example/sub")
+    monkeypatch.setattr(node_probe, "PROBE_EXTRA_LINKS", relay)
+    monkeypatch.setattr(node_probe, "fetch_links", lambda url: [_uri("h1", 2087)])
+    monkeypatch.setattr(node_probe.os.path, "exists", lambda p: True)
+    monkeypatch.setattr(node_probe, "load_previous", lambda: {})
+    monkeypatch.setattr(node_probe.os, "replace", lambda a, b: None)
+
+    def fake_probe(node):
+        seen.append(node["host"])
+        return True
+
+    monkeypatch.setattr(node_probe, "probe_node", fake_probe)
+    real_open = open
+
+    def fake_open(path, mode="r", *a, **kw):
+        if "w" in mode:
+            import io
+            return io.StringIO()
+        return real_open(path, mode, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    node_probe.main()
+    assert "130.49.143.41.sslip.io" in seen, "relay must be probed"
+    assert "h1" in seen, "panel nodes must still be probed"
+
+
+def test_extra_links_accept_comma_or_newline(monkeypatch):
+    a = "vless://u@r1:2091?security=reality&sni=r1&pbk=P&sid=S"
+    b = "vless://u@r2:2092?security=reality&sni=r2&pbk=P&sid=S"
+    for joined in (f"{a},{b}", f"{a}\n{b}"):
+        monkeypatch.setattr(node_probe, "PROBE_EXTRA_LINKS", joined)
+        parsed = [
+            part.strip()
+            for part in node_probe.PROBE_EXTRA_LINKS.replace(",", "\n").splitlines()
+            if part.strip().startswith("vless://")
+        ]
+        assert len(parsed) == 2

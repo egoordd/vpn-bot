@@ -32,6 +32,12 @@ XRAY_BIN = os.environ.get("XRAY_BIN", "/usr/local/bin/xray")
 # Subscription of the service account that carries every exit inbound, so one
 # fetch yields a link per node without hardcoding credentials here.
 PROBE_SUB_URL = os.environ.get("PROBE_SUB_URL", "")
+# Endpoints that exist outside the panel and would otherwise go unwatched. The
+# Moscow cascade relay is the case that matters: it is not a Marzban node, yet
+# all four 🇷🇺→<country> entries — the first things in every subscription —
+# terminate on it. Unprobed, it could black-hole the top of everyone's list
+# indefinitely and nothing would notice. Newline- or comma-separated links.
+PROBE_EXTRA_LINKS = os.environ.get("PROBE_EXTRA_LINKS", "")
 HEALTH_FILE = os.environ.get("NODE_HEALTH_FILE", "/run/unlock-node-health.json")
 # A 204 generator: no body, no TLS handshake to a third party inside the tunnel.
 PROBE_URL = os.environ.get("PROBE_TARGET", "http://cp.cloudflare.com/generate_204")
@@ -242,6 +248,11 @@ def main() -> int:
         # verdict is far safer than marking every node dead at once.
         print(f"subscription fetch failed: {exc}", file=sys.stderr)
         return 1
+    links += [
+        part.strip()
+        for part in PROBE_EXTRA_LINKS.replace(",", "\n").splitlines()
+        if part.strip().startswith("vless://")
+    ]
 
     # A node usually publishes several entrypoints (Reality over TCP, XHTTP,
     # …). It is only unreachable if *every* one of them fails, so results are
