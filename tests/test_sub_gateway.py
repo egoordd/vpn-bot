@@ -591,3 +591,26 @@ def test_headers_carry_support_and_site_buttons():
     assert headers["support-url"].startswith("https://t.me/")
     assert headers["profile-web-page-url"].startswith("https://")
     assert headers["profile-title"].startswith("base64:")
+
+
+# --- /hy2 flavor: Hysteria for xray-JSON clients ------------------------------
+
+def test_hy2_flavor_forces_base64_for_a_json_client(monkeypatch):
+    """Hysteria2 runs on its own core and cannot live in an xray-JSON body, so
+    a Happ user served JSON never sees it. This flavor is the only way to hand
+    them the Hy2 entries without giving up «Авто-обход» on the main link."""
+    monkeypatch.setattr(sub_gateway, "AUTO_IN_SUB", True)
+    # mirrors the handler's decision: /hy2 wins over the JSON-capable UA
+    for flavor, ua, expect_json in (
+        ("", "Happ/1.0", True),
+        ("auto", "Happ/1.0", True),
+        ("hy2", "Happ/1.0", False),
+        ("hy2", "v2rayNG/1.8.5", False),
+        ("", "v2rayNG/1.8.5", False),
+    ):
+        force_plain = flavor == "hy2"
+        is_auto = flavor == "auto"
+        wants_json = not force_plain and (
+            is_auto or (sub_gateway.AUTO_IN_SUB and sub_gateway._supports_xray_json(ua))
+        )
+        assert wants_json is expect_json, (flavor, ua)

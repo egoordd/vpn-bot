@@ -626,14 +626,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
             return
         token, _, tail = path[len(prefix):].partition("/")
-        is_auto = tail.rstrip("/") == "auto"
+        flavor = tail.rstrip("/")
+        is_auto = flavor == "auto"
+        # Hysteria2 runs on a core of its own and cannot appear inside an
+        # xray-JSON body, so a Happ user served JSON never sees it. This flavor
+        # forces the base64 list for any client, which is the only way to hand
+        # Happ the Hy2 entries — offered alongside the ordinary link rather than
+        # replacing it, so «Авто-обход» is not sacrificed to get Hysteria.
+        force_plain = flavor == "hy2"
         if not token:
             self._send(404, b"not found", "text/plain")
             return
         # A browser gets the connect landing; VPN clients get the raw config.
         if CONNECT_PAGE_BASE and _TOKEN_RE.match(token) and _is_browser(self.headers.get("User-Agent", "")):
             base = PUBLIC_BASE or f"https://{self.headers.get('Host', '')}".rstrip("/")
-            sub_url = f"{base}/sub/{token}/auto" if is_auto else f"{base}/sub/{token}"
+            sub_url = f"{base}/sub/{token}/{flavor}" if flavor else f"{base}/sub/{token}"
             location = f"{CONNECT_PAGE_BASE}/connect#sub={urllib.parse.quote(sub_url, safe='')}"
             self.send_response(302)
             self.send_header("Location", location)
@@ -644,11 +651,11 @@ class Handler(BaseHTTPRequestHandler):
         # can parse xray-JSON, so a user who imports the one link already has it
         # as the first server — no second link to hand out. Historically this was
         # /auto-only because the base64 body was needed to carry Hysteria2, which
-        # xray-JSON cannot express; Hy2 has since been dropped, and VLESS/Trojan
-        # both round-trip through JSON, so the JSON body now loses nothing.
-        # Other clients keep the base64 URI list unchanged.
+        # xray-JSON cannot express. Hy2 is back, so the JSON body does lose it —
+        # that is what the /hy2 flavor above exists to hand over. Other clients
+        # keep the base64 URI list, Hysteria2 included.
         ua = self.headers.get("User-Agent", "")
-        wants_json = is_auto or (AUTO_IN_SUB and _supports_xray_json(ua))
+        wants_json = not force_plain and (is_auto or (AUTO_IN_SUB and _supports_xray_json(ua)))
         if wants_json:
             auto = build_auto_json(token)
             if auto is None:
