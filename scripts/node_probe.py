@@ -93,6 +93,12 @@ def parse_vless(uri: str) -> dict | None:
         "sid": query.get("sid", ""),
         "flow": query.get("flow", ""),
         "fp": query.get("fp", "firefox"),
+        # Transport matters: probing an XHTTP endpoint with a plain TCP config
+        # always fails, and that false negative once removed healthy nodes from
+        # every subscription.
+        "network": query.get("type", "tcp") or "tcp",
+        "path": query.get("path", "/"),
+        "mode": query.get("mode", "auto"),
     }
 
 
@@ -100,6 +106,18 @@ def build_config(node: dict, socks_port: int) -> dict:
     user: dict = {"id": node["uuid"], "encryption": "none"}
     if node["flow"]:
         user["flow"] = node["flow"]
+    stream: dict = {
+        "network": node["network"],
+        "security": "reality",
+        "realitySettings": {
+            "serverName": node["sni"],
+            "fingerprint": node["fp"],
+            "publicKey": node["pbk"],
+            "shortId": node["sid"],
+        },
+    }
+    if node["network"] == "xhttp":
+        stream["xhttpSettings"] = {"path": node["path"], "mode": node["mode"]}
     return {
         "log": {"loglevel": "error"},
         "inbounds": [
@@ -120,16 +138,7 @@ def build_config(node: dict, socks_port: int) -> dict:
                         {"address": node["host"], "port": node["port"], "users": [user]}
                     ]
                 },
-                "streamSettings": {
-                    "network": "tcp",
-                    "security": "reality",
-                    "realitySettings": {
-                        "serverName": node["sni"],
-                        "fingerprint": node["fp"],
-                        "publicKey": node["pbk"],
-                        "shortId": node["sid"],
-                    },
-                },
+                "streamSettings": stream,
             }
         ],
     }
@@ -234,12 +243,18 @@ def main() -> int:
         print(f"subscription fetch failed: {exc}", file=sys.stderr)
         return 1
 
+    # A node usually publishes several entrypoints (Reality over TCP, XHTTP,
+    # …). It is only unreachable if *every* one of them fails, so results are
+    # OR-ed per host — assigning per link would let the last one probed
+    # overwrite the others and pull a working node out of every subscription.
     fresh: dict[str, bool] = {}
     for uri in links:
         node = parse_vless(uri)
         if node is None:
             continue
-        fresh[node["host"]] = probe_node(node)
+        ok = probe_node(node)
+        host = node["host"]
+        fresh[host] = fresh.get(host, False) or ok
 
     if not fresh:
         print("no probeable nodes in subscription", file=sys.stderr)

@@ -60,3 +60,66 @@ def test_flapping_node_stays_dropped_across_alternating_results():
         verdicts, streaks = apply_hysteresis(state, {"h1": passed})
         state = {"nodes": verdicts, "streaks": streaks}
     assert state["nodes"]["h1"] is False
+
+
+# --- transport handling and per-host aggregation -------------------------------
+
+def _uri(host, port, extra=""):
+    return (f"vless://uuid@{host}:{port}?security=reality&sni={host}"
+            f"&pbk=P&sid=S&fp=chrome{extra}")
+
+
+def test_xhttp_link_is_parsed_with_its_transport():
+    """Probing an XHTTP endpoint with a plain TCP config always fails, and that
+    false negative once pulled healthy nodes from every subscription."""
+    node = node_probe.parse_vless(_uri("h1", 2097, "&type=xhttp&path=%2Fabc&mode=auto"))
+    assert node["network"] == "xhttp"
+    assert node["path"] == "/abc"
+    cfg = node_probe.build_config(node, 1080)
+    stream = cfg["outbounds"][0]["streamSettings"]
+    assert stream["network"] == "xhttp"
+    assert stream["xhttpSettings"]["path"] == "/abc"
+
+
+def test_tcp_link_gets_no_xhttp_block():
+    node = node_probe.parse_vless(_uri("h1", 2087))
+    cfg = node_probe.build_config(node, 1080)
+    stream = cfg["outbounds"][0]["streamSettings"]
+    assert stream["network"] == "tcp"
+    assert "xhttpSettings" not in stream
+
+
+def test_host_is_alive_if_any_of_its_entrypoints_works(monkeypatch):
+    """One broken transport must not condemn the whole node — assigning per
+    link let the last one probed overwrite a working result."""
+    calls = []
+
+    def fake_probe(node):
+        calls.append((node["host"], node["port"]))
+        return node["port"] == 2087  # TCP works, XHTTP does not
+
+    monkeypatch.setattr(node_probe, "probe_node", fake_probe)
+    monkeypatch.setattr(node_probe, "fetch_links", lambda url: [
+        _uri("h1", 2087), _uri("h1", 2097, "&type=xhttp&path=%2Fx"),
+    ])
+    monkeypatch.setattr(node_probe, "PROBE_SUB_URL", "https://example/sub")
+    monkeypatch.setattr(node_probe.os.path, "exists", lambda p: True)
+    written = {}
+    monkeypatch.setattr(node_probe, "load_previous", lambda: {})
+    monkeypatch.setattr(node_probe.os, "replace", lambda a, b: None)
+
+    real_open = open
+
+    def fake_open(path, mode="r", *a, **kw):
+        if "w" in mode:
+            import io
+            buf = io.StringIO()
+            buf.close = lambda: written.update(body=buf.getvalue())
+            return buf
+        return real_open(path, mode, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    assert node_probe.main() == 0
+    import json as _json
+    assert _json.loads(written["body"])["nodes"]["h1"] is True
+    assert len(calls) == 2  # both entrypoints were tried
