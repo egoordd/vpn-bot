@@ -614,3 +614,22 @@ def test_hy2_flavor_forces_base64_for_a_json_client(monkeypatch):
             is_auto or (sub_gateway.AUTO_IN_SUB and sub_gateway._supports_xray_json(ua))
         )
         assert wants_json is expect_json, (flavor, ua)
+
+
+# --- Marzban's own auto-named links -------------------------------------------
+
+def test_default_named_links_are_dropped():
+    """Adding the USA node made Marzban emit eight `<node> (<user>)
+    [VLESS - tcp]` links at once: duplicates of locations we already publish,
+    carrying another node's keys, failing when tapped."""
+    curated = f"vless://u@{US_HOST}:443?x=1#" + urllib.parse.quote("🇺🇸 США")
+    auto = f"vless://u@{US_HOST}:443?x=1#" + urllib.parse.quote("USA (tg_1038449764) [VLESS - tcp]")
+    auto_x = f"vless://u@{US_HOST}:2099?x=1#" + urllib.parse.quote("USA (tg_1) [VLESS - xhttp]")
+    assert combine_links("\n".join([curated, auto, auto_x])) == [curated]
+
+
+def test_curated_remarks_survive_the_filter():
+    for remark in ("🇵🇱 Польша · Trojan", "🇩🇪 Германия · XHTTP", "⚡️ Авто-обход",
+                   "🇳🇱 Нидерланды ✅ РУ сервисы"):
+        uri = f"vless://u@{US_HOST}:443?x=1#" + urllib.parse.quote(remark)
+        assert combine_links(uri) == [uri], remark

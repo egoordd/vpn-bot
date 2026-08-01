@@ -439,6 +439,19 @@ def _marzban_sub_active(token: str) -> bool:
     return str(info.get("status", "active")).lower() in ("", "active", "on_hold")
 
 
+# Marzban auto-names a link it generates for a node with no curated host as
+# `<node> (<user>) [PROTOCOL - transport]`. Those duplicate a location we
+# already publish under a proper name, carry the wrong node's keys, and simply
+# fail when tapped — adding the USA node produced eight of them at once. Every
+# remark we curate is a country name, so the template is safe to recognise.
+_MARZBAN_DEFAULT_REMARK = re.compile(r"\[[A-Za-z0-9]+ - [a-z0-9]+\]\s*$")
+
+
+def _is_default_named(uri: str) -> bool:
+    remark = urllib.parse.unquote(uri.partition("#")[2])
+    return bool(_MARZBAN_DEFAULT_REMARK.search(remark))
+
+
 def combine_links(decoded: str) -> list[str]:
     """Pass through every proxy link Marzban issued and append each node's
     Hysteria2 endpoint once (after the node's first link), preserving order.
@@ -449,7 +462,11 @@ def combine_links(decoded: str) -> list[str]:
     node's first link, so a location exposing both VLESS and a panel Trojan
     doesn't list its Hy2/Trojan twice.
     """
-    proxy_uris = [line.strip() for line in decoded.splitlines() if "://" in line.strip()]
+    proxy_uris = [
+        line.strip()
+        for line in decoded.splitlines()
+        if "://" in line.strip() and not _is_default_named(line.strip())
+    ]
     combined: list[str] = []
     extras_done: set[str] = set()
     for uri in proxy_uris:
