@@ -49,9 +49,16 @@ _PROBE_URL = "http://www.gstatic.com/generate_204"
 # Failover speed: this interval *is* the outage a user sits through, because a
 # balancer can only route around a server once a fresh probe has judged it. The
 # old 3m let a node black-hole traffic for three minutes — "connected but
-# nothing loads", switch by hand. A probe is one 204 request per node, so
-# frequent sampling costs nothing worth counting.
-_PROBE_INTERVAL = "15s"
+# nothing loads", switch by hand.
+#
+# 15s was the first correction and overshot: a probe round dials *every* proxy,
+# so with a location per entry that is a burst of tunnel setups four times a
+# minute, running forever in the background. On a phone that reads as an app
+# that never idles, which is what battery optimisers kill — and a killed app is
+# itself reported as "the VPN disconnects on its own". 60s still detects a dead
+# node three times faster than the original while leaving the client mostly
+# quiet.
+_PROBE_INTERVAL = "60s"
 _PROBE_TIMEOUT = "4s"
 # Samples kept per server: the strategy judges on the recent window, so a node
 # that degrades (rather than dies outright) is demoted after a couple of bad
@@ -178,6 +185,19 @@ def _split_routing(final_rule: dict) -> dict:
         "domainStrategy": "IPOnDemand",
         "rules": [
             {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
+            # DNS must never depend on the tunnel, or the client deadlocks.
+            # IPOnDemand has to resolve a name before it can judge geoip:ru, and
+            # a public resolver is not RU — so without this rule the lookup is
+            # itself sent through the balancer. When the selected node stops
+            # passing traffic the lookup dies with it, routing can no longer
+            # resolve anything, and the whole client freezes *including its
+            # ability to pick a different node*: "worked six minutes, then
+            # stopped loading and never switched". Sending port 53 straight out
+            # keeps resolution alive no matter which exit is sick.
+            # The ISP therefore sees these lookups; that is the deliberate
+            # trade for a client that cannot wedge. Its own resolver stays
+            # unused — it answers nothing for blocked domains.
+            {"type": "field", "port": "53", "network": "tcp,udp", "outboundTag": "direct"},
             # Before the geoip rule on purpose: this matches on the domain, so it
             # decides without resolving and cannot be undone by an address that
             # happens to sit in a Russian CDN edge.
