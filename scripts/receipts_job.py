@@ -29,12 +29,23 @@ import aiohttp
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import settings  # noqa: E402
-from services import moynalog  # noqa: E402
+from services import alerts, moynalog  # noqa: E402
 
 logger = logging.getLogger("receipts_job")
 
 DEFAULT_API_URL = "https://23.95.3.18.sslip.io"
 LEDGER_PATH = Path(__file__).resolve().parent.parent / "tmp" / "receipts_ledger.json"
+HEALTH_PATH = Path(__file__).resolve().parent.parent / "tmp" / "receipts_health.json"
+
+# This job is invisible when it works and equally invisible when it does not:
+# it only has something to do on a sale, so a dead ФНС token would be found out
+# at the next purchase — the one moment a receipt is legally due. So every run
+# proves the connection even with nothing to issue, and says so when it cannot.
+#
+# The machine is a laptop, not a server: it sleeps, changes networks, and sits
+# behind our own VPN, from which ФНС is unreachable by design. A single failure
+# means nothing. Three runs in a row — three hours — is a real problem.
+FAILURES_BEFORE_ALERT = int(os.getenv("RECEIPTS_FAILURES_BEFORE_ALERT", "3"))
 
 
 def _api_base() -> str:
@@ -112,13 +123,84 @@ async def run(session: aiohttp.ClientSession) -> int:
     return done
 
 
+def load_health(path: Path | None = None) -> dict:
+    try:
+        data = json.loads((path or HEALTH_PATH).read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_health(state: dict, path: Path | None = None) -> None:
+    path = path or HEALTH_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False))
+    tmp.replace(path)
+
+
+def judge(previous: dict, ok: bool, reason: str = "") -> tuple[str, dict]:
+    """(message to send, new state) from this run's outcome.
+
+    Returns an empty message while a failure is still plausibly the laptop —
+    asleep, off the network, or on our own VPN, from which ФНС is unreachable.
+    Recovery is announced once, so a silent alert is never left hanging.
+    """
+    streak = 0 if ok else int(previous.get("failures", 0)) + 1
+    alerted = bool(previous.get("alerted", False))
+    state = {"failures": streak, "alerted": alerted, "last_reason": reason}
+
+    if ok:
+        state["alerted"] = False
+        if alerted:
+            return "✅ Чеки снова оформляются — связь с «Мой налог» восстановилась.", state
+        return "", state
+
+    if streak >= FAILURES_BEFORE_ALERT and not alerted:
+        state["alerted"] = True
+        return (
+            "⚠️ <b>Чеки не оформляются</b>\n"
+            f"{reason}\n\n"
+            f"Не выходит {streak}-й раз подряд. Пока это длится, оплаты остаются "
+            "без чека «Мой налог»."
+        ), state
+    return "", state
+
+
+async def _prove_connection() -> None:
+    """Authenticate against ФНС even with nothing to issue.
+
+    Cheap, and it turns "we will find out at the next sale" into "we know
+    within the hour" — the token is the part that expires silently.
+    """
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        await moynalog._ensure_token(session)
+
+
 async def main() -> int:
     if not moynalog.is_configured():
         logger.error("MOYNALOG_* is not configured in .env — nothing to do.")
         return 2
     timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        done = await run(session)
+    failure = ""
+    done = 0
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            done = await run(session)
+        if done == 0:
+            await _prove_connection()
+    except Exception as exc:
+        failure = f"{type(exc).__name__}: {exc}"
+        logger.error("run failed: %s", failure)
+
+    message, state = judge(load_health(), ok=not failure, reason=failure)
+    save_health(state)
+    if message:
+        await alerts.send_alert(message)
+
+    if failure:
+        return 1
     logger.info("Done: %s receipt(s) issued.", done)
     return 0
 

@@ -104,3 +104,43 @@ async def test_run_no_pending_is_noop(monkeypatch):
     assert await receipts_job.run(session) == 0
     create.assert_not_awaited()
     assert session.completed_posts == []
+
+
+# --- knowing when it stopped working ------------------------------------------
+
+def test_a_single_failure_is_not_worth_a_message():
+    """The job runs on a laptop: it sleeps, changes networks, and sits behind our
+    own VPN, from which ФНС is unreachable by design."""
+    message, state = receipts_job.judge({}, ok=False, reason="timeout")
+    assert message == ""
+    assert state["failures"] == 1
+
+
+def test_a_persistent_failure_is_announced_once():
+    state = {}
+    messages = []
+    for _ in range(5):
+        message, state = receipts_job.judge(state, ok=False, reason="auth rejected")
+        if message:
+            messages.append(message)
+    assert len(messages) == 1, "an hourly job must not repeat itself hourly"
+    assert "не оформляются" in messages[0]
+
+
+def test_recovery_is_announced_so_no_alert_is_left_hanging():
+    state = {}
+    for _ in range(receipts_job.FAILURES_BEFORE_ALERT):
+        _, state = receipts_job.judge(state, ok=False, reason="down")
+    message, state = receipts_job.judge(state, ok=True)
+    assert "восстановилась" in message
+    assert state["failures"] == 0 and state["alerted"] is False
+
+
+def test_success_is_silent_when_nothing_was_broken():
+    message, _ = receipts_job.judge({"failures": 0, "alerted": False}, ok=True)
+    assert message == ""
+
+
+def test_a_recovered_run_resets_the_streak():
+    _, state = receipts_job.judge({"failures": 2, "alerted": False}, ok=True)
+    assert state["failures"] == 0
