@@ -92,7 +92,25 @@ AUTO_REMARKS = "⚡️ Авто-обход"
 # up fresh CDN hosts, so they fell back to cached content — "Instagram shows
 # old posts, TikTok doesn't work". Resolving through the tunnel also keeps the
 # ISP from seeing which sites are being looked up.
-_DNS = {"servers": ["1.1.1.1", "8.8.8.8"]}
+_DNS = {"servers": ["localhost"]}
+
+# Russian destinations that must leave the device directly, matched by NAME so
+# no lookup is needed to decide. The regexps cover the national zones in one
+# line each; the rest are the RU services that live outside them.
+_RU_DIRECT_DOMAINS = [
+    "regexp:\\.ru$",
+    "regexp:\\.su$",
+    "regexp:\\.xn--p1ai$",  # .рф
+    "domain:vk.com",
+    "domain:vk.me",
+    "domain:userapi.com",
+    "domain:mycdn.me",
+    "domain:yandex.net",
+    "domain:yandex.com",
+    "domain:ozon.com",
+    "domain:wildberries.com",
+    "domain:gosuslugi.gov",
+]
 
 # Domains that must never take the geoip:ru direct path, whatever their address
 # resolves to.
@@ -167,41 +185,31 @@ def _tail_outbounds() -> list[dict]:
 # Send Russian destinations straight out the device (real local IP) instead of
 # tunnelling them to a foreign exit and back: RU banks / gosuslugi / apps then
 # see a Russian IP and work, and RU traffic — most of a user's day — takes zero
-# VPN detour, which is the biggest lever on felt latency. geoip:ru only (in
-# every client's bundled geoip.dat, unlike geosite tags that differ per client),
-# with IPIfNonMatch so a RU domain is resolved and matched too. `final_rule`
-# routes everything else (the foreign traffic that actually needs bypass).
+# VPN detour, which is the biggest lever on felt latency.
+#
+# Everything is decided by NAME, and that is the whole point. Deciding by
+# address means resolving first, and every way of doing that has now broken a
+# client in production: resolving through the tunnel wedges the app when the
+# chosen node dies (it cannot even fail over, because failing over needs a
+# lookup), while routing port 53 out of the tunnel loops on a phone, where the
+# VPN owns the system resolver — the lookup leaves, comes straight back in, and
+# nothing loads at all. With `AsIs` no lookup happens for routing, so neither
+# failure can occur. Names go to the exit and are resolved there.
 def _split_routing(final_rule: dict) -> dict:
-    # IPOnDemand (not IPIfNonMatch): the catch-all `final_rule` matches every
-    # domain, so IPIfNonMatch never resolves and geoip:ru never fires. IPOnDemand
-    # resolves the domain the instant the geoip:ru rule is evaluated, so a RU
-    # domain is correctly matched and sent direct (verified: ya.ru → direct).
     # Whatever `final_rule` sends traffic to (a single proxy outbound, or the
     # balancer) is where the pinned domains must go too.
     destination = {
         key: value for key, value in final_rule.items() if key in ("outboundTag", "balancerTag")
     }
     return {
-        "domainStrategy": "IPOnDemand",
+        "domainStrategy": "AsIs",
         "rules": [
             {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
-            # DNS must never depend on the tunnel, or the client deadlocks.
-            # IPOnDemand has to resolve a name before it can judge geoip:ru, and
-            # a public resolver is not RU — so without this rule the lookup is
-            # itself sent through the balancer. When the selected node stops
-            # passing traffic the lookup dies with it, routing can no longer
-            # resolve anything, and the whole client freezes *including its
-            # ability to pick a different node*: "worked six minutes, then
-            # stopped loading and never switched". Sending port 53 straight out
-            # keeps resolution alive no matter which exit is sick.
-            # The ISP therefore sees these lookups; that is the deliberate
-            # trade for a client that cannot wedge. Its own resolver stays
-            # unused — it answers nothing for blocked domains.
-            {"type": "field", "port": "53", "network": "tcp,udp", "outboundTag": "direct"},
-            # Before the geoip rule on purpose: this matches on the domain, so it
-            # decides without resolving and cannot be undone by an address that
-            # happens to sit in a Russian CDN edge.
+            # Blocked platforms first: they must reach the tunnel even though
+            # some of their CDN sits on Russian addresses.
             {"type": "field", "domain": _FORCE_PROXY_DOMAINS, **destination},
+            {"type": "field", "domain": _RU_DIRECT_DOMAINS, "outboundTag": "direct"},
+            # Catches apps that connect to a Russian address with no name at all.
             {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"},
             final_rule,
         ],

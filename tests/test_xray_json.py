@@ -63,7 +63,7 @@ def test_build_balancer_config_structure():
     assert balancer["strategy"]["type"] == "leastPing"
     rules = cfg["routing"]["rules"]
     # Russian destinations bypass the tunnel (real IP → RU apps work, no detour)
-    assert cfg["routing"]["domainStrategy"] == "IPOnDemand"
+    assert cfg["routing"]["domainStrategy"] == "AsIs"
     assert rules[0]["ip"] == ["geoip:private"] and rules[0]["outboundTag"] == "direct"
     ru = next(r for r in rules if r.get("ip") == ["geoip:ru"])
     assert ru["outboundTag"] == "direct"
@@ -159,9 +159,13 @@ def test_leastload_alternative_pairs_with_burst_observatory(monkeypatch):
     assert config["burstObservatory"]["pingConfig"]["sampling"] >= 2
 
 
-def test_dns_has_a_fallback_resolver():
-    servers = _balancer()["dns"]["servers"]
-    assert len(servers) > 1, "keep a second resolver as fallback"
+def test_routing_needs_no_lookup():
+    """Both production outages came from resolving before routing: through the
+    tunnel it wedges when the node dies, out of the tunnel it loops on a phone
+    whose VPN owns the resolver. AsIs decides on the name and avoids both."""
+    config = _balancer()
+    assert config["routing"]["domainStrategy"] == "AsIs"
+    assert not any(str(r.get("port")) == "53" for r in config["routing"]["rules"])
 
 
 def test_balancer_covers_every_proxy_outbound():
@@ -198,10 +202,16 @@ def test_single_server_config_pins_the_same_domains():
     assert pinned.get("outboundTag") == "proxy"
 
 
-def test_dns_stays_remote_so_blocked_domains_resolve():
-    """The RU ISP resolver answers nothing for blocked domains, so the device's
-    own resolver cannot be trusted to look up TikTok/Instagram CDNs."""
-    assert _balancer()["dns"]["servers"] == ["1.1.1.1", "8.8.8.8"]
+def test_ru_traffic_is_matched_by_name():
+    """The RU ISP resolver answers nothing for blocked domains — which is safe
+    now only because blocked names are never resolved on the device: they match
+    by name and are resolved at the exit."""
+    rules = _balancer()["routing"]["rules"]
+    ru = next(r for r in rules if any("\\.ru$" in d for d in r.get("domain", [])))
+    assert ru["outboundTag"] == "direct"
+    pinned = next(r for r in rules if "domain:tiktok.com" in r.get("domain", []))
+    # blocked platforms decided before the RU rule can send a .ru CDN direct
+    assert rules.index(pinned) < rules.index(ru)
 
 
 # --- XHTTP transport ----------------------------------------------------------
