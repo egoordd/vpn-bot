@@ -38,6 +38,12 @@ PROBE_SUB_URL = os.environ.get("PROBE_SUB_URL", "")
 # terminate on it. Unprobed, it could black-hole the top of everyone's list
 # indefinitely and nothing would notice. Newline- or comma-separated links.
 PROBE_EXTRA_LINKS = os.environ.get("PROBE_EXTRA_LINKS", "")
+# Where the probe is executed from. Empty runs it locally; set to a host we can
+# reach over SSH to measure from that vantage instead. Reachability is not a
+# property of a node alone — it is a property of the path — so this must be a
+# machine on the same side of the censorship as the customers.
+PROBE_FROM_HOST = os.environ.get("PROBE_FROM_HOST", "")
+PROBE_FROM_XRAY = os.environ.get("PROBE_FROM_XRAY", "/usr/local/bin/xray")
 HEALTH_FILE = os.environ.get("NODE_HEALTH_FILE", "/run/unlock-node-health.json")
 # A 204 generator: no body, no TLS handshake to a third party inside the tunnel.
 PROBE_URL = os.environ.get("PROBE_TARGET", "http://cp.cloudflare.com/generate_204")
@@ -150,8 +156,48 @@ def build_config(node: dict, socks_port: int) -> dict:
     }
 
 
+def _probe_remote(node: dict) -> bool:
+    """Run one probe on PROBE_FROM_HOST over SSH and report whether it passed.
+
+    The whole exchange is a single ssh invocation carrying the config on stdin,
+    so the remote side needs nothing installed beyond xray and curl.
+    """
+    port = 39000 + (hash(f"{node['host']}:{node['port']}") % 2000)
+    config = json.dumps(build_config(node, port))
+    script = (
+        # .json suffix is required: xray infers the config format from the
+        # extension and refuses a plain mktemp file outright.
+        f"cfg=$(mktemp --suffix=.json); cat > $cfg; "
+        f"{PROBE_FROM_XRAY} run -c $cfg >/dev/null 2>&1 & xp=$!; sleep 3; "
+        f"code=$(curl -s -o /dev/null --socks5-hostname 127.0.0.1:{port} "
+        f"--max-time {int(PROBE_TIMEOUT)} -w '%{{http_code}}' '{PROBE_URL}' 2>/dev/null); "
+        f"kill $xp 2>/dev/null; rm -f $cfg; echo $code"
+    )
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=no", PROBE_FROM_HOST, script],
+            input=config, capture_output=True, text=True,
+            timeout=PROBE_TIMEOUT + 25,
+        )
+        return "204" in result.stdout
+    except Exception:
+        # An SSH problem is not a node problem; saying "dead" here would pull
+        # healthy exits out of every subscription.
+        return True
+
+
 def probe_node(node: dict) -> bool:
-    """True when real traffic completes through this node's tunnel."""
+    """True when real traffic completes through this node's tunnel.
+
+    Runs on PROBE_FROM_HOST when set. This matters more than it looks:
+    Amsterdam answered every check from the US box with a 200-plus streak
+    while failing every single request from a Russian line, so the verdict was
+    confidently wrong for days and users kept landing on a dead exit. A node is
+    only "up" if it is up *from where the customers are*.
+    """
+    if PROBE_FROM_HOST:
+        return _probe_remote(node)
     port = _free_port()
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
         json.dump(build_config(node, port), handle)

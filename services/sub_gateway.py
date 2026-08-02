@@ -193,7 +193,11 @@ CASCADE_COUNTRIES = (
     # 1-3/10 from a Novosibirsk MTS line the same day, so if the silent
     # "connected but nothing loads" reports come back, this is the first
     # suspect — drop this line to pull it again.
-    (2092, "🇳🇱 Нидерланды ✅ РУ сервисы"),
+    # 🇳🇱 pulled 2026-08-01: measured from a Russian line, every request the
+    # balancer sent through Amsterdam failed while Poland and Germany served
+    # the same seconds fine — that rotation is what users experienced as
+    # "worked, then stopped". It answers TCP and TLS from both continents, so
+    # nothing short of real traffic from Russia catches it.
     (2093, "🇺🇸 США ✅ РУ сервисы"),
 )
 
