@@ -1,6 +1,8 @@
 """Hysteresis in the end-to-end node prober."""
 import importlib.util
+import json
 import pathlib
+import time
 
 spec = importlib.util.spec_from_file_location(
     "node_probe", pathlib.Path(__file__).parent.parent / "scripts" / "node_probe.py"
@@ -158,6 +160,141 @@ def test_extra_links_are_probed_alongside_the_subscription(monkeypatch):
     node_probe.main()
     assert "130.49.143.41.sslip.io" in seen, "relay must be probed"
     assert "h1" in seen, "panel nodes must still be probed"
+
+
+def test_alert_on_node_dropped():
+    """Pulling a node silently is how the Amsterdam week happened: the owner
+    heard it from customers instead of from us."""
+    prev = {"nodes": {"166.0.28.132.sslip.io": True}}
+    text, notified = node_probe.compose_alert(prev, {"166.0.28.132.sslip.io": False}, 1000.0)
+    assert "Убраны из выдачи" in text
+    assert "Германия" in text
+    assert notified["166.0.28.132.sslip.io"] == 1000.0
+
+
+def test_alert_on_node_restored():
+    prev = {"nodes": {"78.17.154.225.sslip.io": False}, "notified_at": {"78.17.154.225.sslip.io": 10.0}}
+    text, notified = node_probe.compose_alert(prev, {"78.17.154.225.sslip.io": True}, 1000.0)
+    assert "Вернулись в выдачу" in text and "Польша" in text
+    assert "78.17.154.225.sslip.io" not in notified  # state cleared on recovery
+
+
+def test_no_message_when_nothing_changed():
+    prev = {"nodes": {"h1": True, "h2": True}}
+    text, _ = node_probe.compose_alert(prev, {"h1": True, "h2": True}, 1000.0)
+    assert text == ""
+
+
+def test_same_box_under_two_hostnames_is_named_once():
+    """The US box is probed bare and as an sslip name; two lines for one
+    location reads like two outages."""
+    prev = {"nodes": {"144.172.101.217": True, "144.172.101.217.sslip.io": True}}
+    text, _ = node_probe.compose_alert(
+        prev, {"144.172.101.217": False, "144.172.101.217.sslip.io": False}, 1000.0
+    )
+    assert text.count("🇺🇸 США") == 1
+
+
+def test_several_nodes_flip_in_one_message():
+    prev = {"nodes": {"166.0.28.132": True, "78.17.154.225": False}}
+    text, _ = node_probe.compose_alert(
+        prev, {"166.0.28.132": False, "78.17.154.225": True}, 1000.0
+    )
+    assert "Убраны из выдачи" in text and "Вернулись в выдачу" in text
+
+
+def test_dead_node_is_not_re_announced_every_run():
+    prev = {"nodes": {"h1": False}, "notified_at": {"h1": 900.0}}
+    text, _ = node_probe.compose_alert(prev, {"h1": False}, 1000.0)
+    assert text == ""
+
+
+def test_dead_node_is_re_announced_after_the_reminder_window():
+    """A location missing for a week must not fade out of attention."""
+    prev = {"nodes": {"h1": False}, "notified_at": {"h1": 0.0}}
+    text, notified = node_probe.compose_alert(prev, {"h1": False}, node_probe.REMIND_AFTER + 1)
+    assert "Всё ещё не работают" in text
+    assert notified["h1"] == node_probe.REMIND_AFTER + 1
+
+
+def test_alert_state_does_not_grow_forever():
+    prev = {"nodes": {"h1": False}, "notified_at": {"gone": 5.0, "h1": 5.0}}
+    _, notified = node_probe.compose_alert(prev, {"h1": False}, 10.0)
+    assert "gone" not in notified
+
+
+def test_relay_is_named_for_what_its_death_costs():
+    """It is not a node — losing it takes out every 🇷🇺→<country> entry."""
+    assert "каскад" in node_probe.node_label("130.49.143.41.sslip.io")
+
+
+def test_unknown_host_falls_back_to_the_host_itself():
+    assert node_probe.node_label("1.2.3.4") == "1.2.3.4"
+
+
+def test_verdicts_are_written_before_the_alert_is_sent(monkeypatch):
+    """Telegram being down must never keep a dead exit in subscriptions."""
+    order = []
+    monkeypatch.setattr(node_probe, "PROBE_SUB_URL", "https://example/sub")
+    monkeypatch.setattr(node_probe, "PROBE_EXTRA_LINKS", "")
+    monkeypatch.setattr(node_probe, "fetch_links", lambda url: [_uri("166.0.28.132", 2087)])
+    monkeypatch.setattr(node_probe.os.path, "exists", lambda p: True)
+    monkeypatch.setattr(node_probe, "load_previous", lambda: {"nodes": {"166.0.28.132": True},
+                                                             "streaks": {"166.0.28.132": -1}})
+    monkeypatch.setattr(node_probe, "probe_node", lambda node: False)
+    monkeypatch.setattr(node_probe.os, "replace", lambda a, b: order.append("written"))
+
+    def boom(text):
+        order.append("notified")
+        raise AssertionError("notify must not be able to break a probe run")
+
+    monkeypatch.setattr(node_probe, "notify", boom)
+    real_open = open
+
+    def fake_open(path, mode="r", *a, **kw):
+        if "w" in mode:
+            import io
+            return io.StringIO()
+        return real_open(path, mode, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    try:
+        node_probe.main()
+    except AssertionError:
+        pass
+    assert order[0] == "written", "health file must land before Telegram is touched"
+
+
+def test_broken_prober_alert_is_throttled(monkeypatch):
+    """A panel outage fires the probe every 3 minutes; twenty messages an hour
+    trains the owner to mute the alerts bot."""
+    sent = []
+    monkeypatch.setattr(node_probe, "notify", lambda text: sent.append(text))
+    monkeypatch.setattr(node_probe, "load_previous",
+                        lambda: {"broken_notified_at": time.time() - 60})
+    node_probe.report_probe_broken("panel down")
+    assert sent == []
+
+
+def test_broken_prober_alert_fires_when_cooldown_expired(monkeypatch, tmp_path):
+    sent = []
+    monkeypatch.setattr(node_probe, "notify", lambda text: sent.append(text))
+    monkeypatch.setattr(node_probe, "load_previous", lambda: {"broken_notified_at": 0})
+    monkeypatch.setattr(node_probe, "HEALTH_FILE", str(tmp_path / "health.json"))
+    node_probe.report_probe_broken("panel down")
+    assert sent and "не работает" in sent[0]
+
+
+def test_broken_prober_alert_keeps_existing_verdicts(monkeypatch, tmp_path):
+    """The failure is ours, not the nodes' — verdicts must survive untouched so
+    the gateway keeps serving what last worked."""
+    health = tmp_path / "health.json"
+    health.write_text(json.dumps({"checked_at": 123, "nodes": {"h1": True}}))
+    monkeypatch.setattr(node_probe, "HEALTH_FILE", str(health))
+    monkeypatch.setattr(node_probe, "notify", lambda text: None)
+    node_probe.report_probe_broken("panel down")
+    saved = json.loads(health.read_text())
+    assert saved["nodes"] == {"h1": True} and saved["checked_at"] == 123
 
 
 def test_extra_links_accept_comma_or_newline(monkeypatch):

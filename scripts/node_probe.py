@@ -60,6 +60,36 @@ PROBE_ATTEMPTS = int(os.environ.get("PROBE_ATTEMPTS", "2"))
 FAILS_TO_DROP = int(os.environ.get("FAILS_TO_DROP", "2"))
 PASSES_TO_RESTORE = int(os.environ.get("PASSES_TO_RESTORE", "2"))
 
+# --- alerting -----------------------------------------------------------------
+# Pulling a node is the right call, but doing it silently means the owner finds
+# out from customers — which is precisely how the Amsterdam week went. The
+# prober is the first thing in the system that *knows*, so it is the thing that
+# should say so. Uses the separate alerts bot, never the customer-facing one.
+ALERTS_BOT_TOKEN = os.environ.get("ALERTS_BOT_TOKEN", "").strip()
+ALERTS_CHAT_ID = (
+    os.environ.get("ALERTS_CHAT_ID", "").strip()
+    or os.environ.get("ADMIN_IDS", "").split(",")[0].strip()
+)
+# A node that stays dead stops being news after the first message, so it is
+# re-announced on this interval instead — otherwise a location quietly missing
+# from everyone's list for a week is something nobody is looking at any more.
+REMIND_AFTER = float(os.environ.get("PROBE_REMIND_AFTER", str(6 * 3600)))
+# The prober runs every 3 minutes; without a cooldown a panel outage would send
+# twenty messages an hour and train the owner to ignore the alerts bot.
+PROBE_BROKEN_COOLDOWN = float(os.environ.get("PROBE_BROKEN_COOLDOWN", "3600"))
+# Names for the hosts the probe sees, so the message reads like the product and
+# not like a routing table. Matched on the IP inside the host, because the same
+# box appears both bare and as an sslip name.
+NODE_NAMES = {
+    "144.172.101.217": "🇺🇸 США",
+    "78.17.154.225": "🇵🇱 Польша",
+    "166.0.28.132": "🇩🇪 Германия",
+    "107.189.22.160": "🇳🇱 Нидерланды",
+    # Not a Marzban node, but every 🇷🇺→<страна> entry terminates on it, so its
+    # death takes out the top of every subscription at once.
+    "130.49.143.41": "🇷🇺 Московский релей (все каскады)",
+}
+
 _SSL = ssl.create_default_context()
 _SSL.check_hostname = False
 _SSL.verify_mode = ssl.CERT_NONE
@@ -280,6 +310,119 @@ def apply_hysteresis(previous: dict, fresh: dict[str, bool]) -> tuple[dict, dict
     return verdicts, streaks
 
 
+def node_label(host: str) -> str:
+    """Human name for a probed host, falling back to the host itself."""
+    for ip, name in NODE_NAMES.items():
+        if ip in host:
+            return name
+    return host
+
+
+def compose_alert(previous: dict, verdicts: dict[str, bool], now: float) -> tuple[str, dict]:
+    """Message describing what changed since the last run, plus new alert state.
+
+    Returns ("", state) when there is nothing to say. Batched deliberately: when
+    a whole vantage point goes bad several nodes flip in the same round, and
+    five separate messages read like five separate outages.
+
+    Labels are deduplicated because one box is probed under several hostnames
+    (bare IP and sslip name) — the owner should see «🇺🇸 США» once, not twice.
+    """
+    prev_nodes = previous.get("nodes", {})
+    notified: dict[str, float] = dict(previous.get("notified_at", {}))
+
+    dropped: list[str] = []
+    restored: list[str] = []
+    still_down: list[str] = []
+
+    for host, alive in verdicts.items():
+        label = node_label(host)
+        was = prev_nodes.get(host)
+        if not alive and was is not False:  # newly dead (or dead on first sight)
+            if label not in dropped:
+                dropped.append(label)
+            notified[host] = now
+        elif alive:
+            if was is False and label not in restored:
+                restored.append(label)
+            notified.pop(host, None)
+        elif now - float(notified.get(host, 0)) >= REMIND_AFTER:
+            if label not in still_down:
+                still_down.append(label)
+            notified[host] = now
+
+    # Drop state for hosts that no longer exist, so the file cannot grow forever.
+    notified = {host: ts for host, ts in notified.items() if host in verdicts}
+
+    lines: list[str] = []
+    if dropped:
+        lines.append("🔴 <b>Убраны из выдачи</b>\n" + "\n".join(f"• {n}" for n in dropped))
+    if restored:
+        lines.append("🟢 <b>Вернулись в выдачу</b>\n" + "\n".join(f"• {n}" for n in restored))
+    if still_down:
+        lines.append("⏳ <b>Всё ещё не работают</b>\n" + "\n".join(f"• {n}" for n in still_down))
+    if not lines:
+        return "", notified
+
+    alive_count = sum(1 for ok in verdicts.values() if ok)
+    lines.append(
+        f"Проверка из России, живых точек входа: {alive_count} из {len(verdicts)}. "
+        "Подписки уже отдаются без мёртвых."
+    )
+    return "\n\n".join(lines), notified
+
+
+def notify(text: str) -> bool:
+    """Best-effort message to the alerts bot. Never raises: a Telegram outage
+    must not fail a probe run or hold up the health file."""
+    if not ALERTS_BOT_TOKEN or not ALERTS_CHAT_ID:
+        return False
+    payload = json.dumps({
+        "chat_id": ALERTS_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }).encode()
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{ALERTS_BOT_TOKEN}/sendMessage",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return response.status == 200
+    except Exception as exc:
+        print(f"alert delivery failed: {exc}", file=sys.stderr)
+        return False
+
+
+def report_probe_broken(reason: str) -> None:
+    """Announce that the prober itself is down, at most once an hour.
+
+    A blind prober fails open — every node keeps being served, including a dead
+    one — so this silence is exactly the state the health checks exist to
+    prevent. The cooldown lives in the health file so it survives the run; the
+    verdicts inside it are left untouched.
+    """
+    previous = load_previous()
+    now = time.time()
+    if now - float(previous.get("broken_notified_at", 0)) < PROBE_BROKEN_COOLDOWN:
+        return
+    previous["broken_notified_at"] = now
+    try:
+        tmp_path = f"{HEALTH_FILE}.tmp"
+        with open(tmp_path, "w") as handle:
+            json.dump(previous, handle)
+        os.replace(tmp_path, HEALTH_FILE)
+    except Exception as exc:
+        print(f"could not persist alert state: {exc}", file=sys.stderr)
+    notify(
+        "⚠️ <b>Проверка нод не работает</b>\n"
+        f"{reason}\n\n"
+        "Мёртвая нода сейчас не будет убрана из выдачи автоматически."
+    )
+
+
 def main() -> int:
     if not PROBE_SUB_URL:
         print("PROBE_SUB_URL is not set", file=sys.stderr)
@@ -290,9 +433,12 @@ def main() -> int:
     try:
         links = fetch_links(PROBE_SUB_URL)
     except Exception as exc:
-        # Never rewrite the health file on a fetch failure: a stale-but-good
-        # verdict is far safer than marking every node dead at once.
+        # Never rewrite the verdicts on a fetch failure: a stale-but-good
+        # verdict is far safer than marking every node dead at once. But do say
+        # something — a prober that cannot see the panel stops protecting
+        # anyone, and that failure is invisible from the outside.
         print(f"subscription fetch failed: {exc}", file=sys.stderr)
+        report_probe_broken(f"не удалось получить подписку: {exc}")
         return 1
     links += [
         part.strip()
@@ -317,12 +463,26 @@ def main() -> int:
         print("no probeable nodes in subscription", file=sys.stderr)
         return 1
 
-    verdicts, streaks = apply_hysteresis(load_previous(), fresh)
-    payload = {"checked_at": int(time.time()), "nodes": verdicts, "streaks": streaks}
+    previous = load_previous()
+    verdicts, streaks = apply_hysteresis(previous, fresh)
+    text, notified = compose_alert(previous, verdicts, time.time())
+    payload = {
+        "checked_at": int(time.time()),
+        "nodes": verdicts,
+        "streaks": streaks,
+        "notified_at": notified,
+    }
     tmp_path = f"{HEALTH_FILE}.tmp"
     with open(tmp_path, "w") as handle:
         json.dump(payload, handle)
     os.replace(tmp_path, HEALTH_FILE)  # atomic: readers never see a half file
+
+    # After the write, deliberately: the subscription must stop serving a dead
+    # exit even if Telegram is unreachable. Logged as well as sent, so the
+    # journal still shows what the owner was told when delivery fails.
+    if text:
+        print(f"--- alert ---\n{text}\n-------------")
+        notify(text)
 
     for host in sorted(fresh):
         this_run = "pass" if fresh[host] else "FAIL"
