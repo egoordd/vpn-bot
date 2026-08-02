@@ -51,17 +51,14 @@ async def _edit_text(callback: CallbackQuery, text: str, reply_markup: InlineKey
     await show_screen(callback, text, reply_markup)
 
 
-# Shared locations available in the standard (multi-location) subscription.
-# Switched on the client side (the subscription lists all of them). Ordered
-# closest-to-RU first, matching the subscription the gateway serves: the
-# 🇷🇺→🇩🇪 cascade enters on a domestic Moscow IP (un-throttled first hop) and
-# exits in Germany, so it gives the lowest real ping for Russian users.
+# What the subscription actually contains, in the order the gateway serves it.
+# This screen is a promise, so it tracks the delivery rather than the roadmap:
+# Amsterdam was listed here after being pulled on 2026-08-01, which told every
+# customer they had a server that was not in their app.
 SHARED_LOCATIONS = [
-    "🇷🇺→🇩🇪 Каскад (Россия → Германия) — самый низкий пинг",
-    "🇩🇪 Германия",
-    "🇵🇱 Польша",
-    "🇳🇱 Нидерланды",
-    "🇺🇸 США",
+    "⚡️ Авто-обход — сам выбирает рабочий сервер",
+    "🇵🇱 Польша · 🇩🇪 Германия · 🇺🇸 США — с доступом к РУ-сервисам",
+    "🇵🇱 Польша · 🇩🇪 Германия · 🇺🇸 США — обычные",
 ]
 
 
@@ -74,8 +71,10 @@ async def locations_handler(
         "🌍 <b>Локации</b>\n\n"
         "В вашей подписке доступны серверы:\n"
         + bq(*SHARED_LOCATIONS)
-        + "\n\n⚡️ Для России рекомендуем <b>верхний</b> сервер — "
-        "«🇷🇺→🇩🇪 Каскад»: вход через Москву, выход в Германии, минимальный пинг.\n\n"
+        + "\n\n⚡️ Рекомендуем <b>верхний</b> — «Авто-обход»: он сам переключается "
+        "на рабочий сервер, если текущий начал тормозить.\n\n"
+        "🇷🇺 Серверы «с доступом к РУ-сервисам» заходят через Москву: банки, "
+        "госуслуги и российские приложения продолжают работать.\n\n"
         "🔀 Переключайтесь между серверами <b>прямо в приложении</b> "
         "(выбор сервера в Happ / V2RayTun / Hiddify) — ссылка-подписка одна."
     )

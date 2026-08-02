@@ -166,8 +166,12 @@ async def test_locations_handler_shows_shared_locations_info(session_pool):
     await locations.locations_handler(callback, session_pool)
 
     text = message.edit_text.await_args.args[0]
-    assert "США" in text and "Нидерланды" in text
+    assert "США" in text and "Польша" in text and "Германия" in text
     assert "приложении" in text
+    # The screen promises what the subscription contains. Amsterdam stayed on
+    # this list for two days after being pulled, telling every customer they had
+    # a server their app never showed.
+    assert "Нидерланды" not in text
 
 
 @pytest.mark.integration
