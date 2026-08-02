@@ -633,3 +633,15 @@ def test_curated_remarks_survive_the_filter():
                    "🇳🇱 Нидерланды ✅ РУ сервисы"):
         uri = f"vless://u@{US_HOST}:443?x=1#" + urllib.parse.quote(remark)
         assert combine_links(uri) == [uri], remark
+
+
+def test_announce_keeps_its_line_break():
+    """A raw header cannot contain a newline at all — base64 is what lets the
+    hint render as two lines in Happ instead of one run-on sentence."""
+    headers = sub_gateway._client_headers()
+    assert "\n" not in headers["announce"], "the header itself must stay single-line"
+    decoded = base64.b64decode(headers["announce"][len("base64:"):]).decode("utf-8")
+    assert decoded.count("\n") == 1
+    hint, referral = decoded.split("\n")
+    assert "ms" in hint          # what to do when it stops working
+    assert "20%" in referral     # our real terms, not the competitor's free days
