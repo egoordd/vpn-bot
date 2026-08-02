@@ -57,14 +57,17 @@ def test_build_balancer_config_structure():
     assert cfg["remarks"] == "⚡️ Авто-обход"
     # hy2 excluded; two xray outbounds + direct + block
     tags = [o["tag"] for o in cfg["outbounds"]]
-    assert tags == ["proxy-0", "proxy-1", "direct", "block"]
+    assert tags == ["proxy-0", "proxy-1", "direct", "block", "dns-out"]
     balancer = cfg["routing"]["balancers"][0]
     assert balancer["selector"] == ["proxy-"]
     assert balancer["strategy"]["type"] == "leastPing"
     rules = cfg["routing"]["rules"]
     # Russian destinations bypass the tunnel (real IP → RU apps work, no detour)
     assert cfg["routing"]["domainStrategy"] == "AsIs"
-    assert rules[0]["ip"] == ["geoip:private"] and rules[0]["outboundTag"] == "direct"
+    # lookups are captured first, then LAN, then the country split
+    assert rules[0]["outboundTag"] == "dns-out"
+    private = next(r for r in rules if r.get("ip") == ["geoip:private"])
+    assert private["outboundTag"] == "direct"
     ru = next(r for r in rules if r.get("ip") == ["geoip:ru"])
     assert ru["outboundTag"] == "direct"
     # everything else load-balances across the foreign nodes
@@ -84,7 +87,7 @@ def test_build_balancer_config_none_without_xray_nodes():
 def test_build_server_config_uses_uri_remark():
     cfg = xray_json.build_server_config(REALITY, 0)
     assert cfg["remarks"] == "🇺🇸 США"
-    assert [o["tag"] for o in cfg["outbounds"]] == ["proxy", "direct", "block"]
+    assert [o["tag"] for o in cfg["outbounds"]] == ["proxy", "direct", "block", "dns-out"]
     # RU-bypass rules first, then everything else through the picked server
     assert any(r.get("ip") == ["geoip:ru"] for r in cfg["routing"]["rules"])
     assert cfg["routing"]["rules"][-1]["outboundTag"] == "proxy"
@@ -165,7 +168,54 @@ def test_routing_needs_no_lookup():
     whose VPN owns the resolver. AsIs decides on the name and avoids both."""
     config = _balancer()
     assert config["routing"]["domainStrategy"] == "AsIs"
-    assert not any(str(r.get("port")) == "53" for r in config["routing"]["rules"])
+
+
+# --- lookups ------------------------------------------------------------------
+
+def _dns_rules(config):
+    return [r for r in config["routing"]["rules"] if str(r.get("port")) == "53"]
+
+
+def test_lookups_never_leave_the_device_unanswered():
+    """The 2026-07-28 outage: port 53 sent `direct` left the phone, whose system
+    resolver the VPN owned, and came straight back in — nothing loaded at all."""
+    for config in (_balancer(), xray_json.build_server_config(REALITY, 0)):
+        for rule in _dns_rules(config):
+            assert rule["outboundTag"] == "dns-out", "DNS must be answered internally"
+
+
+def test_dns_hijack_cannot_loop_on_itself():
+    """xray's own resolver queries 1.1.1.1 over the tunnel. Those queries carry
+    no inbound tag, so scoping the hijack to the local inbounds is what stops
+    them from matching it again forever."""
+    rules = _dns_rules(_balancer())
+    assert rules, "app lookups must be captured, or the carrier answers them"
+    assert set(rules[0]["inboundTag"]) == {"socks-in", "http-in"}
+
+
+def test_the_device_resolver_is_never_used():
+    """It does not answer for blocked names — measured empty for tiktok and
+    instagram from an MTS line — so an app gets no address, opens no connection,
+    and the tunnel never sees the request."""
+    servers = xray_json._DNS["servers"]
+    assert "localhost" not in servers
+    assert not any(
+        isinstance(s, dict) and s.get("address") == "localhost" for s in servers
+    )
+
+
+def test_russian_names_are_answered_inside_russia():
+    """Otherwise RU sites resolve to a foreign edge of their CDN and the
+    RU-split stops being worth having."""
+    scoped = [s for s in xray_json._DNS["servers"] if isinstance(s, dict)]
+    assert scoped and scoped[0]["address"] == "77.88.8.8"
+    assert "regexp:\\.ru$" in scoped[0]["domains"]
+
+
+def test_only_v4_addresses_are_requested():
+    """The exits are IPv4-only; an AAAA answer points the app at an address the
+    exit cannot reach, and the big platforms are all dual-stack."""
+    assert xray_json._DNS["queryStrategy"] == "UseIPv4"
 
 
 def test_balancer_covers_every_proxy_outbound():

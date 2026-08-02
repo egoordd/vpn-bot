@@ -80,19 +80,32 @@ BALANCER_STRATEGY = os.environ.get("BALANCER_STRATEGY", "leastping").strip().low
 
 AUTO_REMARKS = "⚡️ Авто-обход"
 
-# Resolver for routing decisions (matching a destination against geoip:ru).
-# geoip:ru needs the destination IP, so IPOnDemand resolves every domain here
-# before it can route.
+# Resolver the client answers app lookups with. Routing no longer needs it —
+# every rule matches on the name (`AsIs`) — but the app still has to turn a
+# name into an address before it can open anything, and that is where this has
+# broken twice.
 #
-# These MUST stay remote. The device's own resolver is the RU ISP's, and it
-# refuses to answer for blocked domains at all — measured 2026-07-29 from an
-# MTS line: tiktok.com, instagram.com, cdninstagram.com and tiktokcdn.com all
-# return an empty answer, while 1.1.1.1 resolves every one. Putting `localhost`
-# first (briefly done on 2026-07-28) therefore left those apps unable to look
-# up fresh CDN hosts, so they fell back to cached content — "Instagram shows
-# old posts, TikTok doesn't work". Resolving through the tunnel also keeps the
-# ISP from seeing which sites are being looked up.
-_DNS = {"servers": ["localhost"]}
+# Nothing here may be `localhost`, for two independent reasons:
+#
+#   1. The device's resolver is the carrier's, and it does not answer for
+#      blocked names at all — measured 2026-07-29 from an MTS line: tiktok.com,
+#      instagram.com, cdninstagram.com and tiktokcdn.com all came back empty
+#      while 1.1.1.1 resolved every one. With no address the app never opens a
+#      connection, so sniffing has nothing to recover and the tunnel never sees
+#      the request: YouTube, Spotify and Google simply fail while everything
+#      unblocked keeps working, and the VPN looks connected and broken at once.
+#   2. In TUN mode the VPN owns the system resolver, so `localhost` asks the OS,
+#      which asks the client, which asks xray — the lookup loop that took the
+#      whole client down on 2026-07-28.
+#
+# Both are avoided by naming resolvers as addresses, never as the system: xray
+# generates these queries itself and routes them by its own rules, so the OS is
+# never involved. Foreign resolvers ride the tunnel (the balancer, so a dead
+# node cannot wedge lookups), while Russian names go to a Russian resolver that
+# routes direct by geoip:ru — RU sites keep resolving to their nearby CDN and
+# keep working, which is the whole point of the RU-split.
+_RU_RESOLVER = "77.88.8.8"        # Yandex, inside RU — direct by geoip:ru
+_FOREIGN_RESOLVERS = ["1.1.1.1", "8.8.8.8"]
 
 # Russian destinations that must leave the device directly, matched by NAME so
 # no lookup is needed to decide. The regexps cover the national zones in one
@@ -111,6 +124,19 @@ _RU_DIRECT_DOMAINS = [
     "domain:wildberries.com",
     "domain:gosuslugi.gov",
 ]
+
+_DNS = {
+    "servers": [
+        # Scoped first: RU names are answered by a RU resolver, whose reply
+        # routes direct anyway, so domestic CDNs stay domestic.
+        {"address": _RU_RESOLVER, "domains": _RU_DIRECT_DOMAINS},
+        *_FOREIGN_RESOLVERS,
+    ],
+    # The exits are IPv4-only. An AAAA answer sends the app to an address the
+    # exit cannot reach, and dual-stack is exactly what the big platforms
+    # publish — so ask for A records only.
+    "queryStrategy": "UseIPv4",
+}
 
 # Domains that must never take the geoip:ru direct path, whatever their address
 # resolves to.
@@ -179,6 +205,12 @@ def _tail_outbounds() -> list[dict]:
     return [
         {"tag": "direct", "protocol": "freedom"},
         {"tag": "block", "protocol": "blackhole"},
+        # Answers lookups from the `dns` block above instead of letting them
+        # reach whatever resolver the app addressed. Without it the settings
+        # above only apply when the client happens to hijack DNS itself, and on
+        # a client that does not, every lookup still goes to the carrier — which
+        # is the failure being fixed.
+        {"tag": "dns-out", "protocol": "dns"},
     ]
 
 
@@ -204,6 +236,21 @@ def _split_routing(final_rule: dict) -> dict:
     return {
         "domainStrategy": "AsIs",
         "rules": [
+            # Every lookup the apps make, whatever resolver they addressed, is
+            # answered by our `dns` block. Scoped to the local inbounds on
+            # purpose: the queries xray's own resolver then sends to 1.1.1.1
+            # arrive without an inbound tag, so they fall through to the rules
+            # below and ride the tunnel instead of matching this rule again —
+            # which would be an endless loop. The 2026-07-28 outage was the
+            # other shape of this: port 53 sent *direct* left the device, the
+            # VPN owned the system resolver, and the query came straight back
+            # in.
+            {
+                "type": "field",
+                "inboundTag": ["socks-in", "http-in"],
+                "port": 53,
+                "outboundTag": "dns-out",
+            },
             {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
             # Blocked platforms first: they must reach the tunnel even though
             # some of their CDN sits on Russian addresses.
