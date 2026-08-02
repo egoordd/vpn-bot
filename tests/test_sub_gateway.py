@@ -645,3 +645,27 @@ def test_announce_keeps_its_line_break():
     hint, referral = decoded.split("\n")
     assert "ms" in hint          # what to do when it stops working
     assert "20%" in referral     # our real terms, not the competitor's free days
+
+
+def test_clients_refresh_often_enough_for_a_fix_to_land_same_day():
+    """The update interval is also how long a routing correction — or a node the
+    health prober pulled — takes to reach someone who never reopens the app."""
+    import io
+
+    class _Probe(sub_gateway.Handler):
+        def __init__(self):
+            self.sent = {}
+            self.wfile = io.BytesIO()
+
+        def send_response(self, code):
+            pass
+
+        def send_header(self, key, value):
+            self.sent[key.lower()] = value
+
+        def end_headers(self):
+            pass
+
+    probe = _Probe()
+    probe._send(200, b"x", "text/plain")
+    assert int(probe.sent["profile-update-interval"]) <= 6

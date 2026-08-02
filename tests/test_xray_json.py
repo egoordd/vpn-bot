@@ -260,11 +260,10 @@ def test_blocked_platforms_are_pinned_to_the_tunnel():
     geoip:ru rule would send the request straight out of the device to an edge
     that is frozen — which shows up as a stale feed, not an error."""
     rules = _balancer()["routing"]["rules"]
-    pinned = next(r for r in rules if "domain" in r)
+    pinned = next(r for r in rules if r.get("balancerTag") == "auto" and "domain" in r)
     geo_ru = next(i for i, r in enumerate(rules) if r.get("ip") == ["geoip:ru"])
     # decided by domain, before any IP rule can send it direct
     assert rules.index(pinned) < geo_ru
-    assert pinned.get("balancerTag") == "auto"
     joined = " ".join(pinned["domain"])
     for host in ("tiktok.com", "instagram.com", "cdninstagram.com", "fbcdn.net",
                  "googlevideo.com", "youtube.com", "ibytedtos.com", "byteoversea.com"):
@@ -275,8 +274,9 @@ def test_single_server_config_pins_the_same_domains():
     config = xray_json.build_server_config(
         "vless://uuid@h1:2096?security=reality&sni=h1&pbk=P&sid=S#h1", 0
     )
-    pinned = next(r for r in config["routing"]["rules"] if "domain" in r)
-    assert pinned.get("outboundTag") == "proxy"
+    pinned = next(r for r in config["routing"]["rules"]
+                  if r.get("outboundTag") == "proxy" and "domain" in r)
+    assert "domain:tiktok.com" in pinned["domain"]
 
 
 def test_ru_traffic_is_matched_by_name():
@@ -286,9 +286,12 @@ def test_ru_traffic_is_matched_by_name():
     rules = _balancer()["routing"]["rules"]
     ru = next(r for r in rules if any("\\.ru$" in d for d in r.get("domain", [])))
     assert ru["outboundTag"] == "direct"
+    # The case that matters is a blocked platform whose CDN sits on Russian
+    # *addresses* — tiktokcdn, googlevideo. Those are pinned by name ahead of
+    # the geoip:ru rule; see test_blocked_platforms_still_beat_the_address_rule.
     pinned = next(r for r in rules if "domain:tiktok.com" in r.get("domain", []))
-    # blocked platforms decided before the RU rule can send a .ru CDN direct
-    assert rules.index(pinned) < rules.index(ru)
+    geo_ru = next(i for i, r in enumerate(rules) if r.get("ip") == ["geoip:ru"])
+    assert rules.index(pinned) < geo_ru
 
 
 # --- XHTTP transport ----------------------------------------------------------
@@ -368,3 +371,32 @@ def test_both_local_inbounds_can_recover_the_name():
     for inbound in _balancer()["inbounds"]:
         if inbound["protocol"] in ("socks", "http"):
             assert inbound["sniffing"]["enabled"] is True
+
+
+def test_no_domain_is_both_pinned_and_direct():
+    """The Russian names are now settled before the pinned list is consulted, so
+    a domain in both would silently escape the tunnel. Cheap to assert, and the
+    consequence — a blocked platform sent out of the device — is not."""
+    pinned = set(xray_json._FORCE_PROXY_DOMAINS)
+    direct = set(xray_json._RU_DIRECT_DOMAINS)
+    assert not (pinned & direct)
+
+
+def test_russian_traffic_keeps_quic():
+    """It never enters the tunnel, so the reason to refuse QUIC does not apply —
+    taking it away would only slow VK video and Yandex down."""
+    rules = _balancer()["routing"]["rules"]
+    ru_names = next(i for i, r in enumerate(rules)
+                    if r.get("domain") and r.get("outboundTag") == "direct")
+    quic = next(i for i, r in enumerate(rules)
+                if r.get("network") == "udp" and r.get("port") == 443)
+    assert ru_names < quic
+
+
+def test_blocked_platforms_still_beat_the_address_rule():
+    """Their CDN sits on Russian addresses; if geoip:ru got there first they
+    would be sent out of the device to a frozen edge."""
+    rules = _balancer()["routing"]["rules"]
+    pinned = next(i for i, r in enumerate(rules) if r.get("balancerTag") == "auto")
+    geo_ru = next(i for i, r in enumerate(rules) if r.get("ip") == ["geoip:ru"])
+    assert pinned < geo_ru

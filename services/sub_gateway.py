@@ -710,7 +710,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         if not any(key.lower() == "profile-update-interval" for key in (extra or {})):
-            self.send_header("Profile-Update-Interval", "12")
+            # Hours between client refreshes. This is also how long a fix takes
+            # to reach someone who never reopens the app, and how long a node
+            # pulled by the health prober stays in their list — 12h meant a
+            # routing correction landed the next day. Six is still one fetch
+            # per user per morning and evening.
+            self.send_header("Profile-Update-Interval", "6")
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()

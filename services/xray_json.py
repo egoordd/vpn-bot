@@ -308,7 +308,18 @@ def _split_routing(final_rule: dict) -> dict:
                 "port": 53,
                 "outboundTag": "dns-out",
             },
-            # QUIC is refused so applications fall back to TLS over TCP.
+            {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
+            # Russian names are settled before QUIC is refused below, so
+            # domestic services — VK video, Yandex, Kinopoisk — keep using it.
+            # They never touch the tunnel, so the reason for refusing it does
+            # not apply to them, and taking QUIC away would only make them
+            # slower. None of these names appear in the pinned list below, so
+            # deciding them early cannot divert a blocked platform (there is a
+            # test for that).
+            {"type": "field", "domain": _RU_DIRECT_DOMAINS, "outboundTag": "direct"},
+            # QUIC is refused for everything still undecided — that is, for
+            # everything bound for the tunnel — so those applications fall back
+            # to TLS over TCP.
             #
             # This is the "«works, then photos and videos stop loading» while
             # the balancer stays silent" case. QUIC is UDP, and a UDP flow
@@ -327,12 +338,12 @@ def _split_routing(final_rule: dict) -> dict:
             # fall back — they do it in one round trip and never come back to
             # it for that connection.
             {"type": "field", "network": "udp", "port": 443, "outboundTag": "block"},
-            {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
-            # Blocked platforms first: they must reach the tunnel even though
-            # some of their CDN sits on Russian addresses.
+            # Blocked platforms: they must reach the tunnel even though some of
+            # their CDN sits on Russian addresses, so they are pinned by name
+            # ahead of the address rule below.
             {"type": "field", "domain": _FORCE_PROXY_DOMAINS, **destination},
-            {"type": "field", "domain": _RU_DIRECT_DOMAINS, "outboundTag": "direct"},
-            # Catches apps that connect to a Russian address with no name at all.
+            # Catches Russian services this list never named, now that
+            # IPIfNonMatch gives the rule an address to work with.
             {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"},
             final_rule,
         ],
