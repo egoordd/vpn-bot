@@ -140,7 +140,9 @@ export interface RegionOption {
 }
 
 export const PREMIUM_REGIONS: RegionOption[] = [
-  { code: "ams", title: "Нидерланды, Амстердам", city: "Amsterdam", countryCode: "NL", isOnDemand: false },
+  // Not selectable while the node is rebuilt — picking it would hand out a
+  // subscription pointing at inbounds nothing serves.
+  { code: "ams", title: "Нидерланды, Амстердам", city: "Amsterdam", countryCode: "NL", isOnDemand: true },
   { code: "fra", title: "Германия, Франкфурт", city: "Frankfurt", countryCode: "DE", isOnDemand: false },
   { code: "waw", title: "Польша, Варшава", city: "Warsaw", countryCode: "PL", isOnDemand: true },
 ];
