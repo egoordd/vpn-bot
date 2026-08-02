@@ -63,7 +63,7 @@ def test_build_balancer_config_structure():
     assert balancer["strategy"]["type"] == "leastPing"
     rules = cfg["routing"]["rules"]
     # Russian destinations bypass the tunnel (real IP → RU apps work, no detour)
-    assert cfg["routing"]["domainStrategy"] == "AsIs"
+    assert cfg["routing"]["domainStrategy"] == "IPIfNonMatch"
     # lookups are captured first, then LAN, then the country split
     assert rules[0]["outboundTag"] == "dns-out"
     private = next(r for r in rules if r.get("ip") == ["geoip:private"])
@@ -162,12 +162,39 @@ def test_leastload_alternative_pairs_with_burst_observatory(monkeypatch):
     assert config["burstObservatory"]["pingConfig"]["sampling"] >= 2
 
 
-def test_routing_needs_no_lookup():
-    """Both production outages came from resolving before routing: through the
-    tunnel it wedges when the node dies, out of the tunnel it loops on a phone
-    whose VPN owns the resolver. AsIs decides on the name and avoids both."""
+def test_names_decide_before_addresses_do():
+    """`AsIs` left the geoip:ru rule dead: sniffing replaces the target with the
+    domain, and with nothing resolved an IP rule can never match — measured
+    2026-08-03, when every Russian service outside a .ru zone rode the tunnel.
+    IPIfNonMatch resolves only what no name rule already decided."""
     config = _balancer()
-    assert config["routing"]["domainStrategy"] == "AsIs"
+    routing = config["routing"]
+    assert routing["domainStrategy"] == "IPIfNonMatch"
+    domain_rules = [i for i, r in enumerate(routing["rules"]) if "domain" in r]
+    geo_ru = next(i for i, r in enumerate(routing["rules"]) if r.get("ip") == ["geoip:ru"])
+    assert domain_rules and max(domain_rules) < geo_ru, "names must be tried first"
+
+
+def test_quic_is_refused_so_apps_fall_back_to_tcp():
+    """UDP inside a TCP tunnel is TCP-over-TCP: on a lossy mobile link the two
+    retransmit against each other until throughput collapses, which is the
+    «photos and videos stop loading after a while» report. The balancer probes
+    over TCP and sees nothing wrong, so it never switches."""
+    rules = _balancer()["routing"]["rules"]
+    quic = next(r for r in rules if r.get("network") == "udp" and r.get("port") == 443)
+    assert quic["outboundTag"] == "block"
+    catch_all = len(rules) - 1
+    assert rules.index(quic) < catch_all, "must be decided before the catch-all"
+
+
+def test_dns_still_passes_while_quic_is_blocked():
+    """The QUIC rule is by port, and lookups are UDP too — blocking both would
+    take the client off the internet entirely."""
+    rules = _balancer()["routing"]["rules"]
+    dns_rule = next(i for i, r in enumerate(rules) if str(r.get("port")) == "53")
+    quic_rule = next(i for i, r in enumerate(rules)
+                     if r.get("network") == "udp" and r.get("port") == 443)
+    assert dns_rule < quic_rule
 
 
 # --- lookups ------------------------------------------------------------------
@@ -304,3 +331,40 @@ def test_xhttp_joins_the_balancer():
     config = xray_json.build_balancer_config([REALITY, XHTTP_URI])
     tags = [o["tag"] for o in config["outbounds"] if o["tag"].startswith("proxy-")]
     assert len(tags) == 2
+
+
+# --- the Russian split has to survive services outside the .ru zone -----------
+
+def _direct_domains(config):
+    rules = config["routing"]["rules"]
+    return " ".join(next(r for r in rules if "domain" in r and r.get("outboundTag") == "direct")["domain"])
+
+
+def test_russian_services_outside_the_ru_zone_go_direct():
+    """Read off xray's own routing log on 2026-08-03: each of these was being
+    sent abroad, which is «РУ-приложения работают не всегда» — Yandex without
+    its stylesheets, Avito without its images, Okko refusing to play."""
+    joined = _direct_domains(_balancer())
+    for host in ("yastatic.net", "avito.st", "vk-cdn.net", "okko.tv",
+                 "yandexcloud.net", "vkuservideo.net", "wbstatic.net"):
+        assert f"domain:{host}" in joined, host
+
+
+def test_google_and_spotify_never_take_the_direct_path():
+    """Google's cache nodes sit inside Russian ISPs and Spotify refuses Russian
+    addresses outright, so once addresses decide routing, both would be handed
+    to a path that fails."""
+    rules = _balancer()["routing"]["rules"]
+    pinned = next(r for r in rules if "domain" in r and r.get("balancerTag") == "auto")
+    joined = " ".join(pinned["domain"])
+    for host in ("google.com", "gstatic.com", "googleapis.com",
+                 "spotify.com", "scdn.co", "spotifycdn.com"):
+        assert f"domain:{host}" in joined, host
+
+
+def test_both_local_inbounds_can_recover_the_name():
+    """Routing decides on names; an inbound that cannot sniff one sends
+    everything to the catch-all, Russian services included."""
+    for inbound in _balancer()["inbounds"]:
+        if inbound["protocol"] in ("socks", "http"):
+            assert inbound["sniffing"]["enabled"] is True

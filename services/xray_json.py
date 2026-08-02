@@ -36,6 +36,10 @@ _INBOUNDS = [
         "listen": "127.0.0.1",
         "port": 10809,
         "protocol": "http",
+        # Same sniffing as the socks inbound: routing decides on names, so an
+        # inbound that cannot recover the name would send everything through
+        # the catch-all — including Russian services that belong direct.
+        "sniffing": {"enabled": True, "destOverride": ["http", "tls", "quic"]},
     },
 ]
 
@@ -123,6 +127,30 @@ _RU_DIRECT_DOMAINS = [
     "domain:ozon.com",
     "domain:wildberries.com",
     "domain:gosuslugi.gov",
+    # Russian services that do NOT live in a Russian zone. Measured on
+    # 2026-08-03 by reading xray's own routing decisions: every one of these was
+    # being sent abroad, which is what «РУ-приложения работают не всегда» is —
+    # Sber and Gosuslugi are `.ru` and worked, while Yandex lost its stylesheets,
+    # Avito lost its images and Okko refused to play at all.
+    "domain:yastatic.net",      # every Yandex page pulls its CSS/JS from here
+    "domain:yastat.net",
+    "domain:yandexcloud.net",   # backend of a great many Russian apps
+    "domain:avito.st",          # Avito's image CDN
+    "domain:vk-cdn.net",
+    "domain:vkuservideo.net",
+    "domain:vkuseraudio.net",
+    "domain:vkuseraudio.com",
+    "domain:mradx.net",         # Mail.ru
+    "domain:my.games",
+    "domain:okko.tv",           # refuses foreign addresses outright
+    "domain:more.tv",
+    "domain:premier.one",
+    "domain:wbstatic.net",
+    "domain:sberbank.com",
+    "domain:yoomoney.ru",
+    "domain:qiwi.com",
+    "domain:2gis.com",
+    "domain:tamtam.chat",
 ]
 
 _DNS = {
@@ -194,10 +222,31 @@ _FORCE_PROXY_DOMAINS = [
     "domain:ytimg.com",
     "domain:ggpht.com",
     "domain:youtubei.googleapis.com",
+    # Google proper. Not optional once addresses decide routing (below): Google
+    # Global Cache sits inside Russian ISPs, so google.com resolves to a Russian
+    # address for a Russian client, `geoip:ru` would send it out of the device,
+    # and it arrives at an edge that is throttled. Search and Photos are what
+    # the user notices.
+    "domain:google.com",
+    "domain:gstatic.com",
+    "domain:googleapis.com",
+    "domain:googleusercontent.com",
+    "domain:withgoogle.com",
+    "domain:google-analytics.com",
+    # Spotify left Russia and refuses Russian addresses, so it must never take
+    # the direct path — including its Fastly/Akamai edges, which do sit in RU.
+    "domain:spotify.com",
+    "domain:spotifycdn.com",
+    "domain:scdn.co",
+    "domain:spotify.map.fastly.net",
+    "domain:audio-ak-spotify-com.akamaized.net",
     # Other blocked platforms with RU-facing infrastructure
     "domain:twitter.com",
     "domain:x.com",
     "domain:twimg.com",
+    "domain:discord.com",
+    "domain:discordapp.com",
+    "domain:discord.gg",
 ]
 
 
@@ -219,14 +268,22 @@ def _tail_outbounds() -> list[dict]:
 # see a Russian IP and work, and RU traffic — most of a user's day — takes zero
 # VPN detour, which is the biggest lever on felt latency.
 #
-# Everything is decided by NAME, and that is the whole point. Deciding by
-# address means resolving first, and every way of doing that has now broken a
-# client in production: resolving through the tunnel wedges the app when the
-# chosen node dies (it cannot even fail over, because failing over needs a
-# lookup), while routing port 53 out of the tunnel loops on a phone, where the
-# VPN owns the system resolver — the lookup leaves, comes straight back in, and
-# nothing loads at all. With `AsIs` no lookup happens for routing, so neither
-# failure can occur. Names go to the exit and are resolved there.
+# Names decide first, addresses decide what is left. `AsIs` alone was measured
+# on 2026-08-03 to leave the `geoip:ru` rule dead: sniffing replaces the target
+# address with the domain, and with no resolution an IP rule can never match, so
+# every Russian service outside a `.ru` zone was riding the tunnel — Yandex's
+# static host, Avito's images, VK's CDN, Okko. A name list alone cannot fix that;
+# it can only ever cover what someone remembered to add.
+#
+# `IPIfNonMatch` resolves *only* what no name rule has already decided, so both
+# earlier outages stay avoided:
+#   - the tunnel-wedge (2026-07-2x): failover is driven by the balancer's own
+#     probes, not by lookups, and a lookup that fails simply leaves the rule
+#     unmatched and falls through — it cannot hang the client;
+#   - the phone loop (2026-07-28): lookups are answered by `dns-out` inside
+#     xray and never handed to the system resolver.
+# The resolution is also nearly free: the app's own lookup already went through
+# `dns-out`, so the routing lookup hits xray's cache.
 def _split_routing(final_rule: dict) -> dict:
     # Whatever `final_rule` sends traffic to (a single proxy outbound, or the
     # balancer) is where the pinned domains must go too.
@@ -234,7 +291,7 @@ def _split_routing(final_rule: dict) -> dict:
         key: value for key, value in final_rule.items() if key in ("outboundTag", "balancerTag")
     }
     return {
-        "domainStrategy": "AsIs",
+        "domainStrategy": "IPIfNonMatch",
         "rules": [
             # Every lookup the apps make, whatever resolver they addressed, is
             # answered by our `dns` block. Scoped to the local inbounds on
@@ -251,6 +308,25 @@ def _split_routing(final_rule: dict) -> dict:
                 "port": 53,
                 "outboundTag": "dns-out",
             },
+            # QUIC is refused so applications fall back to TLS over TCP.
+            #
+            # This is the "«works, then photos and videos stop loading» while
+            # the balancer stays silent" case. QUIC is UDP, and a UDP flow
+            # inside a TCP tunnel is TCP-over-TCP: both layers retransmit, and
+            # on a lossy mobile link the inner and outer windows fight each
+            # other until throughput collapses, which takes a while to build up
+            # — hence "after a long session". Media is what breaks first
+            # because photos and video are exactly what YouTube, Instagram,
+            # Google Photos and Spotify move over QUIC, while ordinary pages
+            # keep working over TCP.
+            #
+            # The balancer cannot see any of it: its probe is a small HTTP
+            # fetch over TCP, which stays fast on a link whose UDP path is
+            # melting, so no node ever looks unhealthy and nothing switches.
+            # Refusing QUIC outright is what makes the applications themselves
+            # fall back — they do it in one round trip and never come back to
+            # it for that connection.
+            {"type": "field", "network": "udp", "port": 443, "outboundTag": "block"},
             {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
             # Blocked platforms first: they must reach the tunnel even though
             # some of their CDN sits on Russian addresses.
