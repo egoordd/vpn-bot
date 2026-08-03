@@ -625,35 +625,59 @@ def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict 
 
 LEAN_REMARKS = "⚡️ Авто-обход · тест"
 LEAN_IN_SUB = os.environ.get("LEAN_IN_SUB", "1").lower() not in ("0", "false", "no", "")
+# One per exit plus a UDP one — the competitor's five, against our twelve.
+LEAN_MAX_OUTBOUNDS = int(os.environ.get("LEAN_MAX_OUTBOUNDS", "5"))
+
+
+def _lean_selection(uris: list[str]) -> list[str]:
+    """One entry per exit, plus the first Hysteria2, in that order.
+
+    Twelve outbounds means the health prober opens twelve tunnels a minute,
+    every minute — two hundred and forty over the twenty minutes it takes for
+    this fault to appear. Whether or not that is the cause, it is a difference
+    against a subscription that does not fail, so it has to be removable.
+    """
+    chosen: list[str] = []
+    seen_hosts: set[str] = set()
+    hysteria: str | None = None
+    for uri in uris:
+        parsed = _parse_uri(uri)
+        if parsed is None:
+            continue
+        scheme, _, host, _, _, _ = parsed
+        if scheme in ("hysteria2", "hy2"):
+            hysteria = hysteria or uri
+            continue
+        if host in seen_hosts:
+            continue
+        seen_hosts.add(host)
+        chosen.append(uri)
+    if hysteria:
+        chosen.append(hysteria)
+    return chosen[:LEAN_MAX_OUTBOUNDS]
 
 
 def build_lean_config(uris: list[str], remarks: str = LEAN_REMARKS) -> dict | None:
-    """The same servers with everything of ours stripped out of the way.
+    """Our routing, their weight — the next cut in narrowing the 20-minute fault.
 
-    Shipped next to «Авто-обход» to settle an argument that measurement from a
-    datacentre cannot: the tunnels stop for this user after ~20 minutes on every
-    entry we offer, and a competitor's subscription on the same phone and the
-    same carrier does not — with VLESS-Reality over TCP too, so the transport is
-    not the difference. What differs is everything we add around it.
+    The first attempt at this entry was built like the competitor's outright:
+    two rules, no DNS hijack. It answered a question, just not the one asked —
+    YouTube, Google, Spotify and SoundCloud stopped loading entirely, because
+    without the hijack the phone asks its carrier's resolver, gets the Russian
+    cache addresses those services keep inside RU ISPs, and the tunnel then
+    carries the connection from Germany to a cache that serves only local
+    subscribers. So the hijack is load-bearing and stays.
 
-    The big one is DNS. We hijack port 53 into xray's own resolver, and foreign
-    names are then resolved through the tunnel; that block is identical in every
-    entry we ship, so a single stalled path stops every name from resolving at
-    once, everywhere, until the tunnel is restarted — which is exactly the
-    reported shape. They leave name resolution to the client. This build does
-    the same, and drops the country split, the pinned-domain lists and the
-    keepalive socket options with it: two routing rules, like theirs.
-
-    It is deliberately a second entry rather than a replacement — one tap to
-    compare, and the answer decides what the real subscription becomes.
+    What remains different from a subscription that does not fail on this phone
+    is the weight: twelve outbounds against five, and a keepalive socket option
+    on every one of them that they do not set. Both are dropped here, and
+    everything that makes the product work is kept.
     """
     outbounds: list[dict] = []
-    for uri in uris:
+    for uri in _lean_selection(uris):
         outbound = build_outbound(uri, f"proxy-{len(outbounds)}")
         if outbound is None:
             continue
-        # No keepalive probes: they are ours, not theirs, and a socket option we
-        # add is a difference we have to be able to rule out.
         outbound.get("streamSettings", {}).pop("sockopt", None)
         outbounds.append(outbound)
     if not outbounds:
@@ -662,16 +686,11 @@ def build_lean_config(uris: list[str], remarks: str = LEAN_REMARKS) -> dict | No
     return {
         "remarks": remarks,
         "log": {"loglevel": "warning"},
-        "dns": {"servers": ["1.1.1.1", "1.0.0.1"], "queryStrategy": "UseIP"},
+        "dns": _DNS,
         "inbounds": _INBOUNDS,
-        "outbounds": [*outbounds, {"tag": "direct", "protocol": "freedom"},
-                      {"tag": "block", "protocol": "blackhole"}],
+        "outbounds": [*outbounds, *_tail_outbounds()],
         "routing": {
-            "domainStrategy": "IPIfNonMatch",
-            "rules": [
-                {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
-                {"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
-            ],
+            **_split_routing({"type": "field", "network": "tcp,udp", "balancerTag": "auto"}),
             "balancers": [{"tag": "auto", "selector": ["proxy-"], "strategy": strategy}],
         },
         **prober,

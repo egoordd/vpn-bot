@@ -472,30 +472,37 @@ def _lean(hosts=("h1", "h2")):
     return xray_json.build_lean_config(uris)
 
 
-def test_lean_build_leaves_name_resolution_to_the_client():
-    """Our DNS hijack is identical in every entry we ship, so one stalled path
-    stops every lookup everywhere at once — the reported shape. A competitor
-    that does not hijack has no such failure on the same phone and carrier."""
+def test_lean_build_keeps_the_dns_hijack():
+    """Tried without it and measured the answer: YouTube, Google, Spotify and
+    SoundCloud stopped loading outright, because the carrier's resolver hands
+    back the Russian cache addresses those services keep inside RU ISPs and the
+    tunnel then dials them from abroad. Load-bearing — it stays."""
     config = _lean()
-    assert config["dns"] == {"servers": ["1.1.1.1", "1.0.0.1"], "queryStrategy": "UseIP"}
-    assert not any(str(r.get("port")) == "53" for r in config["routing"]["rules"])
-    assert "dns-out" not in [o["tag"] for o in config["outbounds"]]
+    hijack = next(r for r in config["routing"]["rules"] if str(r.get("port")) == "53")
+    assert hijack["outboundTag"] == "dns-out"
+    assert "dns-out" in [o["tag"] for o in config["outbounds"]]
+    assert config["dns"] == xray_json._DNS
 
 
-def test_lean_build_carries_no_additions_of_ours():
-    """Every difference has to be removable in one step, or the comparison
-    proves nothing."""
-    config = _lean()
-    assert len(config["routing"]["rules"]) == 2
-    joined = json.dumps(config)
-    assert "geoip" not in joined and "sockopt" not in joined
+def test_lean_build_drops_only_our_extra_weight():
+    """What is left to explain: twelve outbounds against a working
+    subscription's five, and a socket option they never set."""
+    config = _lean(("h1", "h2"))
+    assert "sockopt" not in json.dumps(config)
+    assert "geoip:ru" in json.dumps(config), "the country split has to survive the cut"
 
 
-def test_lean_build_still_balances_over_the_same_servers():
-    config = _lean(("h1", "h2", "h3"))
-    tags = [o["tag"] for o in config["outbounds"] if o["tag"].startswith("proxy-")]
-    assert tags == ["proxy-0", "proxy-1", "proxy-2"]
-    assert config["routing"]["balancers"][0]["selector"] == ["proxy-"]
+def test_lean_build_keeps_one_entry_per_exit():
+    uris = [
+        "vless://u@relay:2091?security=reality&sni=relay&pbk=P&sid=S#pl-cascade",
+        "vless://u@relay:2096?security=reality&sni=relay&pbk=P&sid=S#de-cascade",
+        "vless://u@pl:2087?security=reality&sni=pl&pbk=P&sid=S#pl",
+        "vless://u@pl:2097?security=reality&type=xhttp&path=%2Fx&sni=pl&pbk=P&sid=S#pl-xhttp",
+        "vless://u@de:2096?security=reality&sni=de&pbk=P&sid=S#de",
+        "hysteria2://pw@pl:443?sni=pl#pl-hy2",
+    ]
+    picked = xray_json._lean_selection(uris)
+    assert picked == [uris[0], uris[2], uris[4], uris[5]], "one per host, Hysteria last"
 
 
 def test_lean_entry_sits_second_so_the_normal_one_stays_default():
