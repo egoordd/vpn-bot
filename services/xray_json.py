@@ -484,7 +484,46 @@ def build_outbound(uri: str, tag: str) -> dict | None:
             "settings": {"servers": [{"address": host, "port": port, "password": userinfo}]},
             "streamSettings": _stream_settings(query),
         }
+    if scheme in ("hysteria2", "hy2") and HY2_IN_JSON:
+        return _hysteria_outbound(userinfo, host, port, query, tag)
     return None
+
+
+# Every server we ship rides on TCP, and that is the whole shape of the standing
+# complaint: after ~20 minutes everything stops at once, on every entry, until
+# the VPN is toggled. A carrier that rebinds its NAT mapping on a timer kills
+# every TCP connection in the same instant, and a fresh tunnel then works for
+# another twenty. QUIC does not care — its connection survives the client's
+# address changing, because the connection is identified by an id rather than
+# by the four-tuple.
+#
+# We have had Hysteria2 on 🇵🇱 and 🇺🇸 all along, reachable only through a
+# separate /hy2 link almost nobody opens, because xray-JSON cannot express it.
+# It turns out the client can: a working competitor ships exactly this block
+# inside an ordinary xray config, with Hysteria first in their balancer. Same
+# schema, so «Авто-обход» can hold a UDP path too and reach for it by itself.
+HY2_IN_JSON = os.environ.get("HY2_IN_JSON", "1").lower() not in ("0", "false", "no", "")
+
+
+def _hysteria_outbound(password: str, host: str, port: int, query: dict, tag: str) -> dict:
+    tls: dict = {
+        "serverName": query.get("sni", host),
+        "fingerprint": query.get("fp", "firefox"),
+        "alpn": ["h3"],
+    }
+    if query.get("insecure") in ("1", "true"):
+        tls["allowInsecure"] = True
+    return {
+        "tag": tag,
+        "protocol": "hysteria",
+        "settings": {"address": host, "port": port, "version": 2},
+        "streamSettings": {
+            "network": "hysteria",
+            "hysteriaSettings": {"version": 2, "auth": password},
+            "security": "tls",
+            "tlsSettings": tls,
+        },
+    }
 
 
 def _remark(uri: str, fallback: str) -> str:
@@ -584,13 +623,70 @@ def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict 
     }
 
 
+LEAN_REMARKS = "⚡️ Авто-обход · тест"
+LEAN_IN_SUB = os.environ.get("LEAN_IN_SUB", "1").lower() not in ("0", "false", "no", "")
+
+
+def build_lean_config(uris: list[str], remarks: str = LEAN_REMARKS) -> dict | None:
+    """The same servers with everything of ours stripped out of the way.
+
+    Shipped next to «Авто-обход» to settle an argument that measurement from a
+    datacentre cannot: the tunnels stop for this user after ~20 minutes on every
+    entry we offer, and a competitor's subscription on the same phone and the
+    same carrier does not — with VLESS-Reality over TCP too, so the transport is
+    not the difference. What differs is everything we add around it.
+
+    The big one is DNS. We hijack port 53 into xray's own resolver, and foreign
+    names are then resolved through the tunnel; that block is identical in every
+    entry we ship, so a single stalled path stops every name from resolving at
+    once, everywhere, until the tunnel is restarted — which is exactly the
+    reported shape. They leave name resolution to the client. This build does
+    the same, and drops the country split, the pinned-domain lists and the
+    keepalive socket options with it: two routing rules, like theirs.
+
+    It is deliberately a second entry rather than a replacement — one tap to
+    compare, and the answer decides what the real subscription becomes.
+    """
+    outbounds: list[dict] = []
+    for uri in uris:
+        outbound = build_outbound(uri, f"proxy-{len(outbounds)}")
+        if outbound is None:
+            continue
+        # No keepalive probes: they are ours, not theirs, and a socket option we
+        # add is a difference we have to be able to rule out.
+        outbound.get("streamSettings", {}).pop("sockopt", None)
+        outbounds.append(outbound)
+    if not outbounds:
+        return None
+    strategy, prober = _health_check(BALANCER_STRATEGY)
+    return {
+        "remarks": remarks,
+        "log": {"loglevel": "warning"},
+        "dns": {"servers": ["1.1.1.1", "1.0.0.1"], "queryStrategy": "UseIP"},
+        "inbounds": _INBOUNDS,
+        "outbounds": [*outbounds, {"tag": "direct", "protocol": "freedom"},
+                      {"tag": "block", "protocol": "blackhole"}],
+        "routing": {
+            "domainStrategy": "IPIfNonMatch",
+            "rules": [
+                {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"},
+                {"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
+            ],
+            "balancers": [{"tag": "auto", "selector": ["proxy-"], "strategy": strategy}],
+        },
+        **prober,
+    }
+
+
 def build_json_subscription(links: list[str]) -> list[dict]:
     """Full JSON-array body: the balancer first, then each server on its own.
 
     Objects only: mixing raw URI strings into the array broke Happ's import
-    outright («there are no server links», verified live 2026-07-16), so
-    non-xray protocols (Hysteria2 — separate core) simply cannot ride in this
-    format and are left to the base64 flavor other clients receive.
+    outright («there are no server links», verified live 2026-07-16). Hysteria2
+    used to be excluded for the same reason — it runs on a separate core — and
+    was exiled to the /hy2 link. It is back here as a proper outbound object,
+    which is how the client actually accepts it, so the one link a user imports
+    now carries a UDP path as well as the TCP ones.
 
     Empty when no xray-core-compatible server is present (caller then falls
     back to the plain base64 subscription).
@@ -599,6 +695,10 @@ def build_json_subscription(links: list[str]) -> list[dict]:
     if balancer is None:
         return []
     configs = [balancer]
+    if LEAN_IN_SUB:
+        lean = build_lean_config(links)
+        if lean is not None:
+            configs.append(lean)
     for index, uri in enumerate(links):
         server = build_server_config(uri, index)
         if server is not None:

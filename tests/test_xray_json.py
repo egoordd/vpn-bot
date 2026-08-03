@@ -1,3 +1,4 @@
+import json
 import pytest
 
 from services import xray_json
@@ -45,19 +46,43 @@ def test_build_outbound_trojan_tls():
 
 
 @pytest.mark.unit
-def test_build_outbound_skips_non_xray_and_garbage():
-    assert xray_json.build_outbound(HY2, "proxy-0") is None
+def test_build_outbound_skips_garbage():
     assert xray_json.build_outbound("not-a-uri", "proxy-0") is None
     assert xray_json.build_outbound("vless://no-host-part", "proxy-0") is None
+
+
+@pytest.mark.unit
+def test_hysteria_rides_in_the_json_body():
+    """Every TCP entry dies together when the carrier rebinds its NAT mapping —
+    the "~20 minutes, then toggle the VPN" complaint. A QUIC connection survives
+    the client's address changing, so «Авто-обход» needs a UDP path in reach.
+    Excluded historically because xray-JSON cannot express Hysteria2; the client
+    accepts it as an outbound object, which is how it is shipped now."""
+    out = xray_json.build_outbound(HY2, "proxy-0")
+    assert out["protocol"] == "hysteria"
+    assert out["settings"] == {"address": "144.172.101.217.sslip.io", "port": 443, "version": 2}
+    stream = out["streamSettings"]
+    assert stream["network"] == "hysteria"
+    assert stream["hysteriaSettings"] == {"version": 2, "auth": "pass"}
+    assert stream["tlsSettings"]["alpn"] == ["h3"]
+    assert stream["tlsSettings"]["serverName"] == "x"
+
+
+@pytest.mark.unit
+def test_hysteria_can_be_switched_off(monkeypatch):
+    """One env flag back to the old behaviour, in case a client core chokes on
+    the block — a first entry that fails to load costs everyone their subscription."""
+    monkeypatch.setattr(xray_json, "HY2_IN_JSON", False)
+    assert xray_json.build_outbound(HY2, "proxy-0") is None
 
 
 @pytest.mark.unit
 def test_build_balancer_config_structure():
     cfg = xray_json.build_balancer_config([REALITY, HY2, TROJAN])
     assert cfg["remarks"] == "⚡️ Авто-обход"
-    # hy2 excluded; two xray outbounds + direct + block
+    # all three are balanced over now, Hysteria included
     tags = [o["tag"] for o in cfg["outbounds"]]
-    assert tags == ["proxy-0", "proxy-1", "direct", "block", "dns-out"]
+    assert tags == ["proxy-0", "proxy-1", "proxy-2", "direct", "block", "dns-out"]
     balancer = cfg["routing"]["balancers"][0]
     assert balancer["selector"] == ["proxy-"]
     assert balancer["strategy"]["type"] == "leastPing"
@@ -78,8 +103,7 @@ def test_build_balancer_config_structure():
 
 
 @pytest.mark.unit
-def test_build_balancer_config_none_without_xray_nodes():
-    assert xray_json.build_balancer_config([HY2]) is None
+def test_build_balancer_config_none_without_servers():
     assert xray_json.build_balancer_config([]) is None
 
 
@@ -96,14 +120,16 @@ def test_build_server_config_uses_uri_remark():
 @pytest.mark.unit
 def test_build_json_subscription_balancer_first_then_servers():
     configs = xray_json.build_json_subscription([REALITY, HY2, TROJAN])
-    # objects only: raw URI strings in the array break Happ's import, so hy2
-    # is dropped from the JSON flavor (still present in the base64 one)
-    assert [c["remarks"] for c in configs] == ["⚡️ Авто-обход", "🇺🇸 США", "🇵🇱 Trojan"]
+    # objects only, but Hysteria2 is now one of those objects; the control build
+    # rides second while the 20-minute question is open
+    assert [c["remarks"] for c in configs] == [
+        "⚡️ Авто-обход", "⚡️ Авто-обход · тест", "🇺🇸 США", "US-Hy2", "🇵🇱 Trojan",
+    ]
 
 
 @pytest.mark.unit
-def test_build_json_subscription_empty_without_xray_nodes():
-    assert xray_json.build_json_subscription([HY2]) == []
+def test_build_json_subscription_empty_without_servers():
+    assert xray_json.build_json_subscription([]) == []
 
 
 # --- «Авто-обход» failover behaviour ------------------------------------------
@@ -434,3 +460,51 @@ def test_probes_do_not_dial_every_node_at_once():
     """Ten simultaneous handshakes a minute is a memory and radio burst on a
     sleeping phone — the shape of background work that gets an app reclaimed."""
     assert _prober(_balancer()).get("enableConcurrency") is False
+
+
+# --- the control build -------------------------------------------------------
+
+def _lean(hosts=("h1", "h2")):
+    uris = [
+        f"vless://uuid@{h}:2096?security=reality&type=tcp&sni={h}&pbk=PBK&sid=SID#{h}"
+        for h in hosts
+    ]
+    return xray_json.build_lean_config(uris)
+
+
+def test_lean_build_leaves_name_resolution_to_the_client():
+    """Our DNS hijack is identical in every entry we ship, so one stalled path
+    stops every lookup everywhere at once — the reported shape. A competitor
+    that does not hijack has no such failure on the same phone and carrier."""
+    config = _lean()
+    assert config["dns"] == {"servers": ["1.1.1.1", "1.0.0.1"], "queryStrategy": "UseIP"}
+    assert not any(str(r.get("port")) == "53" for r in config["routing"]["rules"])
+    assert "dns-out" not in [o["tag"] for o in config["outbounds"]]
+
+
+def test_lean_build_carries_no_additions_of_ours():
+    """Every difference has to be removable in one step, or the comparison
+    proves nothing."""
+    config = _lean()
+    assert len(config["routing"]["rules"]) == 2
+    joined = json.dumps(config)
+    assert "geoip" not in joined and "sockopt" not in joined
+
+
+def test_lean_build_still_balances_over_the_same_servers():
+    config = _lean(("h1", "h2", "h3"))
+    tags = [o["tag"] for o in config["outbounds"] if o["tag"].startswith("proxy-")]
+    assert tags == ["proxy-0", "proxy-1", "proxy-2"]
+    assert config["routing"]["balancers"][0]["selector"] == ["proxy-"]
+
+
+def test_lean_entry_sits_second_so_the_normal_one_stays_default():
+    configs = xray_json.build_json_subscription([REALITY, TROJAN])
+    assert configs[0]["remarks"] == "⚡️ Авто-обход"
+    assert configs[1]["remarks"] == "⚡️ Авто-обход · тест"
+
+
+def test_lean_entry_can_be_withdrawn(monkeypatch):
+    monkeypatch.setattr(xray_json, "LEAN_IN_SUB", False)
+    remarks = [c["remarks"] for c in xray_json.build_json_subscription([REALITY])]
+    assert "⚡️ Авто-обход · тест" not in remarks
