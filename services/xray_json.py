@@ -404,8 +404,33 @@ def _xhttp_settings(query: dict) -> dict:
         except (TypeError, ValueError):
             parsed = None
         if isinstance(parsed, dict):
-            settings["extra"] = parsed
+            settings["extra"] = _capped_xhttp_buffers(parsed)
     return settings
+
+
+# The panel ships XHTTP tuned for a server: 1 MB per upload chunk with up to 100
+# of them in flight, i.e. up to ~100 MB of buffers for one connection. A phone
+# cannot afford that. iOS in particular gives the whole VPN extension roughly
+# 50 MB and kills it without a word when it goes over — the tunnel then reads as
+# connected and carries nothing until the app is reopened, which is exactly what
+# "I woke up and nothing loaded" looks like.
+#
+# Measured on the shipped config: 42 MB at rest with the balancer's ten
+# outbounds, before a single byte of the user's traffic.
+_XHTTP_MAX_POST_BYTES = int(os.environ.get("XHTTP_MAX_POST_BYTES", str(256 * 1024)))
+_XHTTP_MAX_CONCURRENT_POSTS = int(os.environ.get("XHTTP_MAX_CONCURRENT_POSTS", "8"))
+
+
+def _capped_xhttp_buffers(extra: dict) -> dict:
+    """Server-sized XHTTP buffers brought down to something a phone survives."""
+    capped = dict(extra)
+    post_bytes = capped.get("scMaxEachPostBytes")
+    if isinstance(post_bytes, int) and post_bytes > _XHTTP_MAX_POST_BYTES:
+        capped["scMaxEachPostBytes"] = _XHTTP_MAX_POST_BYTES
+    posts = capped.get("scMaxConcurrentPosts")
+    if isinstance(posts, int) and posts > _XHTTP_MAX_CONCURRENT_POSTS:
+        capped["scMaxConcurrentPosts"] = _XHTTP_MAX_CONCURRENT_POSTS
+    return capped
 
 
 def _stream_settings(query: dict) -> dict:
@@ -499,7 +524,14 @@ def _health_check(strategy: str) -> tuple[dict, dict]:
                     "subjectSelector": ["proxy-"],
                     "probeUrl": _PROBE_URL,
                     "probeInterval": _PROBE_INTERVAL,
-                    "enableConcurrency": True,
+                    # Probes run one after another rather than all at once. Ten
+                    # simultaneous tunnel handshakes every minute is a burst of
+                    # memory and radio on a sleeping phone — the shape of
+                    # background work that gets an app reclaimed, and on iOS
+                    # the extension has ~50 MB for everything. Sequentially a
+                    # full round still finishes in a few seconds, well inside
+                    # the interval, so nothing is lost in failover speed.
+                    "enableConcurrency": False,
                 }
             },
         )

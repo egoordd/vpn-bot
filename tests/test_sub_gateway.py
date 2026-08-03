@@ -669,3 +669,23 @@ def test_clients_refresh_often_enough_for_a_fix_to_land_same_day():
     probe = _Probe()
     probe._send(200, b"x", "text/plain")
     assert int(probe.sent["profile-update-interval"]) <= 6
+
+
+def test_the_client_is_configured_for_the_user():
+    """The product is pay, tap once, done. Anything that would otherwise be
+    "open settings and turn this on" ships with the subscription instead."""
+    headers = sub_gateway._client_headers()
+    assert headers["subscription-autoconnect"] == "true"
+    assert headers["subscription-autoconnect-type"] == "lastused"
+    assert headers["app-auto-start"] == "true"
+    assert headers["subscription-auto-update-open-enable"] == "true"
+    assert headers["exclude-apns-enable"] == "true"
+
+
+def test_app_headers_are_latin1_so_they_survive_as_http():
+    """Header values are latin-1 on the wire; Cyrillic has to ride as base64
+    (announce already does), and a stray non-ascii value would break the whole
+    response rather than one setting."""
+    for key, value in sub_gateway.APP_HEADERS.items():
+        key.encode("latin-1")
+        value.encode("latin-1")

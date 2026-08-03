@@ -400,3 +400,37 @@ def test_blocked_platforms_still_beat_the_address_rule():
     pinned = next(i for i, r in enumerate(rules) if r.get("balancerTag") == "auto")
     geo_ru = next(i for i, r in enumerate(rules) if r.get("ip") == ["geoip:ru"])
     assert pinned < geo_ru
+
+
+# --- what a phone can afford --------------------------------------------------
+
+def test_xhttp_buffers_are_capped_for_a_phone():
+    """The panel ships 1 MB per chunk with 100 in flight — up to ~100 MB of
+    buffers for one connection. iOS gives the whole VPN extension about 50 MB
+    and kills it silently when it goes over: the tunnel then reads as connected
+    and carries nothing until the app is reopened."""
+    uri = (
+        "vless://uuid@h1:2097?security=reality&type=xhttp&path=%2Fx&sni=h1&pbk=P&sid=S"
+        "&extra=%7B%22scMaxEachPostBytes%22%3A1000000%2C%22scMaxConcurrentPosts%22%3A100%7D"
+    )
+    extra = xray_json.build_outbound(uri, "proxy-0")["streamSettings"]["xhttpSettings"]["extra"]
+    assert extra["scMaxEachPostBytes"] <= 256 * 1024
+    assert extra["scMaxConcurrentPosts"] <= 8
+
+
+def test_smaller_buffers_from_the_panel_are_left_alone():
+    """The cap is a ceiling, not a setting — a server that already ships modest
+    values should keep them."""
+    uri = (
+        "vless://uuid@h1:2097?security=reality&type=xhttp&path=%2Fx&sni=h1&pbk=P&sid=S"
+        "&extra=%7B%22scMaxEachPostBytes%22%3A65536%2C%22scMaxConcurrentPosts%22%3A4%7D"
+    )
+    extra = xray_json.build_outbound(uri, "proxy-0")["streamSettings"]["xhttpSettings"]["extra"]
+    assert extra["scMaxEachPostBytes"] == 65536
+    assert extra["scMaxConcurrentPosts"] == 4
+
+
+def test_probes_do_not_dial_every_node_at_once():
+    """Ten simultaneous handshakes a minute is a memory and radio burst on a
+    sleeping phone — the shape of background work that gets an app reclaimed."""
+    assert _prober(_balancer()).get("enableConcurrency") is False

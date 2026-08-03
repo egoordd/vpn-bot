@@ -120,9 +120,31 @@ SUPPORT_URL = os.environ.get("SUB_SUPPORT_URL", "https://t.me/unlock_support_bot
 PROFILE_WEB_PAGE_URL = os.environ.get("SUB_WEB_PAGE_URL", "https://unlockvpn.site")
 
 
+# Settings we apply on the user's behalf. The product promise is pay, tap once,
+# done — so anything that would otherwise be "go into settings and turn this on"
+# has to be shipped with the subscription instead. Happ applies these on every
+# refresh; other clients ignore unknown headers.
+APP_HEADERS = {
+    # Reconnect by itself when the app comes up, to whatever was last used.
+    # Covers the case that started this: the phone slept, the system reclaimed
+    # the tunnel, and nothing worked until the app was opened by hand.
+    "subscription-autoconnect": "true",
+    "subscription-autoconnect-type": "lastused",
+    # Android: come back after a reboot instead of staying off until noticed.
+    "app-auto-start": "true",
+    # Pull the subscription on every launch, so a fix does not wait out the
+    # refresh interval on a phone that was off.
+    "subscription-auto-update-open-enable": "true",
+    # iOS: keep Apple's push service outside the tunnel. Notifications then
+    # arrive even when the tunnel is down — the user still gets their Telegram
+    # messages instead of a silent phone — and the tunnel carries less.
+    "exclude-apns-enable": "true",
+}
+
+
 def _client_headers() -> dict[str, str]:
     """Presentation headers every subscription response carries."""
-    headers = {"profile-title": PROFILE_TITLE_HEADER}
+    headers = {"profile-title": PROFILE_TITLE_HEADER, **APP_HEADERS}
     if SUB_ANNOUNCE.strip():
         announce = SUB_ANNOUNCE.strip()[:200]
         headers["announce"] = "base64:" + base64.b64encode(
