@@ -377,10 +377,24 @@ def _parse_uri(uri: str) -> tuple[str, str, str, int, dict, str] | None:
     return scheme.lower(), userinfo, host, port, query, remark
 
 
-# Client-side TCP keepalive: a carrier CGNAT drops an idle tunnel mapping at
-# ~15-30min, leaving the connection half-open («подключён, но не грузит»).
-# Probing every ~25s (after 30s idle) keeps the mapping fresh from the outbound
-# direction — the server inbounds carry the same option for the return path.
+# Client-side TCP keepalive, added in July against a carrier CGNAT dropping an
+# idle tunnel mapping at ~15-30min («подключён, но не грузит») — and now off,
+# because it appears to have been causing the very thing it was meant to fix.
+#
+# The report never went away: every entry, single servers included, stops after
+# about twenty minutes and comes back the moment the VPN is toggled. A build
+# without this option ran past that mark on the same phone and carrier, at full
+# speed. Single-server entries have no balancer and no probes, so nothing about
+# how many tunnels we open can explain them — this option was the only thing
+# they shared with the rest.
+#
+# The mechanism fits: keepalive holds the NAT mapping of every idle-but-open
+# connection instead of letting the carrier reclaim it, a subscriber's port
+# quota fills, and nothing new can be opened until the tunnel is torn down.
+# Toggling the VPN closes every socket at once, which is exactly the "fix" the
+# user found. Left switchable rather than deleted — the July symptom was real,
+# and if it returns this is the first thing to put back.
+CLIENT_KEEPALIVE = os.environ.get("CLIENT_KEEPALIVE", "0").lower() in ("1", "true", "yes")
 _KEEPALIVE_SOCKOPT = {"tcpKeepAliveIdle": 30, "tcpKeepAliveInterval": 25}
 
 
@@ -436,7 +450,9 @@ def _capped_xhttp_buffers(extra: dict) -> dict:
 def _stream_settings(query: dict) -> dict:
     network = query.get("type", "tcp") or "tcp"
     security = query.get("security", "none") or "none"
-    stream: dict = {"network": network, "security": security, "sockopt": dict(_KEEPALIVE_SOCKOPT)}
+    stream: dict = {"network": network, "security": security}
+    if CLIENT_KEEPALIVE:
+        stream["sockopt"] = dict(_KEEPALIVE_SOCKOPT)
     if network == "xhttp":
         stream["xhttpSettings"] = _xhttp_settings(query)
     sni = query.get("sni") or query.get("host") or ""
@@ -623,7 +639,7 @@ def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict 
     }
 
 
-LEAN_REMARKS = "⚡️ Авто-обход · тест"
+LEAN_REMARKS = "⚡️ Авто-обход · лёгкий"
 LEAN_IN_SUB = os.environ.get("LEAN_IN_SUB", "1").lower() not in ("0", "false", "no", "")
 # One per exit plus a UDP one — the competitor's five, against our twelve.
 LEAN_MAX_OUTBOUNDS = int(os.environ.get("LEAN_MAX_OUTBOUNDS", "5"))
@@ -658,20 +674,14 @@ def _lean_selection(uris: list[str]) -> list[str]:
 
 
 def build_lean_config(uris: list[str], remarks: str = LEAN_REMARKS) -> dict | None:
-    """Our routing, their weight — the next cut in narrowing the 20-minute fault.
+    """One entry per exit instead of all twelve — the build that ran clean.
 
-    The first attempt at this entry was built like the competitor's outright:
-    two rules, no DNS hijack. It answered a question, just not the one asked —
-    YouTube, Google, Spotify and SoundCloud stopped loading entirely, because
-    without the hijack the phone asks its carrier's resolver, gets the Russian
-    cache addresses those services keep inside RU ISPs, and the tunnel then
-    carries the connection from Germany to a cache that serves only local
-    subscribers. So the hijack is load-bearing and stays.
-
-    What remains different from a subscription that does not fail on this phone
-    is the weight: twelve outbounds against five, and a keepalive socket option
-    on every one of them that they do not set. Both are dropped here, and
-    everything that makes the product work is kept.
+    This is what the owner was on when the twenty-minute fault finally did not
+    happen: full routing, no keepalive, and a short outbound list. Keepalive is
+    now off everywhere, which leaves the outbound count as the only thing that
+    still separates this from «Авто-обход» — so it stays in the subscription as
+    a known-good fallback rather than an experiment. If the ordinary entry
+    misbehaves again, this one is a single tap away and the count is the answer.
     """
     outbounds: list[dict] = []
     for uri in _lean_selection(uris):

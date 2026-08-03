@@ -123,7 +123,7 @@ def test_build_json_subscription_balancer_first_then_servers():
     # objects only, but Hysteria2 is now one of those objects; the control build
     # rides second while the 20-minute question is open
     assert [c["remarks"] for c in configs] == [
-        "⚡️ Авто-обход", "⚡️ Авто-обход · тест", "🇺🇸 США", "US-Hy2", "🇵🇱 Trojan",
+        "⚡️ Авто-обход", "⚡️ Авто-обход · лёгкий", "🇺🇸 США", "US-Hy2", "🇵🇱 Trojan",
     ]
 
 
@@ -484,12 +484,28 @@ def test_lean_build_keeps_the_dns_hijack():
     assert config["dns"] == xray_json._DNS
 
 
-def test_lean_build_drops_only_our_extra_weight():
-    """What is left to explain: twelve outbounds against a working
-    subscription's five, and a socket option they never set."""
-    config = _lean(("h1", "h2"))
-    assert "sockopt" not in json.dumps(config)
-    assert "geoip:ru" in json.dumps(config), "the country split has to survive the cut"
+def test_no_client_config_sets_keepalive():
+    """Added in July against a carrier reclaiming idle mappings, and it looks to
+    have caused the thing it was meant to fix: every entry — single servers
+    included, where there is no balancer and no probes to blame — stopped after
+    ~20 minutes and came back on toggling the VPN. A build without it ran past
+    that mark on the same phone."""
+    for config in (_balancer(), _lean(("h1", "h2")),
+                   xray_json.build_server_config(REALITY, 0)):
+        assert "sockopt" not in json.dumps(config)
+
+
+def test_keepalive_can_be_put_back():
+    """The July symptom was real; if it returns this goes back first."""
+    import importlib
+    import os as _os
+    _os.environ["CLIENT_KEEPALIVE"] = "1"
+    try:
+        reloaded = importlib.reload(xray_json)
+        assert "tcpKeepAliveIdle" in json.dumps(reloaded.build_server_config(REALITY, 0))
+    finally:
+        del _os.environ["CLIENT_KEEPALIVE"]
+        importlib.reload(xray_json)
 
 
 def test_lean_build_keeps_one_entry_per_exit():
@@ -508,10 +524,10 @@ def test_lean_build_keeps_one_entry_per_exit():
 def test_lean_entry_sits_second_so_the_normal_one_stays_default():
     configs = xray_json.build_json_subscription([REALITY, TROJAN])
     assert configs[0]["remarks"] == "⚡️ Авто-обход"
-    assert configs[1]["remarks"] == "⚡️ Авто-обход · тест"
+    assert configs[1]["remarks"] == "⚡️ Авто-обход · лёгкий"
 
 
 def test_lean_entry_can_be_withdrawn(monkeypatch):
     monkeypatch.setattr(xray_json, "LEAN_IN_SUB", False)
     remarks = [c["remarks"] for c in xray_json.build_json_subscription([REALITY])]
-    assert "⚡️ Авто-обход · тест" not in remarks
+    assert "⚡️ Авто-обход · лёгкий" not in remarks
