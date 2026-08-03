@@ -167,14 +167,48 @@ def judge(previous: dict, ok: bool, reason: str = "") -> tuple[str, dict]:
     return "", state
 
 
+async def _egress_address() -> str:
+    """The address ФНС would see us from. Best-effort — never raises."""
+    try:
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get("https://api.ipify.org") as response:
+                return (await response.text()).strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def describe(exc: Exception, egress: str) -> str:
+    """Plain wording for the alert, and the one fact that usually explains it.
+
+    ФНС refuses foreign addresses, so on a machine that is often behind a VPN
+    the honest first suspicion is the exit country — a raw ClientConnectorDNSError
+    tells the owner nothing they can act on. Our own tunnel sends .ru straight
+    out of the device and is therefore fine; someone else's is not.
+    """
+    kind = type(exc).__name__
+    if "DNS" in kind or "Resolve" in kind:
+        text = "Не удалось определить адрес ФНС."
+    elif isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        text = "ФНС не отвечает."
+    else:
+        text = f"{kind}: {exc}"
+    if egress:
+        text += (
+            f"\nВнешний адрес сейчас: <code>{egress}</code>. Если он не российский, "
+            "ФНС и не ответит — она отклоняет зарубежные адреса. Наш VPN пускает "
+            "<code>.ru</code> напрямую и не мешает; чужой — мешает."
+        )
+    return text
+
+
 async def _prove_connection() -> None:
     """Authenticate against ФНС even with nothing to issue.
 
     Cheap, and it turns "we will find out at the next sale" into "we know
     within the hour" — the token is the part that expires silently.
     """
-    timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with moynalog.make_session() as session:
         await moynalog._ensure_token(session)
 
 
@@ -191,8 +225,8 @@ async def main() -> int:
         if done == 0:
             await _prove_connection()
     except Exception as exc:
-        failure = f"{type(exc).__name__}: {exc}"
-        logger.error("run failed: %s", failure)
+        failure = describe(exc, await _egress_address())
+        logger.error("run failed: %s (%s)", type(exc).__name__, exc)
 
     message, state = judge(load_health(), ok=not failure, reason=failure)
     save_health(state)

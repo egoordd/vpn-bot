@@ -36,6 +36,106 @@ class MoyNalogError(RuntimeError):
     pass
 
 
+# ФНС's host is not resolvable through every public resolver: Cloudflare returns
+# no answer for it at all, while Yandex and Google return two. That is not a
+# curiosity — this job runs on a laptop that is often behind a VPN, and a VPN
+# that hands the machine 1.1.1.1 silently takes the tax service off the map.
+# Measured 2026-08-03, when three runs in a row failed with a DNS error while
+# the machine sat on a foreign tunnel using Cloudflare.
+#
+# So the host is resolved here, against a resolver known to answer for it,
+# instead of depending on whatever the machine currently has. The system
+# resolver stays as the fallback.
+_RU_RESOLVER = "77.88.8.8"
+_RESOLVER_TIMEOUT = 5.0
+
+
+def _query_a_record(name: str, server: str, timeout: float) -> list[str]:
+    """Minimal A-record lookup — stdlib only, no new dependency for one host."""
+    import random
+    import socket
+    import struct
+
+    query = struct.pack(">HHHHHH", random.randint(0, 0xFFFF), 0x0100, 1, 0, 0, 0)
+    for label in name.rstrip(".").split("."):
+        query += bytes([len(label)]) + label.encode("ascii")
+    query += b"\x00" + struct.pack(">HH", 1, 1)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(timeout)
+    try:
+        sock.sendto(query, (server, 53))
+        data, _ = sock.recvfrom(2048)
+    finally:
+        sock.close()
+
+    answer_count = struct.unpack(">H", data[6:8])[0]
+    offset = 12
+    while data[offset] != 0:  # skip the echoed question
+        offset += data[offset] + 1
+    offset += 5
+    addresses: list[str] = []
+    for _ in range(answer_count):
+        if data[offset] & 0xC0 == 0xC0:
+            offset += 2
+        else:
+            while data[offset] != 0:
+                offset += data[offset] + 1
+            offset += 1
+        rtype, _, _, length = struct.unpack(">HHIH", data[offset:offset + 10])
+        offset += 10
+        if rtype == 1 and length == 4:
+            addresses.append(".".join(str(b) for b in data[offset:offset + 4]))
+        offset += length
+    return addresses
+
+
+class _RussianResolver(aiohttp.abc.AbstractResolver):
+    """Resolves through a Russian nameserver, falling back to the system one."""
+
+    async def resolve(self, host: str, port: int = 0, family: int = 0) -> list[dict]:
+        import socket
+
+        loop = asyncio.get_running_loop()
+        try:
+            addresses = await loop.run_in_executor(
+                None, _query_a_record, host, _RU_RESOLVER, _RESOLVER_TIMEOUT
+            )
+        except Exception as exc:
+            logger.warning("russian resolver failed for %s: %s", host, exc)
+            addresses = []
+        if addresses:
+            return [
+                {
+                    "hostname": host,
+                    "host": address,
+                    "port": port,
+                    "family": socket.AF_INET,
+                    "proto": 0,
+                    "flags": socket.AI_NUMERICHOST,
+                }
+                for address in addresses
+            ]
+        infos = await loop.getaddrinfo(host, port, family=socket.AF_INET,
+                                       type=socket.SOCK_STREAM)
+        return [
+            {"hostname": host, "host": sockaddr[0], "port": sockaddr[1],
+             "family": fam, "proto": proto, "flags": socket.AI_NUMERICHOST}
+            for fam, _, proto, _, sockaddr in infos
+        ]
+
+    async def close(self) -> None:
+        return None
+
+
+def make_session(timeout_seconds: float = 30.0) -> aiohttp.ClientSession:
+    """Session that can reach ФНС regardless of the machine's own resolver."""
+    return aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=timeout_seconds),
+        connector=aiohttp.TCPConnector(resolver=_RussianResolver()),
+    )
+
+
 def is_configured() -> bool:
     if not settings.MOYNALOG_INN.strip():
         return False
@@ -146,8 +246,7 @@ async def create_income(amount_kopecks: int, name: str | None = None) -> str:
         "paymentType": "CASH",
         "ignoreMaxTotalIncomeRestriction": False,
     }
-    timeout = aiohttp.ClientTimeout(total=20)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with make_session(20) as session:
         token = await _ensure_token(session)
         try:
             data = await _request(session, "POST", "/income", token=token, json=body)

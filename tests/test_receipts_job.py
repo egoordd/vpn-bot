@@ -144,3 +144,33 @@ def test_success_is_silent_when_nothing_was_broken():
 def test_a_recovered_run_resets_the_streak():
     _, state = receipts_job.judge({"failures": 2, "alerted": False}, ok=True)
     assert state["failures"] == 0
+
+
+# --- saying something the owner can act on -------------------------------------
+
+def test_a_timeout_names_the_likely_cause():
+    """ФНС refuses foreign addresses, and this runs on a laptop that is often
+    behind a VPN — so the exit address is the first thing worth showing."""
+    text = receipts_job.describe(TimeoutError(), "31.76.106.40")
+    assert "ФНС не отвечает" in text
+    assert "31.76.106.40" in text
+    assert ".ru" in text
+
+
+def test_a_resolution_failure_is_said_in_plain_words():
+    class ClientConnectorDNSError(Exception):
+        pass
+
+    text = receipts_job.describe(ClientConnectorDNSError("boom"), "")
+    assert "адрес ФНС" in text
+    assert "ClientConnectorDNSError" not in text
+
+
+def test_an_unknown_failure_keeps_its_detail():
+    """Anything unrecognised must not be smoothed into uselessness."""
+    text = receipts_job.describe(ValueError("ledger is corrupt"), "")
+    assert "ValueError" in text and "ledger is corrupt" in text
+
+
+def test_the_egress_hint_is_skipped_when_unknown():
+    assert "Внешний адрес" not in receipts_job.describe(TimeoutError(), "")
