@@ -610,15 +610,24 @@ def _health_check(strategy: str) -> tuple[dict, dict]:
 
 
 def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict | None:
-    """A single config that balances across every server, healthiest first.
+    """The one automatic entry: balances over one server per exit, healthiest first.
 
     A health prober samples each `proxy-*` outbound continuously; the balancer
     routes each connection through a server that is currently fast, and demotes
     one that dies *or merely gets slow* (see _MAX_RTT) without the user
-    touching anything. None when no xray-core outbound could be built.
+    touching anything. None when no outbound could be built.
+
+    It deliberately balances over a handful of servers rather than every entry
+    we publish. Twelve of them stopped working after about twenty minutes on a
+    real phone — twice, once with keepalive and once without — while the same
+    routing over five ran clean at full speed. A probe round dials every
+    outbound, so twelve means twelve tunnel setups a minute, forever, and a
+    carrier gives one subscriber a limited number of NAT mappings; the count is
+    what the evidence points at. Every server stays individually pickable
+    below, so nothing is lost but the churn.
     """
     outbounds: list[dict] = []
-    for uri in uris:
+    for uri in _balancer_selection(uris):
         outbound = build_outbound(uri, f"proxy-{len(outbounds)}")
         if outbound is not None:
             outbounds.append(outbound)
@@ -639,13 +648,11 @@ def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict 
     }
 
 
-LEAN_REMARKS = "⚡️ Авто-обход · лёгкий"
-LEAN_IN_SUB = os.environ.get("LEAN_IN_SUB", "1").lower() not in ("0", "false", "no", "")
-# One per exit plus a UDP one — the competitor's five, against our twelve.
-LEAN_MAX_OUTBOUNDS = int(os.environ.get("LEAN_MAX_OUTBOUNDS", "5"))
+# One per exit plus a UDP one. Measured, not guessed: see build_balancer_config.
+BALANCER_MAX_OUTBOUNDS = int(os.environ.get("BALANCER_MAX_OUTBOUNDS", "5"))
 
 
-def _lean_selection(uris: list[str]) -> list[str]:
+def _balancer_selection(uris: list[str]) -> list[str]:
     """One entry per exit, plus the first Hysteria2, in that order.
 
     Twelve outbounds means the health prober opens twelve tunnels a minute,
@@ -670,41 +677,7 @@ def _lean_selection(uris: list[str]) -> list[str]:
         chosen.append(uri)
     if hysteria:
         chosen.append(hysteria)
-    return chosen[:LEAN_MAX_OUTBOUNDS]
-
-
-def build_lean_config(uris: list[str], remarks: str = LEAN_REMARKS) -> dict | None:
-    """One entry per exit instead of all twelve — the build that ran clean.
-
-    This is what the owner was on when the twenty-minute fault finally did not
-    happen: full routing, no keepalive, and a short outbound list. Keepalive is
-    now off everywhere, which leaves the outbound count as the only thing that
-    still separates this from «Авто-обход» — so it stays in the subscription as
-    a known-good fallback rather than an experiment. If the ordinary entry
-    misbehaves again, this one is a single tap away and the count is the answer.
-    """
-    outbounds: list[dict] = []
-    for uri in _lean_selection(uris):
-        outbound = build_outbound(uri, f"proxy-{len(outbounds)}")
-        if outbound is None:
-            continue
-        outbound.get("streamSettings", {}).pop("sockopt", None)
-        outbounds.append(outbound)
-    if not outbounds:
-        return None
-    strategy, prober = _health_check(BALANCER_STRATEGY)
-    return {
-        "remarks": remarks,
-        "log": {"loglevel": "warning"},
-        "dns": _DNS,
-        "inbounds": _INBOUNDS,
-        "outbounds": [*outbounds, *_tail_outbounds()],
-        "routing": {
-            **_split_routing({"type": "field", "network": "tcp,udp", "balancerTag": "auto"}),
-            "balancers": [{"tag": "auto", "selector": ["proxy-"], "strategy": strategy}],
-        },
-        **prober,
-    }
+    return chosen[:BALANCER_MAX_OUTBOUNDS]
 
 
 def build_json_subscription(links: list[str]) -> list[dict]:
@@ -724,10 +697,6 @@ def build_json_subscription(links: list[str]) -> list[dict]:
     if balancer is None:
         return []
     configs = [balancer]
-    if LEAN_IN_SUB:
-        lean = build_lean_config(links)
-        if lean is not None:
-            configs.append(lean)
     for index, uri in enumerate(links):
         server = build_server_config(uri, index)
         if server is not None:

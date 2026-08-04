@@ -123,7 +123,7 @@ def test_build_json_subscription_balancer_first_then_servers():
     # objects only, but Hysteria2 is now one of those objects; the control build
     # rides second while the 20-minute question is open
     assert [c["remarks"] for c in configs] == [
-        "⚡️ Авто-обход", "⚡️ Авто-обход · лёгкий", "🇺🇸 США", "US-Hy2", "🇵🇱 Trojan",
+        "⚡️ Авто-обход", "🇺🇸 США", "US-Hy2", "🇵🇱 Trojan",
     ]
 
 
@@ -464,20 +464,12 @@ def test_probes_do_not_dial_every_node_at_once():
 
 # --- the control build -------------------------------------------------------
 
-def _lean(hosts=("h1", "h2")):
-    uris = [
-        f"vless://uuid@{h}:2096?security=reality&type=tcp&sni={h}&pbk=PBK&sid=SID#{h}"
-        for h in hosts
-    ]
-    return xray_json.build_lean_config(uris)
-
-
-def test_lean_build_keeps_the_dns_hijack():
+def test_the_dns_hijack_stays():
     """Tried without it and measured the answer: YouTube, Google, Spotify and
     SoundCloud stopped loading outright, because the carrier's resolver hands
     back the Russian cache addresses those services keep inside RU ISPs and the
     tunnel then dials them from abroad. Load-bearing — it stays."""
-    config = _lean()
+    config = _balancer()
     hijack = next(r for r in config["routing"]["rules"] if str(r.get("port")) == "53")
     assert hijack["outboundTag"] == "dns-out"
     assert "dns-out" in [o["tag"] for o in config["outbounds"]]
@@ -490,8 +482,7 @@ def test_no_client_config_sets_keepalive():
     included, where there is no balancer and no probes to blame — stopped after
     ~20 minutes and came back on toggling the VPN. A build without it ran past
     that mark on the same phone."""
-    for config in (_balancer(), _lean(("h1", "h2")),
-                   xray_json.build_server_config(REALITY, 0)):
+    for config in (_balancer(), xray_json.build_server_config(REALITY, 0)):
         assert "sockopt" not in json.dumps(config)
 
 
@@ -508,7 +499,7 @@ def test_keepalive_can_be_put_back():
         importlib.reload(xray_json)
 
 
-def test_lean_build_keeps_one_entry_per_exit():
+def test_the_balancer_takes_one_entry_per_exit():
     uris = [
         "vless://u@relay:2091?security=reality&sni=relay&pbk=P&sid=S#pl-cascade",
         "vless://u@relay:2096?security=reality&sni=relay&pbk=P&sid=S#de-cascade",
@@ -517,17 +508,13 @@ def test_lean_build_keeps_one_entry_per_exit():
         "vless://u@de:2096?security=reality&sni=de&pbk=P&sid=S#de",
         "hysteria2://pw@pl:443?sni=pl#pl-hy2",
     ]
-    picked = xray_json._lean_selection(uris)
+    picked = xray_json._balancer_selection(uris)
     assert picked == [uris[0], uris[2], uris[4], uris[5]], "one per host, Hysteria last"
 
 
-def test_lean_entry_sits_second_so_the_normal_one_stays_default():
+def test_there_is_exactly_one_automatic_entry():
+    """One working entry, no variants and no suffixes — a user picking between
+    two «Авто-обход»es is a product that has not decided what it is."""
     configs = xray_json.build_json_subscription([REALITY, TROJAN])
-    assert configs[0]["remarks"] == "⚡️ Авто-обход"
-    assert configs[1]["remarks"] == "⚡️ Авто-обход · лёгкий"
-
-
-def test_lean_entry_can_be_withdrawn(monkeypatch):
-    monkeypatch.setattr(xray_json, "LEAN_IN_SUB", False)
-    remarks = [c["remarks"] for c in xray_json.build_json_subscription([REALITY])]
-    assert "⚡️ Авто-обход · лёгкий" not in remarks
+    automatic = [c for c in configs if "Авто-обход" in c["remarks"]]
+    assert [c["remarks"] for c in automatic] == ["⚡️ Авто-обход"]
