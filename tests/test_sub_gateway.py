@@ -693,3 +693,21 @@ def test_app_headers_are_latin1_so_they_survive_as_http():
     for key, value in sub_gateway.APP_HEADERS.items():
         key.encode("latin-1")
         value.encode("latin-1")
+
+
+def test_served_subscriptions_are_logged_without_leaking_the_token(capsys):
+    """Two questions in a row about what a user actually received could not be
+    answered because nothing recorded it. The client string is the deciding
+    fact — it is what selects the JSON body over the plain list."""
+    body = json.dumps([{"remarks": "⚡️ Авто-обход"}, {"remarks": "🇵🇱 Польша"}])
+    sub_gateway._log_served("abcdefghijklmnop", "Happ/2.16.2/macOS", "json", body)
+    line = capsys.readouterr().out
+    assert "abcdefgh" in line
+    assert "ijklmnop" not in line, "the token is a credential"
+    assert "flavor=json" in line and "entries=2" in line
+    assert "Happ/2.16.2/macOS" in line
+
+
+def test_logging_survives_a_body_it_cannot_count(capsys):
+    sub_gateway._log_served("tok", "curl/8", "base64", "!!not base64!!")
+    assert "entries=-1" in capsys.readouterr().out

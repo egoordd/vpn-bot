@@ -509,6 +509,33 @@ def combine_links(decoded: str) -> list[str]:
     return combined
 
 
+def _log_served(token: str, user_agent: str, flavor: str, body: str) -> None:
+    """One line per subscription handed out: who asked, and what they got.
+
+    Twice now a question about what a user is actually seeing — «where did
+    «Авто-обход» go», «why are these duplicated» — could not be answered because
+    nothing records it. The client string is the deciding fact: it is what
+    selects the JSON body over the plain list, and a client we fail to
+    recognise silently receives a subscription with no automatic entry at all.
+
+    The token identifies a paying account, so only its head is written; enough
+    to correlate two requests, not enough to replay one.
+    """
+    try:
+        if flavor == "json":
+            count = len(json.loads(body))
+        else:
+            count = len([l for l in base64.b64decode(body + "===").decode(
+                "utf-8", "replace").splitlines() if "://" in l])
+    except Exception:  # noqa: BLE001
+        count = -1
+    print(
+        f"served token={token[:8]}… flavor={flavor} entries={count} "
+        f"client={(user_agent or '(none)')[:60]!r}",
+        flush=True,
+    )
+
+
 def _cascade_link(port: int, remark: str) -> str:
     """One standalone 🇷🇺→<country> cascade entry: VLESS Reality to the Moscow
     relay's per-country inbound (its keypair, VLESS/TCP only). The relay does the
@@ -714,6 +741,7 @@ class Handler(BaseHTTPRequestHandler):
             if userinfo:
                 extra["subscription-userinfo"] = userinfo
             ctype = "application/json; charset=utf-8" if is_json else "text/plain; charset=utf-8"
+            _log_served(token, ua, "json" if is_json else "base64", body)
             self._send(200, body.encode("utf-8"), ctype, extra)
             return
 
@@ -725,6 +753,7 @@ class Handler(BaseHTTPRequestHandler):
         extra = _client_headers()
         if userinfo:
             extra["subscription-userinfo"] = userinfo
+        _log_served(token, ua, "base64", payload)
         self._send(200, payload.encode("ascii"), "text/plain; charset=utf-8", extra)
 
     def _send(self, code: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
