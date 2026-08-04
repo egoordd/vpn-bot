@@ -659,6 +659,14 @@ def _balancer_selection(uris: list[str]) -> list[str]:
     every minute — two hundred and forty over the twenty minutes it takes for
     this fault to appear. Whether or not that is the cause, it is a difference
     against a subscription that does not fail, so it has to be removable.
+
+    One per *host* on purpose, not one per entry: it leaves the balancer a
+    genuinely independent path to each exit, so no single machine failing takes
+    more than one candidate with it. The cost is that the cascades all share the
+    Moscow relay and only the first survives — so the caller's ordering decides
+    which country the automatic entry cascades to, and it must be fastest-first.
+    Ordering it Poland-first cost a third of the throughput and was reported as
+    "yesterday it was perfect, today it lags".
     """
     chosen: list[str] = []
     seen_hosts: set[str] = set()

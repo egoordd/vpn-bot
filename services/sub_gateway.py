@@ -207,9 +207,15 @@ CASCADE_SID = os.environ.get("CASCADE_SID", "9a5e913a359a98a8")
 # inbounds. These are the split-routing entries where RU sites/apps still work
 # (RU traffic exits locally), so the label is the exit flag + a «РУ сервисы ✅»
 # marker rather than the old «каскад» wording. Closest-first.
+# Fastest first, and that ordering is load-bearing: «Авто-обход» takes one
+# entry per host, every cascade shares the relay, so whichever sits first here
+# is the cascade the balancer gets. Ordered by measurement from Moscow on
+# 2026-08-04 — Frankfurt 114 Mbit/s against Warsaw's 75. Putting Poland first
+# cost the automatic entry a third of its speed and was reported as "yesterday
+# it was perfect, today it lags".
 CASCADE_COUNTRIES = (
-    (2091, "🇵🇱 Польша ✅ РУ сервисы"),
     (2096, "🇩🇪 Германия ✅ РУ сервисы"),
+    (2091, "🇵🇱 Польша ✅ РУ сервисы"),
     # 🇳🇱 restored 2026-07-28 at the owner's call: it works from their vantage
     # point, which counts for more than one test line. Note it still measured
     # 1-3/10 from a Novosibirsk MTS line the same day, so if the silent

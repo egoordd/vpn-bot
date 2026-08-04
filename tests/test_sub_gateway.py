@@ -711,3 +711,12 @@ def test_served_subscriptions_are_logged_without_leaking_the_token(capsys):
 def test_logging_survives_a_body_it_cannot_count(capsys):
     sub_gateway._log_served("tok", "curl/8", "base64", "!!not base64!!")
     assert "entries=-1" in capsys.readouterr().out
+
+
+def test_the_fastest_cascade_comes_first():
+    """«Авто-обход» takes one entry per host and every cascade shares the relay,
+    so whichever is listed first is the one the balancer gets. Measured from
+    Moscow 2026-08-04: Frankfurt 114 Mbit/s, Warsaw 75."""
+    first_port, first_label = sub_gateway.CASCADE_COUNTRIES[0]
+    assert "Германия" in first_label, "the fastest exit must lead the list"
+    assert first_port == 2096
