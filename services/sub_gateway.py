@@ -213,9 +213,12 @@ CASCADE_SID = os.environ.get("CASCADE_SID", "9a5e913a359a98a8")
 # 2026-08-04 — Frankfurt 114 Mbit/s against Warsaw's 75. Putting Poland first
 # cost the automatic entry a third of its speed and was reported as "yesterday
 # it was perfect, today it lags".
+# (relay port, label, the exit it terminates on). The exit matters: a cascade
+# is a tunnel to the relay *and onward*, so it is only as alive as the node it
+# hands traffic to — see build_cascade_links.
 CASCADE_COUNTRIES = (
-    (2096, "🇩🇪 Германия ✅ РУ сервисы"),
-    (2091, "🇵🇱 Польша ✅ РУ сервисы"),
+    (2096, "🇩🇪 Германия ✅ РУ сервисы", "166.0.28.132.sslip.io"),
+    (2091, "🇵🇱 Польша ✅ РУ сервисы", "78.17.154.225.sslip.io"),
     # 🇳🇱 restored 2026-07-28 at the owner's call: it works from their vantage
     # point, which counts for more than one test line. Note it still measured
     # 1-3/10 from a Novosibirsk MTS line the same day, so if the silent
@@ -226,7 +229,7 @@ CASCADE_COUNTRIES = (
     # the same seconds fine — that rotation is what users experienced as
     # "worked, then stopped". It answers TCP and TLS from both continents, so
     # nothing short of real traffic from Russia catches it.
-    (2093, "🇺🇸 США ✅ РУ сервисы"),
+    (2093, "🇺🇸 США ✅ РУ сервисы", "144.172.101.217.sslip.io"),
 )
 
 # The gateway calls our own Marzban panel (same host in prod), so TLS
@@ -561,10 +564,22 @@ def build_cascade_links(links: list[str]) -> list[str]:
     Emitted only when enabled and the user already has at least one live link
     (resolve_links has already blanked expired subs), so a lapsed account never
     receives the shared-secret cascade here. All entries share the relay host, so
-    reorder_by_proximity groups them first, in CASCADE_COUNTRIES order."""
+    reorder_by_proximity groups them first, in CASCADE_COUNTRIES order.
+
+    A cascade whose exit is down is left out. Health is tracked per host, and
+    every cascade lives on the relay — so when Frankfurt went dark on
+    2026-08-06 its direct entries were pruned correctly while «🇩🇪 Германия ✅
+    РУ сервисы» stayed, first in the list and first in «Авто-обход», pointing
+    at a machine that was switched off. The relay being up says nothing about
+    where it forwards to."""
     if not CASCADE_ENABLED or not links:
         return []
-    return [_cascade_link(port, remark) for port, remark in CASCADE_COUNTRIES]
+    dead = _probed_dead_hosts()
+    return [
+        _cascade_link(port, remark)
+        for port, remark, exit_host in CASCADE_COUNTRIES
+        if exit_host not in dead
+    ]
 
 
 # RU-audience proximity order: the app's default/top server should be the

@@ -455,7 +455,7 @@ def _de_reality(uuid: str = "uuid", port: int = 2096) -> str:
 
 
 def test_cascade_link_targets_the_moscow_relay_reality():
-    port, remark = sub_gateway.CASCADE_COUNTRIES[0]
+    port, remark, _ = sub_gateway.CASCADE_COUNTRIES[0]
     link = sub_gateway._cascade_link(port, remark)
     # VLESS/TCP to the relay's own Reality identity (no UDP/Hy2 twin)
     assert link.startswith(f"vless://{sub_gateway.CASCADE_UUID}@{sub_gateway.RU_RELAY_HOST}:{port}")
@@ -471,7 +471,7 @@ def test_build_cascade_links_adds_one_entry_per_country():
     assert len(cascade) == len(sub_gateway.CASCADE_COUNTRIES)
     assert all(sub_gateway._uri_host(c) == sub_gateway.RU_RELAY_HOST for c in cascade)
     ports = [sub_gateway._uri_endpoint(c)[1] for c in cascade]
-    assert ports == [p for p, _ in sub_gateway.CASCADE_COUNTRIES]
+    assert ports == [p for p, _, _ in sub_gateway.CASCADE_COUNTRIES]
 
 
 def test_build_cascade_links_empty_for_blank_sub():
@@ -717,6 +717,34 @@ def test_the_fastest_cascade_comes_first():
     """«Авто-обход» takes one entry per host and every cascade shares the relay,
     so whichever is listed first is the one the balancer gets. Measured from
     Moscow 2026-08-04: Frankfurt 114 Mbit/s, Warsaw 75."""
-    first_port, first_label = sub_gateway.CASCADE_COUNTRIES[0]
+    first_port, first_label, _ = sub_gateway.CASCADE_COUNTRIES[0]
     assert "Германия" in first_label, "the fastest exit must lead the list"
     assert first_port == 2096
+
+
+# --- a cascade is only as alive as the exit it hands traffic to ----------------
+
+def test_cascade_is_dropped_when_its_exit_is_down(monkeypatch):
+    """Health is tracked per host and every cascade lives on the relay, so when
+    Frankfurt was switched off on 2026-08-06 its direct entries were pruned
+    correctly while «🇩🇪 Германия ✅ РУ сервисы» stayed — first in the list and
+    first in «Авто-обход», pointing at a machine that was off."""
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {"166.0.28.132.sslip.io"})
+    import urllib.parse
+    links = sub_gateway.build_cascade_links(["vless://u@h:443#x"])
+    joined = urllib.parse.unquote(" ".join(links))
+    assert "Германия" not in joined
+    assert "Польша" in joined and "США" in joined
+
+
+def test_every_cascade_survives_when_all_exits_are_up(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", set)
+    links = sub_gateway.build_cascade_links(["vless://u@h:443#x"])
+    assert len(links) == len(sub_gateway.CASCADE_COUNTRIES)
+
+
+def test_each_cascade_declares_where_it_terminates():
+    """The port alone cannot be checked against anything; the exit host can."""
+    for port, label, exit_host in sub_gateway.CASCADE_COUNTRIES:
+        assert isinstance(port, int)
+        assert exit_host in sub_gateway.NODES, f"{label} points at an unknown exit"
