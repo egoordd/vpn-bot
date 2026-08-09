@@ -1,0 +1,171 @@
+.dl {
+  padding: clamp(2rem, 1.5rem + 2vw, 3.5rem) 0 var(--space-section);
+}
+
+.dl__inner {
+  max-width: 46rem;
+  display: grid;
+  gap: clamp(1.75rem, 1.2rem + 2vw, 2.75rem);
+}
+
+.dl__back {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  justify-self: start;
+}
+
+.dl__back:hover {
+  color: var(--text);
+}
+
+.dl__head {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.dl__title {
+  font-size: var(--text-3xl);
+  line-height: 1.1;
+}
+
+.dl__lead {
+  color: var(--text-muted);
+  max-width: 54ch;
+}
+
+/* --- the counterfeit warning: the one thing that must not be skimmed past --- */
+
+.dl__warn {
+  border: 1px solid var(--border-strong);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: clamp(1.1rem, 0.85rem + 1.2vw, 1.6rem);
+  display: grid;
+  gap: 0.7rem;
+}
+
+.dl__warn-title {
+  font-size: var(--text-lg);
+  line-height: 1.25;
+}
+
+.dl__warn-check {
+  border-top: 1px solid var(--border);
+  padding-top: 0.7rem;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* --- one block per platform --- */
+
+.dl__plat {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: clamp(1.25rem, 1rem + 1vw, 1.75rem);
+  border-top: 1px solid var(--border);
+}
+
+.dl__plat-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: var(--text-xl);
+}
+
+.dl__plat-icon {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.dl__plat-note {
+  color: var(--text-muted);
+  max-width: 56ch;
+}
+
+.dl__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.dl__btn {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 0.5rem 1.05rem;
+  font-size: var(--text-sm);
+  text-decoration: none;
+  color: var(--text);
+  background: var(--surface);
+  transition:
+    background var(--duration-fast) var(--ease-out-expo),
+    transform var(--duration-fast) var(--ease-out-expo);
+}
+
+.dl__btn:hover {
+  background: var(--hover-wash);
+  transform: translateY(-1px);
+}
+
+.dl__btn:active {
+  transform: none;
+}
+
+.dl__btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.dl__btn--primary:hover {
+  background: var(--accent-strong);
+}
+
+.dl__hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  max-width: 60ch;
+}
+
+/* iPhone is the awkward one and the layout should say so before the text does. */
+
+.dl__plat--hard {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(1.1rem, 0.85rem + 1.2vw, 1.6rem);
+}
+
+.dl__case {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.9rem 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.dl__case h3 {
+  font-size: var(--text-base);
+}
+
+.dl__next {
+  display: grid;
+  gap: 0.7rem;
+  padding-top: clamp(1.25rem, 1rem + 1vw, 1.75rem);
+  border-top: 1px solid var(--border);
+}
+
+.dl__next h2 {
+  font-size: var(--text-lg);
+}
+
+.dl__foot {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.dl a {
+  color: inherit;
+}

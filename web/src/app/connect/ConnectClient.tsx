@@ -21,6 +21,8 @@ interface AppEntry {
   recommended?: boolean;
   scheme: (url: string) => string;
   store: Partial<Record<Platform, string>>;
+  /** Where a single store link will not do — see /download. */
+  guide?: boolean;
 }
 
 // Per-platform catalog. Order = recommendation order for that platform.
@@ -31,13 +33,10 @@ const CATALOG: Record<Platform, AppEntry[]> = {
       note: "проще всего",
       recommended: true,
       scheme: (u) => `happ://add/${u}`,
-      store: { ios: "https://apps.apple.com/app/happ-proxy-utility/id6504287215" },
-    },
-    {
-      name: "V2RayTun",
-      note: "популярный",
-      scheme: (u) => `v2raytun://import/${u}`,
-      store: { ios: "https://apps.apple.com/app/v2raytun/id6476628951" },
+      // No single link works here: the app is not in the Russian App Store and
+      // the route depends on the account's country.
+      store: { ios: "/download" },
+      guide: true,
     },
     {
       name: "Streisand",
@@ -88,7 +87,8 @@ const CATALOG: Record<Platform, AppEntry[]> = {
       note: "проще всего",
       recommended: true,
       scheme: (u) => `happ://add/${u}`,
-      store: { macos: "https://apps.apple.com/app/happ-proxy-utility/id6504287215" },
+      store: { macos: "/download" },
+      guide: true,
     },
     {
       name: "Streisand",
@@ -197,7 +197,11 @@ export function ConnectClient() {
             <span className="connectp__step-num">1</span>
             <h2>Установите приложение</h2>
           </div>
-          <p>Выберите одно из приложений ниже — рекомендованное отмечено.</p>
+          <p>
+            Выберите одно из приложений ниже — рекомендованное отмечено. Happ пропал из
+            российского App Store, а в поиске вместо него подделки:{" "}
+            <a href="/download">где скачать настоящий</a>.
+          </p>
         </li>
 
         <li className="connectp__step">
@@ -225,10 +229,9 @@ export function ConnectClient() {
                     <a
                       className="connectp__app-store"
                       href={app.store[platform]}
-                      target="_blank"
-                      rel="noreferrer"
+                      {...(app.guide ? {} : { target: "_blank", rel: "noreferrer" })}
                     >
-                      Установить
+                      {app.guide ? "Как установить" : "Установить"}
                     </a>
                   )}
                   {activeSub && (

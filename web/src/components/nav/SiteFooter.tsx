@@ -16,6 +16,7 @@ const COLUMNS = [
     title: "Поддержка",
     links: [
       { href: "#faq", label: "Частые вопросы" },
+      { href: "/download", label: "Как установить Happ" },
       { href: botLink(), label: "Написать в бота" },
       { href: `mailto:${SITE.supportEmail}`, label: "Почта поддержки" },
     ],
