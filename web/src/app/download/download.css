@@ -150,6 +150,25 @@
   font-size: var(--text-base);
 }
 
+/* Numbered steps for the App Store region change — the only real procedure on
+   the page, so it gets structure rather than another paragraph. */
+.dl__list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1.35rem;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.dl__list li {
+  padding-left: 0.2rem;
+}
+
+.dl__list b {
+  color: var(--text);
+}
+
 .dl__next {
   display: grid;
   gap: 0.7rem;
