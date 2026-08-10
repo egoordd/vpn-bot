@@ -12,6 +12,7 @@ const ITEMS = [
   {
     q: "Сложно настраивать?",
     a: "Нет. Нужно одно бесплатное приложение — бот подскажет какое и поможет. Вы добавляете одну ссылку, дальше всё работает само.",
+    link: { href: "/download", label: "Где скачать приложение" },
   },
   {
     q: "Как оплатить подписку?",
@@ -43,7 +44,17 @@ export function Faq() {
                 <span>{item.q}</span>
                 <span className="faq__icon" aria-hidden />
               </summary>
-              <p className="faq__a">{item.a}</p>
+              <p className="faq__a">
+                {item.a}
+                {"link" in item && item.link && (
+                  <>
+                    {" "}
+                    <a className="faq__link" href={item.link.href}>
+                      {item.link.label}
+                    </a>
+                  </>
+                )}
+              </p>
             </details>
           ))}
         </div>

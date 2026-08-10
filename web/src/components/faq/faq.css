@@ -92,3 +92,15 @@
     grid-template-columns: 0.7fr 1.3fr;
   }
 }
+
+/* Some answers point at a page that carries the real procedure. */
+.faq__link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  white-space: nowrap;
+}
+
+.faq__link:hover {
+  text-decoration-thickness: 2px;
+}
