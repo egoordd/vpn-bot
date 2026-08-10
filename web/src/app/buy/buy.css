@@ -114,3 +114,28 @@
   font-size: 0.78rem;
   opacity: 0.6;
 }
+
+/* Switch between "new here" and "topping up what I already have". Plain text
+   button on purpose: it is a change of intent, not a second call to action
+   competing with the pay button. */
+.buy__switch {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.buy__switch:hover {
+  color: var(--text);
+}
+
+.buy__switch-note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}

@@ -15,9 +15,9 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
  * bearer token — the browser never sees it.
  */
 export async function POST(request: Request) {
-  let body: { plan?: unknown; email?: unknown };
+  let body: { plan?: unknown; email?: unknown; subscription?: unknown };
   try {
-    body = (await request.json()) as { plan?: unknown; email?: unknown };
+    body = (await request.json()) as { plan?: unknown; email?: unknown; subscription?: unknown };
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
@@ -31,7 +31,12 @@ export async function POST(request: Request) {
   const email =
     typeof body.email === "string" && body.email.trim() ? body.email.trim().toLowerCase() : undefined;
 
-  if (!telegramId && !email) {
+  const subscription =
+    typeof body.subscription === "string" && body.subscription.trim()
+      ? body.subscription.trim().slice(0, 512)
+      : undefined;
+
+  if (!telegramId && !email && !subscription) {
     return NextResponse.json({ error: "identity_required" }, { status: 400 });
   }
   if (email && (!EMAIL_RE.test(email) || email.length > 320)) {
@@ -41,7 +46,7 @@ export async function POST(request: Request) {
   const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
 
   try {
-    const result = await createWebCheckout({ plan, telegramId, email, clientIp });
+    const result = await createWebCheckout({ plan, telegramId, email, subscription, clientIp });
     return NextResponse.json(result);
   } catch (error: unknown) {
     if (error instanceof CheckoutError) {

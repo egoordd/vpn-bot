@@ -191,6 +191,21 @@ class Repository:
     async def get_subscription(self, subscription_id: int) -> Subscription | None:
         return await self.session.get(Subscription, subscription_id)
 
+    async def get_subscription_by_token(self, sub_token: str) -> Subscription | None:
+        """Find a subscription by the token that identifies it in its own link.
+
+        This is how a customer proves which account is theirs when Telegram is
+        out of reach: the link is already in their VPN app, and it is the only
+        identifier they carry without being able to open the bot.
+        """
+        result = await self.session.execute(
+            select(Subscription)
+            .where(Subscription.sub_token == sub_token)
+            .order_by(Subscription.expires_at.desc(), Subscription.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def get_latest_subscription(self, user_id: int) -> Subscription | None:
         result = await self.session.execute(
             select(Subscription)

@@ -77,6 +77,9 @@ class WebCheckoutRequest(BaseModel):
     plan: str = Field(min_length=1, max_length=64)
     telegram_id: int | None = Field(default=None, alias="telegramId", gt=0)
     email: str | None = Field(default=None, max_length=320)
+    # A customer whose subscription lapsed cannot open Telegram in Russia, so
+    # the link already in their VPN app is how they say which account is theirs.
+    subscription: str | None = Field(default=None, max_length=512)
 
 
 class WebEmailUpdateRequest(BaseModel):
@@ -382,7 +385,11 @@ def create_app() -> FastAPI:
         from config import get_settings
 
         email = (body.email or "").strip().lower() or None
-        if body.telegram_id is None and email is None:
+        link = (body.subscription or "").strip() or None
+        linked = billing_api.subscription_token(link) if link else None
+        if link and linked is None:
+            raise HTTPException(status_code=400, detail="invalid_subscription")
+        if body.telegram_id is None and email is None and linked is None:
             raise HTTPException(status_code=400, detail="identity_required")
         if email is not None and not _WEB_EMAIL_RE.match(email):
             raise HTTPException(status_code=400, detail="invalid_email")
@@ -391,7 +398,7 @@ def create_app() -> FastAPI:
         # real user row + a real YooKassa payment. Cap per IP and per identity.
         redis = getattr(request.app.state, "redis", None)
         ip = _client_ip(request)
-        identity = email or (str(body.telegram_id) if body.telegram_id else "")
+        identity = email or (str(body.telegram_id) if body.telegram_id else "") or (linked or "")
         allowed = await _rate_limit_ok(redis, "checkout:ip", ip, _CHECKOUT_IP_LIMIT, _CHECKOUT_IP_WINDOW)
         if allowed:
             allowed = await _rate_limit_ok(
@@ -417,6 +424,7 @@ def create_app() -> FastAPI:
                 plan=tariff.code,
                 telegram_id=body.telegram_id,
                 email=email,
+                subscription_link=link,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))

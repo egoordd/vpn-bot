@@ -276,3 +276,78 @@ async def test_referral_overview_and_reward_via_facade(db_session):
     stats = await get_referral_overview(db_session, referrer.id)
     assert stats.referrals_count == 1
     assert stats.total_earned_kopecks == 2980
+
+
+# --- paying for an account you cannot reach through Telegram -------------------
+
+def test_subscription_token_reads_the_account_out_of_a_link():
+    """When a subscription lapses the VPN stops, and without it Telegram does not
+    open in Russia — so the bot is unreachable exactly when someone wants to pay.
+    The link is still in their app, and it names the account."""
+    from services.billing_api import subscription_token
+
+    token = "dGdfNzQwNDg0MzI0LDE3ODU3NDI1MjgPrVeO5tzmi"
+    assert subscription_token(f"https://sub.unlockvpn.site/sub/{token}") == "tg_740484324"
+    assert subscription_token(f"https://sub.unlockvpn.site/sub/{token}/auto") == "tg_740484324"
+    assert subscription_token(f"  {token}  ") == "tg_740484324"
+
+
+def test_subscription_token_rejects_anything_that_is_not_ours():
+    """It selects an account to credit, so a loose parse would let one customer
+    top up another's subscription."""
+    from services.billing_api import subscription_token
+
+    assert subscription_token("https://gl.molniya.sbs/sub/xBUbYpm0gyVft6BHoXPJzvBAJ") is None
+    assert subscription_token("hello world") is None
+    assert subscription_token("") is None
+    assert subscription_token(None) is None
+    assert subscription_token("x" * 900) is None
+
+
+def test_subscription_token_handles_web_only_accounts():
+    """Email buyers carry a synthetic negative id; their links must parse too."""
+    from services.billing_api import subscription_token
+    import base64
+
+    token = base64.b64encode(b"tg_-2499639603645,1785").decode()
+    assert subscription_token(token) == "tg_-2499639603645"
+
+
+@pytest.mark.asyncio
+async def test_paying_with_a_link_tops_up_the_account_that_owns_it(db_session):
+    """The whole point of the link path: a customer whose subscription lapsed
+    cannot open Telegram in Russia, so the site must credit the account they
+    already have rather than quietly starting a second one beside it."""
+    import base64
+    from datetime import datetime, timedelta, timezone
+
+    from database.repository import Repository
+    from services.billing_api import build_web_payment_intent
+
+    repo = Repository(db_session)
+    owner = await repo.get_or_create_user(telegram_id=7404, username="marina")
+    await repo.create_subscription(
+        user_id=owner.id,
+        plan="standard_1m",
+        started_at=datetime.now(timezone.utc) - timedelta(days=32),
+        expires_at=datetime.now(timezone.utc) - timedelta(days=2),  # already lapsed
+        sub_token="tg_7404",
+    )
+    link = "https://sub.unlockvpn.site/sub/" + base64.b64encode(b"tg_7404,1785").decode()
+
+    intent = await build_web_payment_intent(db_session, plan="1m", subscription_link=link)
+
+    assert intent.user_id == owner.id, "payment must credit the existing account"
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_link_is_refused_rather_than_silently_creating_an_account(db_session):
+    """Failing loudly here is the point: a typo that quietly opened a second
+    account would take the customer's money and leave their VPN dead."""
+    import base64
+
+    from services.billing_api import build_web_payment_intent
+
+    link = "https://sub.unlockvpn.site/sub/" + base64.b64encode(b"tg_999999,1785").decode()
+    with pytest.raises(ValueError, match="unknown_subscription"):
+        await build_web_payment_intent(db_session, plan="1m", subscription_link=link)

@@ -14,6 +14,8 @@ const CHECKOUT_ERRORS: Record<string, string> = {
   payments_unavailable: "Оплата картой временно недоступна. Попробуйте позже или купите в Telegram-боте.",
   payment_create_failed: "Платёжная система не ответила. Попробуйте ещё раз через минуту.",
   invalid_email: "Проверьте email — он выглядит некорректно.",
+  invalid_subscription: "Это не похоже на нашу ссылку-подписку. Скопируйте её целиком из приложения.",
+  unknown_subscription: "По этой ссылке доступ не найден. Проверьте, что скопировали её целиком.",
   rate_limited: "Слишком много попыток оплаты. Подождите несколько минут и попробуйте снова.",
 };
 
@@ -28,6 +30,10 @@ interface BuyClientProps {
 export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimit }: BuyClientProps) {
   const [telegramId, setTelegramId] = useState<number | null>(null);
   const [email, setEmail] = useState("");
+  // A lapsed customer cannot open Telegram in Russia, so the link already in
+  // their VPN app is how they point at the account to top up.
+  const [renewing, setRenewing] = useState(false);
+  const [subLink, setSubLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +56,9 @@ export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimi
   }, [refreshAuth]);
 
   const emailValid = EMAIL_RE.test(email.trim());
-  const canSubmit = !submitting && (telegramId !== null || emailValid);
+  const subLinkFilled = subLink.trim().length > 12;
+  const canSubmit =
+    !submitting && (telegramId !== null || (renewing ? subLinkFilled : emailValid));
 
   async function submit() {
     setError(null);
@@ -62,6 +70,7 @@ export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimi
         body: JSON.stringify({
           plan: planCode,
           email: email.trim() || undefined,
+          subscription: renewing ? subLink.trim() || undefined : undefined,
         }),
       });
       const body = (await res.json()) as { orderId?: string; payUrl?: string; error?: string };
@@ -103,6 +112,29 @@ export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimi
             ✅ Вы вошли через Telegram — ссылка-подписка придёт в бот и появится в{" "}
             <a href="/cabinet">кабинете</a>.
           </p>
+        ) : renewing ? (
+          <>
+            <label className="buy__label" htmlFor="buy-sub">
+              Ваша ссылка-подписка
+            </label>
+            <input
+              id="buy-sub"
+              className="buy__input mono"
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              placeholder="https://sub.unlockvpn.site/sub/…"
+              value={subLink}
+              onChange={(event) => setSubLink(event.target.value)}
+            />
+            <p className="buy__switch-note">
+              Скопируйте её из приложения, где уже подключён VPN. Оплата продлит именно этот
+              доступ, ссылка останется прежней.
+            </p>
+            <button type="button" className="buy__switch" onClick={() => setRenewing(false)}>
+              Я здесь впервые, оформить новый доступ
+            </button>
+          </>
         ) : (
           <>
             <label className="buy__label" htmlFor="buy-email">
@@ -118,6 +150,9 @@ export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimi
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
+            <button type="button" className="buy__switch" onClick={() => setRenewing(true)}>
+              У меня уже есть подписка, продлить её
+            </button>
           </>
         )}
       </div>

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
@@ -206,6 +208,50 @@ async def build_payment_intent(
     )
 
 
+def subscription_token(link: str) -> str | None:
+    """The panel identity inside a subscription link, or None if it is not one.
+
+    Accepts the whole link or just its token. The token is base64 of
+    `<panel-username>,<issued-at>`, so decoding it yields the account without a
+    round trip to the panel, and it keeps working after the subscription host
+    changes — only the token travels.
+    """
+    raw = (link or "").strip().split("?", 1)[0].split("#", 1)[0]
+    if not raw or len(raw) > 512:
+        return None
+    # The last segment is usually the token, but a flavour link ends in /auto or
+    # /hy2, so the segment before it has to be tried too.
+    segments = [part for part in raw.rstrip("/").split("/") if part][-2:]
+    for segment in reversed(segments):
+        name = _decode_panel_username(segment)
+        if name is not None:
+            return name
+    return None
+
+
+def _decode_panel_username(token: str) -> str | None:
+    """Panel username out of a subscription token.
+
+    The token is base64 of `<panel-username>,<issued-at>` with a signature
+    appended raw, so it does not decode as a whole. The longest decodable
+    prefix is what carries the name.
+    """
+    if not token or len(token) > 256:
+        return None
+    for length in range(len(token), 7, -1):
+        if length % 4 == 1:  # never a valid base64 length
+            continue
+        try:
+            decoded = base64.b64decode(token[:length] + "===", validate=False)
+        except Exception:  # noqa: BLE001
+            continue
+        name = decoded.decode("utf-8", "replace").split(",", 1)[0].strip()
+        # Panel usernames are `tg_<id>`; anything else was not one of our links.
+        if re.fullmatch(r"tg_-?\d{1,20}", name):
+            return name
+    return None
+
+
 async def build_web_payment_intent(
     session: AsyncSession,
     *,
@@ -213,6 +259,7 @@ async def build_web_payment_intent(
     telegram_id: int | None = None,
     username: str | None = None,
     email: str | None = None,
+    subscription_link: str | None = None,
 ) -> PaymentIntent:
     """Payment intent for a website checkout.
 
@@ -220,12 +267,29 @@ async def build_web_payment_intent(
     get a local account under a synthetic NEGATIVE telegram_id — real Telegram
     ids are positive, so the sign marks "no Telegram chat behind this user"
     and delivery code must not DM it.
+
+    A buyer can also identify themselves with their own subscription link, and
+    that path matters more than it looks: when a subscription lapses the VPN
+    stops, and without it Telegram does not open in Russia, so the bot they
+    bought from is unreachable exactly when they want to pay. The link is
+    already in their app. Paying with it tops up the account they already have
+    instead of quietly starting a second one.
     """
     clean_email = (email or "").strip().lower() or None
-    if telegram_id is None and clean_email is None:
+    linked_token = subscription_token(subscription_link)
+    if telegram_id is None and clean_email is None and linked_token is None:
         raise ValueError("telegram_id or email is required")
 
     repo = Repository(session)
+    if telegram_id is None and linked_token is not None:
+        subscription = await repo.get_subscription_by_token(linked_token)
+        if subscription is None:
+            raise ValueError("unknown_subscription")
+        owner = await repo.get_user(subscription.user_id)
+        if owner is None:
+            raise ValueError("unknown_subscription")
+        telegram_id = owner.telegram_id
+        username = username or owner.username
     if telegram_id is None:
         user = await repo.get_user_by_email(clean_email)
         if user is None:

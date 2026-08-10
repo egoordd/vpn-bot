@@ -112,6 +112,8 @@ export async function createWebCheckout(input: {
   plan: string;
   telegramId?: number;
   email?: string;
+  /** The buyer's existing subscription link, when they are topping that up. */
+  subscription?: string;
   clientIp?: string;
 }): Promise<CheckoutResult> {
   if (!API_URL) return mockCheckout();
