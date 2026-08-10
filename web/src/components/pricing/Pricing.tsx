@@ -99,6 +99,24 @@ export function Pricing() {
           })}
         </div>
 
+        <aside className="pricing__trial" aria-labelledby="trial-heading">
+          <div className="pricing__trial-text">
+            <Pill tone="accent" live>
+              Бесплатно
+            </Pill>
+            <h3 id="trial-heading" className="pricing__trial-title">
+              Сначала попробовать: 3 дня в Telegram-боте
+            </h3>
+            <p className="pricing__trial-sub">
+              Пробный период выдаёт бот — оплата и карта для него не нужны. Там же будет ваша
+              ссылка-подписка, если решите остаться.
+            </p>
+          </div>
+          <Button href={botLink()} size="lg" className="pricing__trial-cta">
+            Открыть Telegram-бота
+          </Button>
+        </aside>
+
         <p className="pricing__foot mono">
           Нужен выделенный сервер только под вас? Тариф Dedicated — скоро.
         </p>

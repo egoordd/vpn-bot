@@ -153,3 +153,56 @@
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+/* --- the trial lives in the bot, and only there -----------------------------
+   Given the same weight as a plan card: it is a real choice next to the paid
+   ones, and a customer who cannot find it buys nothing instead of trying. */
+.pricing__trial {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(1rem, 0.8rem + 1vw, 1.75rem);
+  margin-top: clamp(1.25rem, 1rem + 1vw, 2rem);
+  padding: clamp(1.25rem, 1rem + 1.4vw, 1.9rem);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color var(--duration) var(--ease-out-expo),
+    box-shadow var(--duration) var(--ease-out-expo);
+}
+
+.pricing__trial:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.pricing__trial-text {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  max-width: 46ch;
+}
+
+.pricing__trial-title {
+  font-size: var(--text-lg);
+  line-height: 1.25;
+}
+
+.pricing__trial-sub {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.pricing__trial-cta {
+  flex-shrink: 0;
+}
+
+@media (max-width: 40rem) {
+  .pricing__trial-cta {
+    width: 100%;
+    justify-content: center;
+  }
+}

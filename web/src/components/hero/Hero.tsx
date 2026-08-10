@@ -27,17 +27,17 @@ export function Hero() {
           </p>
 
           <div className="hero__actions">
-            <Button href={botLink()} size="lg">
+            <Button href="#pricing" size="lg">
               Подключить за минуту
             </Button>
-            <Button href="#pricing" variant="ghost" size="lg">
-              Смотреть тарифы
+            <Button href={botLink()} variant="ghost" size="lg">
+              Попробовать бесплатно
             </Button>
           </div>
 
           <ul className="hero__points">
             <li>
-              <CheckIcon /> 3 дня бесплатно
+              <CheckIcon /> 3 дня бесплатно в Telegram
             </li>
             <li>
               <CheckIcon /> Удобная оплата
