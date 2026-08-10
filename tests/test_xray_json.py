@@ -535,3 +535,46 @@ def test_there_is_exactly_one_automatic_entry():
     configs = xray_json.build_json_subscription([REALITY, TROJAN])
     automatic = [c for c in configs if "Авто-обход" in c["remarks"]]
     assert [c["remarks"] for c in automatic] == ["⚡️ Авто-обход"]
+
+
+# --- /split: Russian apps on foreign TLDs ---------------------------------------
+
+def test_split_flavour_takes_russian_banks_off_the_tunnel():
+    """A Russian bank reached from a German exit either refuses the session or
+    drags it through an anti-fraud check, and the user reads that as «the VPN
+    broke my bank». The \\.ru$ regexp never sees these, so they ride the tunnel
+    today."""
+    config = xray_json.build_balancer_config(
+        [REALITY], xray_json.SPLIT_REMARKS, ru_apps_direct=True
+    )
+    direct = next(
+        r for r in config["routing"]["rules"]
+        if r.get("outboundTag") == "direct" and isinstance(r.get("domain"), list)
+    )
+    assert "domain:tbank.com" in direct["domain"]
+    assert "domain:gosuslugi.gov" in direct["domain"], "the ordinary list must survive"
+    assert config["remarks"] == xray_json.SPLIT_REMARKS
+
+
+def test_ordinary_subscription_is_left_alone():
+    """The extra names ship to volunteers first: sending a domain direct takes it
+    out of the tunnel for good."""
+    direct = next(
+        r for r in _balancer()["routing"]["rules"]
+        if r.get("outboundTag") == "direct" and isinstance(r.get("domain"), list)
+    )
+    assert "domain:tbank.com" not in direct["domain"]
+
+
+def test_split_still_pins_blocked_platforms_to_the_tunnel():
+    """Taking more names direct must not let a blocked platform out with them."""
+    config = xray_json.build_balancer_config(
+        [REALITY], xray_json.SPLIT_REMARKS, ru_apps_direct=True
+    )
+    rules = config["routing"]["rules"]
+    direct = next(i for i, r in enumerate(rules)
+                  if r.get("outboundTag") == "direct" and isinstance(r.get("domain"), list))
+    pinned = next(i for i, r in enumerate(rules) if "domain:googlevideo.com" in (r.get("domain") or []))
+    assert rules[pinned].get("balancerTag") == "auto"
+    assert direct < pinned, "domestic names decided first, blocked ones still tunnelled"
+    assert not set(rules[direct]["domain"]) & set(rules[pinned]["domain"])

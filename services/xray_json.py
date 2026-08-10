@@ -300,7 +300,41 @@ def _tail_outbounds() -> list[dict]:
 #     xray and never handed to the system resolver.
 # The resolution is also nearly free: the app's own lookup already went through
 # `dns-out`, so the routing lookup hits xray's cache.
-def _split_routing(final_rule: dict) -> dict:
+# Russian banking, government and marketplace apps that do NOT live under a
+# Russian TLD, so the `\.ru$` regexp above never sees them and they ride the
+# tunnel today. A bank reached from a German exit is the case competitors
+# advertise against: it either refuses the session outright or drags it through
+# an anti-fraud check, and the user reads that as "the VPN broke my bank".
+#
+# Kept as a separate list behind the /split flavour rather than folded into
+# _RU_DIRECT_DOMAINS: sending a domain direct means taking it out of the tunnel
+# for everyone, and that is exactly the move that has to be measured on
+# volunteers before it is made for all customers.
+_RU_APPS_DIRECT = [
+    "domain:tbank.com",
+    "domain:tinkoff.com",
+    "domain:sber.com",
+    "domain:sberbank-cib.com",
+    "domain:vtb.com",
+    "domain:alfabank.com",
+    "domain:raiffeisen.com",
+    "domain:gazprombank.com",
+    "domain:psbank.com",
+    "domain:open.com",
+    "domain:mkb.com",
+    "domain:mts.com",
+    "domain:megafon.com",
+    "domain:beeline.com",
+    "domain:ozon.travel",
+    "domain:wildberries.eu",
+    "domain:avito.ma",
+    "domain:2gis.ae",
+    "domain:kaspersky.com",
+    "domain:nspk.io",
+]
+
+
+def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False) -> dict:
     # Whatever `final_rule` sends traffic to (a single proxy outbound, or the
     # balancer) is where the pinned domains must go too.
     destination = {
@@ -332,7 +366,11 @@ def _split_routing(final_rule: dict) -> dict:
             # slower. None of these names appear in the pinned list below, so
             # deciding them early cannot divert a blocked platform (there is a
             # test for that).
-            {"type": "field", "domain": _RU_DIRECT_DOMAINS, "outboundTag": "direct"},
+            {
+                "type": "field",
+                "domain": _RU_DIRECT_DOMAINS + (_RU_APPS_DIRECT if ru_apps_direct else []),
+                "outboundTag": "direct",
+            },
             # QUIC is refused for everything still undecided — that is, for
             # everything bound for the tunnel — so those applications fall back
             # to TLS over TCP.
@@ -629,7 +667,9 @@ def _health_check(strategy: str) -> tuple[dict, dict]:
     )
 
 
-def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict | None:
+def build_balancer_config(
+    uris: list[str], remarks: str = AUTO_REMARKS, *, ru_apps_direct: bool = False
+) -> dict | None:
     """The one automatic entry: balances over one server per exit, healthiest first.
 
     A health prober samples each `proxy-*` outbound continuously; the balancer
@@ -661,7 +701,10 @@ def build_balancer_config(uris: list[str], remarks: str = AUTO_REMARKS) -> dict 
         "inbounds": _INBOUNDS,
         "outbounds": [*outbounds, *_tail_outbounds()],
         "routing": {
-            **_split_routing({"type": "field", "network": "tcp,udp", "balancerTag": "auto"}),
+            **_split_routing(
+                {"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
+                ru_apps_direct=ru_apps_direct,
+            ),
             "balancers": [{"tag": "auto", "selector": ["proxy-"], "strategy": strategy}],
         },
         **prober,
@@ -708,7 +751,10 @@ def _balancer_selection(uris: list[str]) -> list[str]:
     return chosen[:BALANCER_MAX_OUTBOUNDS]
 
 
-def build_json_subscription(links: list[str]) -> list[dict]:
+SPLIT_REMARKS = "🔀 Автопереключение · тест"
+
+
+def build_json_subscription(links: list[str], *, ru_apps_direct: bool = False) -> list[dict]:
     """Full JSON-array body: the balancer first, then each server on its own.
 
     Objects only: mixing raw URI strings into the array broke Happ's import
@@ -721,7 +767,11 @@ def build_json_subscription(links: list[str]) -> list[dict]:
     Empty when no xray-core-compatible server is present (caller then falls
     back to the plain base64 subscription).
     """
-    balancer = build_balancer_config(links)
+    balancer = build_balancer_config(
+        links,
+        SPLIT_REMARKS if ru_apps_direct else AUTO_REMARKS,
+        ru_apps_direct=ru_apps_direct,
+    )
     if balancer is None:
         return []
     configs = [balancer]

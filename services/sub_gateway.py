@@ -639,8 +639,16 @@ def build_combined(token: str) -> tuple[str, str | None] | None:
     return payload, userinfo
 
 
-def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
+def build_auto_json(
+    token: str, *, ru_apps_direct: bool = False
+) -> tuple[str, str | None, bool] | None:
     """Build the «Авто-обход» body for the /auto flavor.
+
+    With ru_apps_direct the first entry becomes «🔀 Автопереключение · тест»:
+    the same split, plus the Russian banking and government apps that sit on
+    foreign TLDs and therefore ride the tunnel today. This is the /split flavour
+    — a volunteer build, because taking a domain direct takes it out of the
+    tunnel for good and that has to be measured before it ships to everyone.
 
     Returns (body, userinfo, is_json): a JSON array of xray configs (balancer
     first) when at least one xray-core server exists, else the plain base64
@@ -650,7 +658,7 @@ def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
     if resolved is None:
         return None
     links, userinfo = resolved
-    configs = build_json_subscription(links)
+    configs = build_json_subscription(links, ru_apps_direct=ru_apps_direct)
     if configs:
         return json.dumps(configs, ensure_ascii=False), userinfo, True
     payload = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
@@ -726,6 +734,10 @@ class Handler(BaseHTTPRequestHandler):
         # Happ the Hy2 entries — offered alongside the ordinary link rather than
         # replacing it, so «Авто-обход» is not sacrificed to get Hysteria.
         force_plain = flavor == "hy2"
+        # Volunteer build of the split: Russian banks and government services on
+        # foreign TLDs leave the tunnel too. Handed out by link only, so it is
+        # opt-in and comparable against the ordinary subscription.
+        is_split = flavor == "split"
         if not token:
             self._send(404, b"not found", "text/plain")
             return
@@ -747,9 +759,11 @@ class Handler(BaseHTTPRequestHandler):
         # that is what the /hy2 flavor above exists to hand over. Other clients
         # keep the base64 URI list, Hysteria2 included.
         ua = self.headers.get("User-Agent", "")
-        wants_json = not force_plain and (is_auto or (AUTO_IN_SUB and _supports_xray_json(ua)))
+        wants_json = not force_plain and (
+            is_auto or is_split or (AUTO_IN_SUB and _supports_xray_json(ua))
+        )
         if wants_json:
-            auto = build_auto_json(token)
+            auto = build_auto_json(token, ru_apps_direct=is_split)
             if auto is None:
                 self._send(404, b"invalid subscription", "text/plain")
                 return
@@ -757,7 +771,7 @@ class Handler(BaseHTTPRequestHandler):
             extra = _client_headers()
             # Autoconnect/1h-refresh headers stay exclusive to the explicit /auto
             # link: the plain subscription must not start dialling on its own.
-            if is_json and is_auto:
+            if is_json and (is_auto or is_split):
                 extra.update(AUTO_HEADERS)
             if userinfo:
                 extra["subscription-userinfo"] = userinfo
@@ -785,9 +799,15 @@ class Handler(BaseHTTPRequestHandler):
             # Hours between client refreshes. This is also how long a fix takes
             # to reach someone who never reopens the app, and how long a node
             # pulled by the health prober stays in their list — 12h meant a
-            # routing correction landed the next day. Six is still one fetch
-            # per user per morning and evening.
-            self.send_header("Profile-Update-Interval", "6")
+            # routing correction landed the next day.
+            #
+            # Cut from six to two on 2026-08-10: a routing fix went out at 13:42
+            # and the machine it was written for was still running the config it
+            # had fetched at 13:11 half an hour later, so the report came back
+            # "no change" for a fix that had simply not arrived. Two hours keeps
+            # the fetch cheap — the body is a few tens of KB — while making a
+            # correction land inside the session it was made in.
+            self.send_header("Profile-Update-Interval", "2")
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()
