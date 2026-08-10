@@ -875,3 +875,94 @@ async def test_trial_last_day_gets_trial_wording(fake_bot, session_pool):
     text = fake_bot.send_message.await_args.kwargs["text"]
     assert "Пробный период заканчивается" in text
     assert "меньше 3 дней" not in text
+
+
+@pytest.mark.integration
+async def test_inbound_drift_alerts_when_panel_has_tags_defaults_lack(monkeypatch):
+    """The failure this guards: the panel grew Germany and the XHTTP transports,
+    MARZBAN_DEFAULT_INBOUNDS kept the three older tags, and new accounts were
+    quietly issued the smaller set."""
+    gateway = SimpleNamespace(
+        provider="marzban",
+        client=SimpleNamespace(
+            get_inbounds=AsyncMock(
+                return_value={
+                    "vless": [{"tag": "VLESS Reality PL"}, {"tag": "VLESS XHTTP DE"}],
+                    "shadowsocks": [{"tag": "Shadowsocks TCP"}],
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: gateway)
+    monkeypatch.setattr(
+        tasks.settings, "MARZBAN_DEFAULT_INBOUNDS", '{"vless": ["VLESS Reality PL"]}'
+    )
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr(tasks, "send_alert", alert)
+
+    await tasks.check_inbound_drift()
+
+    alert.assert_awaited_once()
+    assert "VLESS XHTTP DE" in alert.await_args.args[0]
+
+
+@pytest.mark.integration
+async def test_inbound_drift_silent_when_defaults_cover_panel(monkeypatch):
+    gateway = SimpleNamespace(
+        provider="marzban",
+        client=SimpleNamespace(
+            get_inbounds=AsyncMock(return_value={"vless": [{"tag": "VLESS Reality PL"}]})
+        ),
+    )
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: gateway)
+    monkeypatch.setattr(
+        tasks.settings, "MARZBAN_DEFAULT_INBOUNDS", '{"vless": ["VLESS Reality PL"]}'
+    )
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr(tasks, "send_alert", alert)
+
+    await tasks.check_inbound_drift()
+
+    alert.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_inbound_drift_ignores_protocols_we_never_provision(monkeypatch):
+    """Trojan and Hysteria2 are added to subscriptions by the gateway itself, so
+    their absence from the defaults is intended, not drift."""
+    gateway = SimpleNamespace(
+        provider="marzban",
+        client=SimpleNamespace(
+            get_inbounds=AsyncMock(
+                return_value={
+                    "vless": [{"tag": "VLESS Reality PL"}],
+                    "trojan": [{"tag": "Trojan TLS"}],
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: gateway)
+    monkeypatch.setattr(
+        tasks.settings, "MARZBAN_DEFAULT_INBOUNDS", '{"vless": ["VLESS Reality PL"]}'
+    )
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr(tasks, "send_alert", alert)
+
+    await tasks.check_inbound_drift()
+
+    alert.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_inbound_drift_survives_unreachable_panel(monkeypatch):
+    gateway = SimpleNamespace(
+        provider="marzban",
+        client=SimpleNamespace(get_inbounds=AsyncMock(side_effect=RuntimeError("panel down"))),
+    )
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: gateway)
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr(tasks, "send_alert", alert)
+
+    await tasks.check_inbound_drift()
+
+    alert.assert_not_awaited()

@@ -28,6 +28,7 @@ from services.panel_gateway import (
     is_panel_configured,
 )
 from services import wallet
+from services.alerts import send_alert
 from services.money import format_rub
 from services.payment import ParsedTopupPayload, parse_invoice_payload_details, parse_topup_payload
 from services.qrcode import generate_qr_png_bytes
@@ -662,6 +663,56 @@ async def poll_cryptobot_payments(
                 )
 
 
+async def check_inbound_drift() -> None:
+    """Warn when the panel serves inbounds that new accounts never receive.
+
+    MARZBAN_DEFAULT_INBOUNDS is written by hand, so every inbound added to the
+    panel has to be copied into it by hand too. On 2026-08-10 that copy had been
+    missed for Germany and for every XHTTP transport, and the seven accounts
+    opened over the previous week were issued the three oldest tags — one of them
+    pointing at a node that no longer answers. Nothing surfaced it: those
+    accounts looked healthy, they were simply given less than they paid for.
+
+    Only protocols the defaults already mention are compared. Trojan and
+    Hysteria2 are attached to subscriptions by the gateway itself, so their
+    absence here is deliberate rather than drift.
+    """
+    gateway = get_panel_gateway()
+    if getattr(gateway, "provider", None) != "marzban":
+        return
+
+    defaults = settings.marzban_default_inbounds_dict
+    if not defaults:
+        return
+
+    try:
+        panel_inbounds = await gateway.client.get_inbounds()
+    except Exception:
+        logger.exception("Inbound drift check failed to read the panel")
+        return
+
+    missing: list[str] = []
+    for protocol, configured in defaults.items():
+        known = set(configured)
+        for inbound in panel_inbounds.get(protocol) or []:
+            tag = inbound.get("tag")
+            if tag and tag not in known:
+                missing.append(tag)
+
+    if not missing:
+        return
+
+    logger.warning("Inbound drift: new accounts would not receive %s", ", ".join(sorted(missing)))
+    await send_alert(
+        "⚠️ Новые подписки выдаются без части инбаундов.\n\n"
+        "Панель отдаёт, а MARZBAN_DEFAULT_INBOUNDS не содержит:\n"
+        + "\n".join(f"• {tag}" for tag in sorted(missing))
+        + "\n\nДобавьте их в .env и выровняйте уже заведённых пользователей.",
+        throttle_key="inbound_drift",
+        cooldown=86400.0,
+    )
+
+
 def setup_scheduler(bot: Bot, session_pool: async_sessionmaker[AsyncSession]) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=timezone.utc)
     scheduler.add_job(
@@ -709,6 +760,16 @@ def setup_scheduler(bot: Bot, session_pool: async_sessionmaker[AsyncSession]) ->
         )
     else:
         logger.warning("CRYPTOBOT_TOKEN is empty: payment polling disabled")
+    scheduler.add_job(
+        check_inbound_drift,
+        trigger="interval",
+        hours=6,
+        id="check_inbound_drift",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=datetime.now(timezone.utc),
+    )
     if settings.autoscale_premium_regions_list:
         scheduler.add_job(
             autoscale_check,

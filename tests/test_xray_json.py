@@ -201,26 +201,41 @@ def test_names_decide_before_addresses_do():
     assert domain_rules and max(domain_rules) < geo_ru, "names must be tried first"
 
 
-def test_quic_is_refused_so_apps_fall_back_to_tcp():
-    """UDP inside a TCP tunnel is TCP-over-TCP: on a lossy mobile link the two
-    retransmit against each other until throughput collapses, which is the
-    «photos and videos stop loading after a while» report. The balancer probes
-    over TCP and sees nothing wrong, so it never switches."""
+def _quic_rule(rules):
+    return next(
+        (r for r in rules if r.get("network") == "udp" and r.get("port") == 443), None
+    )
+
+
+def test_quic_is_allowed_by_default():
+    """Dropping QUIC is not a refusal an application can act on — it is silence
+    it has to time out on. With the rule in place the owner got no video at all,
+    on any protocol, while the same link served 100 MB at 5 MB/s over TCP, ran
+    twenty parallel fetches, and fed yt-dlp real YouTube media at 4.5 MB/s. The
+    browser, which prefers QUIC, buffered forever. So the default lets it pass."""
+    assert _quic_rule(_balancer()["routing"]["rules"]) is None
+
+
+def test_quic_can_be_refused_when_the_flag_is_set(monkeypatch):
+    """Kept switchable: on a lossy mobile link UDP inside a TCP tunnel makes the
+    two layers retransmit against each other, and the balancer cannot see it
+    because its probe is a small TCP fetch."""
+    monkeypatch.setattr(xray_json, "BLOCK_QUIC", True)
     rules = _balancer()["routing"]["rules"]
-    quic = next(r for r in rules if r.get("network") == "udp" and r.get("port") == 443)
-    assert quic["outboundTag"] == "block"
-    catch_all = len(rules) - 1
-    assert rules.index(quic) < catch_all, "must be decided before the catch-all"
+    quic = _quic_rule(rules)
+    assert quic is not None and quic["outboundTag"] == "block"
+    assert rules.index(quic) < len(rules) - 1, "must be decided before the catch-all"
 
 
-def test_dns_still_passes_while_quic_is_blocked():
+def test_dns_still_passes_while_quic_is_blocked(monkeypatch):
     """The QUIC rule is by port, and lookups are UDP too — blocking both would
     take the client off the internet entirely."""
+    monkeypatch.setattr(xray_json, "BLOCK_QUIC", True)
     rules = _balancer()["routing"]["rules"]
     dns_rule = next(i for i, r in enumerate(rules) if str(r.get("port")) == "53")
-    quic_rule = next(i for i, r in enumerate(rules)
-                     if r.get("network") == "udp" and r.get("port") == 443)
-    assert dns_rule < quic_rule
+    assert dns_rule < rules.index(_quic_rule(rules))
+
+
 
 
 # --- lookups ------------------------------------------------------------------
@@ -408,9 +423,11 @@ def test_no_domain_is_both_pinned_and_direct():
     assert not (pinned & direct)
 
 
-def test_russian_traffic_keeps_quic():
+def test_russian_traffic_keeps_quic(monkeypatch):
     """It never enters the tunnel, so the reason to refuse QUIC does not apply —
-    taking it away would only slow VK video and Yandex down."""
+    taking it away would only slow VK video and Yandex down. Checked with the
+    refusal switched on, which is the only arrangement where it could bite."""
+    monkeypatch.setattr(xray_json, "BLOCK_QUIC", True)
     rules = _balancer()["routing"]["rules"]
     ru_names = next(i for i, r in enumerate(rules)
                     if r.get("domain") and r.get("outboundTag") == "direct")

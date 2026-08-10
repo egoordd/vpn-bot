@@ -82,6 +82,22 @@ _MAX_RTT = "4s"
 # it stays available (BALANCER_STRATEGY=leastload) but is not the default.
 BALANCER_STRATEGY = os.environ.get("BALANCER_STRATEGY", "leastping").strip().lower()
 
+# Refuse QUIC (UDP/443) for tunnel-bound traffic so applications fall back to
+# TLS over TCP. Added 2026-08-09 against "photos and videos stop loading", and
+# switched off again on 2026-08-10 when the owner reported the opposite: no
+# video would play at all — not a YouTube advert, not a Telegram video message —
+# on any protocol, on a link that measured healthy in every other respect.
+#
+# What the measuring showed, and why the default flipped: bulk transfer through
+# the tunnel ran at 5 MB/s over 100 MB, twenty parallel fetches all completed,
+# DNS answered in 10-60 ms, and real YouTube media pulled with yt-dlp reached
+# 4.5 MB/s. Every one of those uses TCP. The browser, which prefers QUIC, sat in
+# buffering the whole time and never advanced a frame. The transport was never
+# the problem; refusing QUIC by dropping the packets was, because a blackholed
+# UDP path is not a refusal an application can act on — it is a silence it has
+# to time out on, over and over.
+BLOCK_QUIC = os.environ.get("BLOCK_QUIC", "0").lower() in ("1", "true", "yes")
+
 AUTO_REMARKS = "⚡️ Авто-обход"
 
 # Resolver the client answers app lookups with. Routing no longer needs it —
@@ -337,7 +353,11 @@ def _split_routing(final_rule: dict) -> dict:
             # Refusing QUIC outright is what makes the applications themselves
             # fall back — they do it in one round trip and never come back to
             # it for that connection.
-            {"type": "field", "network": "udp", "port": 443, "outboundTag": "block"},
+            *(
+                [{"type": "field", "network": "udp", "port": 443, "outboundTag": "block"}]
+                if BLOCK_QUIC
+                else []
+            ),
             # Blocked platforms: they must reach the tunnel even though some of
             # their CDN sits on Russian addresses, so they are pinned by name
             # ahead of the address rule below.
