@@ -17,9 +17,9 @@ export function botLink(payload?: string): string {
 }
 
 export const NAV_LINKS = [
-  { href: "#features", label: "Возможности" },
-  { href: "#pricing", label: "Тарифы" },
-  { href: "#how", label: "Как это работает" },
+  { href: "/#features", label: "Возможности" },
+  { href: "/#pricing", label: "Тарифы" },
+  { href: "/#how", label: "Как это работает" },
   { href: "/download", label: "Установка" },
-  { href: "#faq", label: "Вопросы" },
+  { href: "/#faq", label: "Вопросы" },
 ] as const;

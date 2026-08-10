@@ -45,7 +45,7 @@ export function SiteNav() {
             Кабинет
           </a>
           <ThemeToggle />
-          <Button href="#pricing" size="md">
+          <Button href="/#pricing" size="md">
             Подключить
           </Button>
         </div>
@@ -75,7 +75,7 @@ export function SiteNav() {
           <a href="/cabinet" className="nav__drawer-link" onClick={() => setOpen(false)}>
             Личный кабинет
           </a>
-          <Button href="#pricing" size="lg" className="nav__drawer-cta" onClick={() => setOpen(false)}>
+          <Button href="/#pricing" size="lg" className="nav__drawer-cta" onClick={() => setOpen(false)}>
             Подключить за минуту
           </Button>
         </div>

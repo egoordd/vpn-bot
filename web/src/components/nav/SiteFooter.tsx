@@ -6,16 +6,16 @@ const COLUMNS = [
   {
     title: "Продукт",
     links: [
-      { href: "#features", label: "Возможности" },
-      { href: "#pricing", label: "Тарифы" },
-      { href: "#how", label: "Как это работает" },
+      { href: "/#features", label: "Возможности" },
+      { href: "/#pricing", label: "Тарифы" },
+      { href: "/#how", label: "Как это работает" },
       { href: "/cabinet", label: "Личный кабинет" },
     ],
   },
   {
     title: "Поддержка",
     links: [
-      { href: "#faq", label: "Частые вопросы" },
+      { href: "/#faq", label: "Частые вопросы" },
       { href: "/download", label: "Как установить Happ" },
       { href: botLink(), label: "Написать в бота" },
       { href: `mailto:${SITE.supportEmail}`, label: "Почта поддержки" },
