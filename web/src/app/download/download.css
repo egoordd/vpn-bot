@@ -209,7 +209,11 @@
   font-size: var(--text-xl);
 }
 
-.dl a {
+/* Prose links only. `.dl a` also matches the Button component, which renders as
+   an anchor, and it outranks `.btn` — that repainted every button's label in the
+   body text colour, so a filled button showed white on white in dark and black
+   on black in light. */
+.dl a:not(.btn) {
   color: inherit;
 }
 
