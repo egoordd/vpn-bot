@@ -639,16 +639,12 @@ def build_combined(token: str) -> tuple[str, str | None] | None:
     return payload, userinfo
 
 
-def build_auto_json(
-    token: str, *, ru_apps_direct: bool = False
-) -> tuple[str, str | None, bool] | None:
+def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
     """Build the «Авто-обход» body for the /auto flavor.
 
-    With ru_apps_direct the first entry becomes «🔀 Автопереключение · тест»:
-    the same split, plus the Russian banking and government apps that sit on
-    foreign TLDs and therefore ride the tunnel today. This is the /split flavour
-    — a volunteer build, because taking a domain direct takes it out of the
-    tunnel for good and that has to be measured before it ships to everyone.
+    The body carries both automatic entries — «Авто-обход» and
+    «Автопереключение» — so the /split link is now just an alias of the ordinary
+    one, kept working for anyone who already imported it.
 
     Returns (body, userinfo, is_json): a JSON array of xray configs (balancer
     first) when at least one xray-core server exists, else the plain base64
@@ -658,7 +654,7 @@ def build_auto_json(
     if resolved is None:
         return None
     links, userinfo = resolved
-    configs = build_json_subscription(links, ru_apps_direct=ru_apps_direct)
+    configs = build_json_subscription(links)
     if configs:
         # Compact separators, because the size of this body decides whether a
         # Russian client can fetch it at all. The path from RU to the gateway is
@@ -771,7 +767,7 @@ class Handler(BaseHTTPRequestHandler):
             is_auto or is_split or (AUTO_IN_SUB and _supports_xray_json(ua))
         )
         if wants_json:
-            auto = build_auto_json(token, ru_apps_direct=is_split)
+            auto = build_auto_json(token)
             if auto is None:
                 self._send(404, b"invalid subscription", "text/plain")
                 return

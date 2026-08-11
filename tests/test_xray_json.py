@@ -123,7 +123,7 @@ def test_build_json_subscription_balancer_first_then_servers():
     # objects only, but Hysteria2 is now one of those objects; the control build
     # rides second while the 20-minute question is open
     assert [c["remarks"] for c in configs] == [
-        "⚡️ Авто-обход", "🇺🇸 США", "US-Hy2", "🇵🇱 Trojan",
+        "⚡️ Авто-обход", "🔀 Автопереключение", "🇺🇸 США", "US-Hy2", "🇵🇱 Trojan",
     ]
 
 
@@ -595,3 +595,24 @@ def test_both_russian_resolvers_come_before_any_foreign_one():
     first_plain = min(i for i, s in enumerate(servers) if isinstance(s, str))
     assert last_scoped < first_plain, "a RU name must never fall through to a foreign resolver first"
     assert plain, "foreign names still need a resolver"
+
+
+def test_both_automatic_entries_ship_in_one_subscription():
+    """One link carries «Авто-обход» and «Автопереключение», so a user switches
+    between them in the app instead of importing a second subscription."""
+    configs = xray_json.build_json_subscription([REALITY])
+    assert configs[0]["remarks"] == xray_json.AUTO_REMARKS
+    assert configs[1]["remarks"] == xray_json.SPLIT_REMARKS
+
+    def direct(cfg):
+        return next(r for r in cfg["routing"]["rules"]
+                    if r.get("outboundTag") == "direct" and isinstance(r.get("domain"), list))
+
+    assert "domain:tbank.com" not in direct(configs[0])["domain"]
+    assert "domain:tbank.com" in direct(configs[1])["domain"]
+
+
+def test_auto_stays_first_so_existing_users_keep_their_default():
+    """Clients auto-connect to the first entry. Promoting the newer one would
+    silently change what everyone connects to."""
+    assert xray_json.build_json_subscription([REALITY])[0]["remarks"] == "⚡️ Авто-обход"

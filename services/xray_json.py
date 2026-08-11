@@ -763,11 +763,11 @@ def _balancer_selection(uris: list[str]) -> list[str]:
     return chosen[:BALANCER_MAX_OUTBOUNDS]
 
 
-SPLIT_REMARKS = "🔀 Автопереключение · тест"
+SPLIT_REMARKS = "🔀 Автопереключение"
 
 
-def build_json_subscription(links: list[str], *, ru_apps_direct: bool = False) -> list[dict]:
-    """Full JSON-array body: the balancer first, then each server on its own.
+def build_json_subscription(links: list[str]) -> list[dict]:
+    """Full JSON-array body: both balancers first, then each server on its own.
 
     Objects only: mixing raw URI strings into the array broke Happ's import
     outright («there are no server links», verified live 2026-07-16). Hysteria2
@@ -776,17 +776,26 @@ def build_json_subscription(links: list[str], *, ru_apps_direct: bool = False) -
     which is how the client actually accepts it, so the one link a user imports
     now carries a UDP path as well as the TCP ones.
 
+    Two automatic entries ride at the top rather than living behind separate
+    links: «Авто-обход», and «Автопереключение», which additionally sends the
+    Russian banking and government apps that sit on foreign TLDs straight out of
+    the device. One subscription now carries both, so a user switches between
+    them in the app instead of importing a second link.
+
+    «Авто-обход» stays first on purpose. Clients auto-connect to the first entry,
+    so promoting the newer one would silently change what every existing user
+    connects to.
+
     Empty when no xray-core-compatible server is present (caller then falls
     back to the plain base64 subscription).
     """
-    balancer = build_balancer_config(
-        links,
-        SPLIT_REMARKS if ru_apps_direct else AUTO_REMARKS,
-        ru_apps_direct=ru_apps_direct,
-    )
+    balancer = build_balancer_config(links, AUTO_REMARKS)
     if balancer is None:
         return []
     configs = [balancer]
+    split = build_balancer_config(links, SPLIT_REMARKS, ru_apps_direct=True)
+    if split is not None:
+        configs.append(split)
     for index, uri in enumerate(links):
         server = build_server_config(uri, index)
         if server is not None:
