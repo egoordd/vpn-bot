@@ -123,7 +123,7 @@ def test_build_json_subscription_balancer_first_then_servers():
     # objects only, but Hysteria2 is now one of those objects; the control build
     # rides second while the 20-minute question is open
     assert [c["remarks"] for c in configs] == [
-        "⚡️ Авто-обход", "🏦 Умный обход", "🇺🇸 США", "US-Hy2", "🇵🇱 Trojan",
+        "⚡️ Авто-обход", "🇷🇺 Режим РУ-сервисов", "🇺🇸 США", "US-Hy2", "🇵🇱 Trojan",
     ]
 
 

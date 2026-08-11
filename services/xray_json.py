@@ -766,7 +766,7 @@ def _balancer_selection(uris: list[str]) -> list[str]:
 # Sits directly under «Авто-обход» in the list, so it is named as a sibling of
 # it rather than as a different feature — same word, different mode. An earlier
 # «Автопереключение» read as the same phrase twice and told nobody anything.
-SPLIT_REMARKS = "🏦 Умный обход"
+SPLIT_REMARKS = "🇷🇺 Режим РУ-сервисов"
 
 
 def build_json_subscription(links: list[str]) -> list[dict]:
