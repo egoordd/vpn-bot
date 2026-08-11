@@ -648,7 +648,7 @@ def test_announce_keeps_its_line_breaks():
     lines = decoded.split("\n")
     assert len(lines) == 4
     assert "Авто-обход" in lines[0]      # what the default entry is
-    assert "Банки напрямую" in lines[1]  # and when to switch off it
+    assert "Умный обход" in lines[1]     # and when to switch off it
     assert "ms" in lines[2]              # what to do when it stops working
     assert "20%" in lines[3]             # our real terms, not free days
 
@@ -764,5 +764,5 @@ def test_announce_tells_the_two_automatic_entries_apart():
     and the app gives us nowhere but this block to say so."""
     text = sub_gateway.SUB_ANNOUNCE
     assert "Авто-обход" in text
-    assert "Банки напрямую" in text
+    assert "Умный обход" in text
 

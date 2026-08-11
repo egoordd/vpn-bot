@@ -763,11 +763,10 @@ def _balancer_selection(uris: list[str]) -> list[str]:
     return chosen[:BALANCER_MAX_OUTBOUNDS]
 
 
-# Named for the symptom the user arrives with, not for the mechanism. The two
-# automatic entries sit next to each other in the list and «Авто-обход» /
-# «Автопереключение» read as the same thing — someone whose bank complains about
-# a VPN has no way to tell which one to try.
-SPLIT_REMARKS = "🏦 Банки напрямую"
+# Sits directly under «Авто-обход» in the list, so it is named as a sibling of
+# it rather than as a different feature — same word, different mode. An earlier
+# «Автопереключение» read as the same phrase twice and told nobody anything.
+SPLIT_REMARKS = "🏦 Умный обход"
 
 
 def build_json_subscription(links: list[str]) -> list[dict]:
