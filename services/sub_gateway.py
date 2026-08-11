@@ -660,7 +660,15 @@ def build_auto_json(
     links, userinfo = resolved
     configs = build_json_subscription(links, ru_apps_direct=ru_apps_direct)
     if configs:
-        return json.dumps(configs, ensure_ascii=False), userinfo, True
+        # Compact separators, because the size of this body decides whether a
+        # Russian client can fetch it at all. The path from RU to the gateway is
+        # throttled by volume: measured from Moscow on 2026-08-11, the same
+        # subscription took 0.78s compressed (2.7 KB) and timed out after 40s
+        # uncompressed (20 KB of 67 transferred). A client that does not
+        # negotiate compression gets no subscription, so the raw body has to be
+        # small on its own. Default separators spend a space after every comma
+        # and colon across thirteen configs.
+        return json.dumps(configs, ensure_ascii=False, separators=(",", ":")), userinfo, True
     payload = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
     return payload, userinfo, False
 
