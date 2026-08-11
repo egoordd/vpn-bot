@@ -616,3 +616,27 @@ def test_auto_stays_first_so_existing_users_keep_their_default():
     """Clients auto-connect to the first entry. Promoting the newer one would
     silently change what everyone connects to."""
     assert xray_json.build_json_subscription([REALITY])[0]["remarks"] == "⚡️ Авто-обход"
+
+
+def test_udp_path_survives_a_full_house_of_tcp_exits():
+    """Restoring the Netherlands added a fifth TCP exit and silently pushed
+    Hysteria2 out of the cut, leaving «Авто-обход» with five TCP tunnels and no
+    UDP path. That is the arrangement the «~20 минут, потом выкл/вкл» complaint
+    comes from: a carrier rebinding its NAT mapping kills every TCP entry at
+    once, while a QUIC connection survives the client's address changing."""
+    tcp = [
+        f"vless://uuid@h{i}:2096?security=reality&type=tcp&sni=h{i}&pbk=P&sid=S#h{i}"
+        for i in range(6)
+    ]
+    picked = xray_json._balancer_selection(tcp + [HY2])
+    assert len(picked) == xray_json.BALANCER_MAX_OUTBOUNDS
+    assert picked[-1] == HY2, "the UDP path must keep its slot"
+
+
+def test_balancer_still_holds_a_udp_outbound_with_every_node_present():
+    links = [
+        f"vless://uuid@h{i}:2096?security=reality&type=tcp&sni=h{i}&pbk=P&sid=S#h{i}"
+        for i in range(5)
+    ] + [HY2]
+    config = xray_json.build_balancer_config(links)
+    assert any(o.get("protocol") == "hysteria" for o in config["outbounds"])

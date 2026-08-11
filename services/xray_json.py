@@ -758,8 +758,17 @@ def _balancer_selection(uris: list[str]) -> list[str]:
             continue
         seen_hosts.add(host)
         chosen.append(uri)
+    # The UDP path gets a reserved slot rather than the leftovers. It used to be
+    # appended last and survived only because there were four exits and room for
+    # five; restoring the Netherlands on 2026-08-11 made a fifth TCP entry and
+    # pushed Hysteria2 out of the cut silently, leaving «Авто-обход» with five
+    # TCP tunnels and nothing else. That is the arrangement the "~20 minutes,
+    # then toggle the VPN" complaint comes from: a carrier rebinding its NAT
+    # mapping kills every TCP entry at the same moment, while a QUIC connection
+    # survives the client's address changing. Trading the last TCP exit for it
+    # keeps the outbound count at the five that measured healthy.
     if hysteria:
-        chosen.append(hysteria)
+        chosen = chosen[: BALANCER_MAX_OUTBOUNDS - 1] + [hysteria]
     return chosen[:BALANCER_MAX_OUTBOUNDS]
 
 
