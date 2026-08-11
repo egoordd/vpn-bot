@@ -124,7 +124,16 @@ AUTO_REMARKS = "⚡️ Авто-обход"
 # node cannot wedge lookups), while Russian names go to a Russian resolver that
 # routes direct by geoip:ru — RU sites keep resolving to their nearby CDN and
 # keep working, which is the whole point of the RU-split.
-_RU_RESOLVER = "77.88.8.8"        # Yandex, inside RU — direct by geoip:ru
+# Two of them, both inside RU. One was a single point of failure for every
+# Russian name, and some of those names only exist for Russian resolvers at all:
+# lknpd.nalog.ru — the «Мой налог» backend — is a CNAME whose authoritative
+# server answers Russian resolvers and returns nothing to Cloudflare or Google.
+# Asked from Moscow it resolves and serves 200; asked through the tunnel on
+# 2026-08-11 it resolved nowhere, and the app opened to a blank screen with no
+# network. A foreign resolver cannot substitute for these, so the fallback has
+# to be Russian too.
+_RU_RESOLVERS = ["77.88.8.8", "77.88.8.1"]   # Yandex primary + secondary
+_RU_RESOLVER = _RU_RESOLVERS[0]
 _FOREIGN_RESOLVERS = ["1.1.1.1", "8.8.8.8"]
 
 # Russian destinations that must leave the device directly, matched by NAME so
@@ -172,8 +181,11 @@ _RU_DIRECT_DOMAINS = [
 _DNS = {
     "servers": [
         # Scoped first: RU names are answered by a RU resolver, whose reply
-        # routes direct anyway, so domestic CDNs stay domestic.
-        {"address": _RU_RESOLVER, "domains": _RU_DIRECT_DOMAINS},
+        # routes direct anyway, so domestic CDNs stay domestic. Both Russian
+        # resolvers are listed before either foreign one, so a name that only
+        # Russian resolvers can answer never falls through to Cloudflare and
+        # comes back empty.
+        *({"address": server, "domains": _RU_DIRECT_DOMAINS} for server in _RU_RESOLVERS),
         *_FOREIGN_RESOLVERS,
     ],
     # The exits are IPv4-only. An AAAA answer sends the app to an address the

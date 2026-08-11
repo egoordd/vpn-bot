@@ -578,3 +578,20 @@ def test_split_still_pins_blocked_platforms_to_the_tunnel():
     assert rules[pinned].get("balancerTag") == "auto"
     assert direct < pinned, "domestic names decided first, blocked ones still tunnelled"
     assert not set(rules[direct]["domain"]) & set(rules[pinned]["domain"])
+
+
+def test_both_russian_resolvers_come_before_any_foreign_one():
+    """lknpd.nalog.ru — the «Мой налог» backend — is answered by Russian
+    resolvers and returns nothing to Cloudflare or Google. Asked from Moscow it
+    resolves and serves 200; through the tunnel on 2026-08-11 it resolved
+    nowhere and the app opened with no network. A foreign resolver cannot stand
+    in for these, so the fallback has to be Russian too."""
+    servers = _balancer()["dns"]["servers"]
+    scoped = [s for s in servers if isinstance(s, dict)]
+    plain = [s for s in servers if isinstance(s, str)]
+    assert len(scoped) >= 2, "one Russian resolver is a single point of failure"
+    assert all("\\.ru$" in " ".join(s["domains"]) for s in scoped)
+    last_scoped = max(i for i, s in enumerate(servers) if isinstance(s, dict))
+    first_plain = min(i for i, s in enumerate(servers) if isinstance(s, str))
+    assert last_scoped < first_plain, "a RU name must never fall through to a foreign resolver first"
+    assert plain, "foreign names still need a resolver"
