@@ -574,7 +574,7 @@ def test_announce_is_base64_because_headers_are_latin1():
     headers = sub_gateway._client_headers()
     assert headers["announce"].startswith("base64:")
     decoded = base64.b64decode(headers["announce"][len("base64:"):]).decode("utf-8")
-    assert "Обновите подписку" in decoded
+    assert "Обновите" in decoded
     decoded.encode("ascii", "ignore")  # sanity: it really was non-latin1
 
 
@@ -639,16 +639,18 @@ def test_curated_remarks_survive_the_filter():
         assert combine_links(uri) == [uri], remark
 
 
-def test_announce_keeps_its_line_break():
-    """A raw header cannot contain a newline at all — base64 is what lets the
-    hint render as two lines in Happ instead of one run-on sentence."""
+def test_announce_keeps_its_line_breaks():
+    """A raw header cannot contain a newline at all — base64 is what lets this
+    render as separate lines in Happ instead of one run-on sentence."""
     headers = sub_gateway._client_headers()
     assert "\n" not in headers["announce"], "the header itself must stay single-line"
     decoded = base64.b64decode(headers["announce"][len("base64:"):]).decode("utf-8")
-    assert decoded.count("\n") == 1
-    hint, referral = decoded.split("\n")
-    assert "ms" in hint          # what to do when it stops working
-    assert "20%" in referral     # our real terms, not the competitor's free days
+    lines = decoded.split("\n")
+    assert len(lines) == 4
+    assert "Авто-обход" in lines[0]      # what the default entry is
+    assert "Банки напрямую" in lines[1]  # and when to switch off it
+    assert "ms" in lines[2]              # what to do when it stops working
+    assert "20%" in lines[3]             # our real terms, not free days
 
 
 def test_clients_refresh_often_enough_for_a_fix_to_land_same_day():
@@ -748,3 +750,19 @@ def test_each_cascade_declares_where_it_terminates():
     for port, label, exit_host in sub_gateway.CASCADE_COUNTRIES:
         assert isinstance(port, int)
         assert exit_host in sub_gateway.NODES, f"{label} points at an unknown exit"
+
+
+def test_announce_fits_what_happ_will_show():
+    """Happ truncates the announcement at 200 characters. Silent truncation
+    would cut the referral line off the end without anything failing."""
+    assert len(sub_gateway.SUB_ANNOUNCE.strip()) <= 200
+
+
+def test_announce_tells_the_two_automatic_entries_apart():
+    """The list shows «Авто-обход» and «Банки напрямую» side by side. Someone
+    whose bank complains about a VPN has to be able to tell which one to pick,
+    and the app gives us nowhere but this block to say so."""
+    text = sub_gateway.SUB_ANNOUNCE
+    assert "Авто-обход" in text
+    assert "Банки напрямую" in text
+

@@ -111,9 +111,10 @@ PROFILE_TITLE_HEADER = "base64:" + base64.b64encode(SUB_TITLE.encode("utf-8")).d
 # latin-1 only, so Cyrillic must ride as base64, which Happ decodes.
 SUB_ANNOUNCE = os.environ.get(
     "SUB_ANNOUNCE",
-    "❗️ Не работает? Обновите подписку (↻), затем ⏱ и выберите сервер "
-    "с наименьшим ms\n"
-    "🎁 Приведите друга — 20% с каждой его оплаты на ваш баланс",
+    "⚡️ Авто-обход — обычный режим\n"
+    "🏦 Банки напрямую — если банк или Госуслуги ругаются на VPN\n"
+    "❗️ Не грузит? Обновите (↻), затем ⏱ и выберите сервер с меньшим ms\n"
+    "🎁 Друг по вашей ссылке — 20% с его оплат",
 )
 # Buttons Happ renders next to the subscription.
 SUPPORT_URL = os.environ.get("SUB_SUPPORT_URL", "https://t.me/unlock_support_bot")
