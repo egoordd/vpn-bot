@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 import urllib.parse
 import urllib.request
 
@@ -69,6 +70,20 @@ PROBE_ATTEMPTS = int(os.environ.get("PROBE_ATTEMPTS", "2"))
 # A pin is a claim the operator makes against the measurement, so it is loud:
 # every pinned host that would otherwise be dropped is logged and reported, and
 # the pin is meant to be removed once a second vantage exists to corroborate.
+# How much customer traffic through a node counts as proof it is alive, and how
+# far back to look for it.
+#
+# The probe has one vantage; the customers have hundreds, on the ISPs we
+# actually sell to. On 2026-08-15 the probe called Poland dead for 127 rounds
+# while the panel recorded 99 MB up and 108 MB down through it in two hours —
+# it was the second busiest node we had. Bytes moving for real users outrank a
+# single machine's opinion, so they veto removal.
+#
+# A veto, not a health signal: a node can accept connections and crawl, and the
+# counters would still tick. Ranking inside the balancer stays with the probe.
+PROBE_TRAFFIC_WINDOW_MINUTES = int(os.environ.get("PROBE_TRAFFIC_WINDOW_MINUTES", "30"))
+PROBE_TRAFFIC_ALIVE_BYTES = int(os.environ.get("PROBE_TRAFFIC_ALIVE_BYTES", str(1024 * 1024)))
+
 PROBE_PINNED_HOSTS = {
     h.strip()
     for h in os.environ.get("PROBE_PINNED_HOSTS", "").replace(",", "\n").splitlines()
@@ -298,13 +313,88 @@ def load_previous() -> dict:
         return {}
 
 
-def apply_hysteresis(previous: dict, fresh: dict[str, bool]) -> tuple[dict, dict]:
+def fetch_node_traffic() -> dict[str, int]:
+    """Bytes each node moved for real customers inside the window.
+
+    Keyed by the node's address, because that is what the probe verdicts are
+    keyed by. Returns {} on any failure — telemetry may only ever *save* a node
+    from removal, so losing it falls back to the probe's own judgement rather
+    than keeping everything alive forever.
+    """
+    env_path = "/opt/vpn-bot/.env"
+    try:
+        env = {}
+        if os.path.exists(env_path):
+            for line in open(env_path):
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.strip().split("=", 1)
+                    env[k] = v.strip().strip('"')
+        base = (os.environ.get("MARZBAN_API_URL") or env.get("MARZBAN_API_URL", "")).rstrip("/")
+        user = os.environ.get("MARZBAN_USERNAME") or env.get("MARZBAN_USERNAME", "")
+        password = os.environ.get("MARZBAN_PASSWORD") or env.get("MARZBAN_PASSWORD", "")
+        if not base or not user:
+            return {}
+
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        body = urllib.parse.urlencode({"username": user, "password": password}).encode()
+        token = json.load(
+            urllib.request.urlopen(base + "/api/admin/token", body, context=ctx, timeout=15)
+        )["access_token"]
+
+        def api(path):
+            req = urllib.request.Request(base + path, headers={"Authorization": "Bearer " + token})
+            return json.load(urllib.request.urlopen(req, context=ctx, timeout=20))
+
+        addresses = {n.get("name"): n.get("address") for n in api("/api/nodes")}
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(minutes=PROBE_TRAFFIC_WINDOW_MINUTES)
+        fmt = "%Y-%m-%dT%H:%M:%S"
+        usage = api(f"/api/nodes/usage?start={start.strftime(fmt)}&end={end.strftime(fmt)}")
+
+        moved: dict[str, int] = {}
+        for row in usage.get("usages") or []:
+            address = addresses.get(row.get("node_name"))
+            if not address:
+                continue
+            moved[address] = int(row.get("uplink") or 0) + int(row.get("downlink") or 0)
+        return moved
+    except Exception as exc:
+        print(f"node traffic unavailable: {exc}", file=sys.stderr)
+        return {}
+
+
+def hosts_carrying_traffic(failed: list[str]) -> dict[str, int]:
+    """Of the hosts that failed the probe, those customers are still using.
+
+    Probe verdicts are keyed by the subscription's hostname — `1.2.3.4.sslip.io`
+    — while the panel knows the plain address, so the address is matched as a
+    prefix rather than compared whole.
+    """
+    if not failed:
+        return {}
+    moved = fetch_node_traffic()
+    carrying: dict[str, int] = {}
+    for host in failed:
+        for address, total in moved.items():
+            if address and host.startswith(address) and total >= PROBE_TRAFFIC_ALIVE_BYTES:
+                carrying[host] = total
+                break
+    return carrying
+
+
+def apply_hysteresis(
+    previous: dict, fresh: dict[str, bool], kept_alive: set[str] | None = None
+) -> tuple[dict, dict]:
     """Fold this round's raw results into stable verdicts.
 
     Returns (verdicts, streaks). A node keeps its previous verdict until it has
     accumulated enough consecutive results to justify flipping, so one lucky or
     unlucky probe never moves it in or out of everyone's subscription.
     """
+    protected = set(PROBE_PINNED_HOSTS) | set(kept_alive or ())
     prev_nodes = previous.get("nodes", {})
     prev_streaks = previous.get("streaks", {})
     verdicts: dict[str, bool] = {}
@@ -317,14 +407,14 @@ def apply_hysteresis(previous: dict, fresh: dict[str, bool]) -> tuple[dict, dict
         streaks[host] = streak
         # First sighting: trust the probe, there is nothing to be stable about.
         current = prev_nodes.get(host)
-        if host in PROBE_PINNED_HOSTS and not passed:
+        if host in protected and not passed:
             # The operator is asserting, against this vantage, that the host
             # serves customers. A pin that could hold a node in but never bring
             # one back would be useless in the situation that motivated it —
             # Poland had already been dropped by the time anyone noticed.
             print(
-                f"PINNED {host} measures dead (streak {streak}) but is kept in "
-                "subscriptions by PROBE_PINNED_HOSTS",
+                f"KEPT {host} measures dead (streak {streak}) but is kept in "
+                "subscriptions — pinned, or customers are still moving traffic through it",
                 file=sys.stderr,
             )
             verdicts[host] = True
@@ -494,7 +584,14 @@ def main() -> int:
         return 1
 
     previous = load_previous()
-    verdicts, streaks = apply_hysteresis(previous, fresh)
+    carrying = hosts_carrying_traffic([h for h, ok in fresh.items() if not ok])
+    for host, total in carrying.items():
+        print(
+            f"BLIND {host} failed the probe but customers moved {total/1e6:.1f} MB "
+            f"through it in the last {PROBE_TRAFFIC_WINDOW_MINUTES} min — kept",
+            file=sys.stderr,
+        )
+    verdicts, streaks = apply_hysteresis(previous, fresh, kept_alive=set(carrying))
     text, notified = compose_alert(previous, verdicts, time.time())
     payload = {
         "checked_at": int(time.time()),

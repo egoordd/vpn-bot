@@ -338,3 +338,51 @@ def test_pinning_also_brings_back_a_host_that_was_already_dropped(monkeypatch):
         {"pinned.example": False},
     )
     assert verdicts["pinned.example"] is True
+
+
+def test_customer_traffic_vetoes_removal(monkeypatch):
+    """The probe has one vantage; the customers have hundreds, on the ISPs we
+    actually sell to. On 2026-08-15 the probe called Poland dead for 127 rounds
+    while the panel recorded 200 MB through it in two hours."""
+    verdicts, streaks = node_probe.apply_hysteresis(
+        {"nodes": {"78.17.154.225.sslip.io": True}, "streaks": {"78.17.154.225.sslip.io": -5}},
+        {"78.17.154.225.sslip.io": False},
+        kept_alive={"78.17.154.225.sslip.io"},
+    )
+    assert verdicts["78.17.154.225.sslip.io"] is True
+    assert streaks["78.17.154.225.sslip.io"] == -6, "the failure is still counted"
+
+
+def test_a_node_nobody_uses_is_still_dropped(monkeypatch):
+    """The veto needs evidence. Silence is not evidence, or a genuinely dead
+    node with no users would stay in every subscription forever."""
+    verdicts, _ = node_probe.apply_hysteresis(
+        {"nodes": {"dead.example": True}, "streaks": {"dead.example": -5}},
+        {"dead.example": False},
+        kept_alive=set(),
+    )
+    assert verdicts["dead.example"] is False
+
+
+def test_traffic_below_the_floor_does_not_count(monkeypatch):
+    """A trickle proves a socket opened, not that the node serves anyone."""
+    monkeypatch.setattr(node_probe, "PROBE_TRAFFIC_ALIVE_BYTES", 1024 * 1024)
+    monkeypatch.setattr(node_probe, "fetch_node_traffic", lambda: {"78.17.154.225": 4096})
+    assert node_probe.hosts_carrying_traffic(["78.17.154.225.sslip.io"]) == {}
+
+
+def test_traffic_is_matched_to_the_subscription_hostname(monkeypatch):
+    """Verdicts are keyed by `1.2.3.4.sslip.io`; the panel knows the plain
+    address, so the two have to be reconciled or the veto never fires."""
+    monkeypatch.setattr(node_probe, "PROBE_TRAFFIC_ALIVE_BYTES", 1024)
+    monkeypatch.setattr(node_probe, "fetch_node_traffic", lambda: {"78.17.154.225": 5_000_000})
+    assert node_probe.hosts_carrying_traffic(["78.17.154.225.sslip.io"]) == {
+        "78.17.154.225.sslip.io": 5_000_000
+    }
+
+
+def test_losing_telemetry_falls_back_to_the_probe(monkeypatch):
+    """Telemetry may only save a node from removal. If the panel cannot be
+    reached, the probe's judgement stands rather than everything staying alive."""
+    monkeypatch.setattr(node_probe, "fetch_node_traffic", lambda: {})
+    assert node_probe.hosts_carrying_traffic(["78.17.154.225.sslip.io"]) == {}
