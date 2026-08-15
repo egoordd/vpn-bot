@@ -57,6 +57,24 @@ PROBE_ATTEMPTS = int(os.environ.get("PROBE_ATTEMPTS", "2"))
 # probe). So a node must fail twice running to be pulled, and then succeed
 # twice running to come back, which keeps the served list stable instead of
 # oscillating with every probe round.
+# Hosts the probe may never drop, however badly they measure from its vantage.
+#
+# The probe judges from one machine on one Russian hosting network, and hosting
+# ranges are blocked far more aggressively than consumer ISPs. On 2026-08-15 the
+# Poland node failed 127 consecutive rounds — unreachable from the relay, ICMP
+# included — while the owner's home ISP reached all three of its ports and was
+# actively using it. One blind vantage had removed a working exit from every
+# customer's subscription.
+#
+# A pin is a claim the operator makes against the measurement, so it is loud:
+# every pinned host that would otherwise be dropped is logged and reported, and
+# the pin is meant to be removed once a second vantage exists to corroborate.
+PROBE_PINNED_HOSTS = {
+    h.strip()
+    for h in os.environ.get("PROBE_PINNED_HOSTS", "").replace(",", "\n").splitlines()
+    if h.strip()
+}
+
 FAILS_TO_DROP = int(os.environ.get("FAILS_TO_DROP", "2"))
 PASSES_TO_RESTORE = int(os.environ.get("PASSES_TO_RESTORE", "2"))
 
@@ -299,6 +317,18 @@ def apply_hysteresis(previous: dict, fresh: dict[str, bool]) -> tuple[dict, dict
         streaks[host] = streak
         # First sighting: trust the probe, there is nothing to be stable about.
         current = prev_nodes.get(host)
+        if host in PROBE_PINNED_HOSTS and not passed:
+            # The operator is asserting, against this vantage, that the host
+            # serves customers. A pin that could hold a node in but never bring
+            # one back would be useless in the situation that motivated it —
+            # Poland had already been dropped by the time anyone noticed.
+            print(
+                f"PINNED {host} measures dead (streak {streak}) but is kept in "
+                "subscriptions by PROBE_PINNED_HOSTS",
+                file=sys.stderr,
+            )
+            verdicts[host] = True
+            continue
         if current is None:
             verdicts[host] = passed
         elif current and streak <= -FAILS_TO_DROP:

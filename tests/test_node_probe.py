@@ -308,3 +308,33 @@ def test_extra_links_accept_comma_or_newline(monkeypatch):
             if part.strip().startswith("vless://")
         ]
         assert len(parsed) == 2
+
+
+def test_a_pinned_host_is_not_dropped_on_the_probe_s_word_alone(monkeypatch):
+    """The probe judges from one machine on one Russian hosting network, and
+    hosting ranges are blocked far more aggressively than consumer ISPs. On
+    2026-08-15 Poland failed 127 consecutive rounds — unreachable from the relay,
+    ICMP included — while the owner's home ISP reached all three of its ports and
+    was actively using it. One blind vantage had removed a working exit from
+    every customer's subscription."""
+    monkeypatch.setattr(node_probe, "PROBE_PINNED_HOSTS", {"pinned.example"})
+    previous = {"nodes": {"pinned.example": True, "other.example": True},
+                "streaks": {"pinned.example": -126, "other.example": -1}}
+    verdicts, streaks = node_probe.apply_hysteresis(
+        previous, {"pinned.example": False, "other.example": False}
+    )
+    assert verdicts["pinned.example"] is True, "a pinned host stays in subscriptions"
+    assert verdicts["other.example"] is False, "everything else still drops normally"
+    assert streaks["pinned.example"] == -127, "the failure is still counted, not hidden"
+
+
+def test_pinning_also_brings_back_a_host_that_was_already_dropped(monkeypatch):
+    """A pin that could hold a node in but never bring one back would be useless
+    in the situation that motivated it: Poland had already been dropped by the
+    time anyone noticed."""
+    monkeypatch.setattr(node_probe, "PROBE_PINNED_HOSTS", {"pinned.example"})
+    verdicts, _ = node_probe.apply_hysteresis(
+        {"nodes": {"pinned.example": False}, "streaks": {"pinned.example": -9}},
+        {"pinned.example": False},
+    )
+    assert verdicts["pinned.example"] is True
