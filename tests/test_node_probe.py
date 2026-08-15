@@ -386,3 +386,11 @@ def test_losing_telemetry_falls_back_to_the_probe(monkeypatch):
     reached, the probe's judgement stands rather than everything staying alive."""
     monkeypatch.setattr(node_probe, "fetch_node_traffic", lambda: {})
     assert node_probe.hosts_carrying_traffic(["78.17.154.225.sslip.io"]) == {}
+
+
+def test_traffic_window_covers_a_whole_panel_bucket():
+    """The panel aggregates node usage hourly, so a window inside the current
+    unfinished hour reports zero for every node. Measured 2026-08-15: 30 minutes
+    gave 0 MB across the board while 120 gave 2235 MB, and the veto could never
+    fire — Poland was dropped again with 154 MB flowing through it."""
+    assert node_probe.PROBE_TRAFFIC_WINDOW_MINUTES >= 120

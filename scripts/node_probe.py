@@ -81,7 +81,18 @@ PROBE_ATTEMPTS = int(os.environ.get("PROBE_ATTEMPTS", "2"))
 #
 # A veto, not a health signal: a node can accept connections and crawl, and the
 # counters would still tick. Ranking inside the balancer stays with the probe.
-PROBE_TRAFFIC_WINDOW_MINUTES = int(os.environ.get("PROBE_TRAFFIC_WINDOW_MINUTES", "30"))
+# Two hours, because the panel aggregates node usage into hourly buckets: a
+# window that falls inside the current, unfinished hour returns zero for every
+# node. Measured 2026-08-15 — 30 min gave 0 MB across the board while 60 gave
+# 956 MB and 120 gave 2235 — so the first version of this veto could never fire
+# and Poland was dropped again with 154 MB flowing through it.
+#
+# The cost of the wide window is that evidence is up to two hours stale, so a
+# node that dies now keeps its veto for a while. That is the right way round:
+# the client's own balancer routes around a dead entry within a probe interval,
+# whereas removing a live node costs every customer a location — which is the
+# failure this exists to prevent.
+PROBE_TRAFFIC_WINDOW_MINUTES = int(os.environ.get("PROBE_TRAFFIC_WINDOW_MINUTES", "120"))
 PROBE_TRAFFIC_ALIVE_BYTES = int(os.environ.get("PROBE_TRAFFIC_ALIVE_BYTES", str(1024 * 1024)))
 
 PROBE_PINNED_HOSTS = {
