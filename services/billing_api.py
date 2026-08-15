@@ -466,6 +466,34 @@ async def redeem_balance_promo(
     return await promo.redeem_balance_promo(session, user_id=user_id, code=code)
 
 
+async def redeem_promo(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    code: str,
+    panel_client: object | None = None,
+    panel_gateway: object | None = None,
+) -> promo.PromoRedemptionResult:
+    """Redeem a code of any kind, doing whatever that kind is worth.
+
+    One entry point so the bot does not have to know which kinds exist: a
+    balance bonus credits the wallet, a subscription grant provisions access
+    down the same path a paid order takes, so the user ends up with a working
+    config rather than a promise of one."""
+    existing = await Repository(session).get_promo_code(code.strip())
+    if existing is not None and existing.kind == promo.PROMO_SUBSCRIPTION_GRANT:
+        result = await promo.redeem_subscription_promo(session, user_id=user_id, code=code)
+        await activate_access(
+            session,
+            user_id,
+            result.plan,
+            panel_client=panel_client,
+            panel_gateway=panel_gateway,
+        )
+        return result
+    return await promo.redeem_balance_promo(session, user_id=user_id, code=code)
+
+
 async def preview_checkout_discount(
     session: AsyncSession,
     *,

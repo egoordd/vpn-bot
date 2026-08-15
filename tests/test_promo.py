@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from database.repository import Repository
-from services import wallet
+from services import promo, wallet
 from services.promo import (
     PROMO_BALANCE_BONUS,
     PROMO_FIXED_DISCOUNT,
@@ -180,3 +180,70 @@ async def test_promo_codes_are_stored_uppercase(db_session):
     created = await repo.create_promo_code(code=" bonus10 ", kind=PROMO_BALANCE_BONUS, value=1000)
     assert created.code == "BONUS10"
     assert (await repo.get_promo_code("bonus10")).code == "BONUS10"
+
+
+@pytest.mark.integration
+async def test_subscription_promo_hands_over_access_not_money(session_pool):
+    """A grant is worth days, not kopecks: crediting a wallet would leave the
+    user holding money and still no VPN."""
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=920001)
+        await repo.create_promo_code(
+            code="FREEMONTH", kind=promo.PROMO_SUBSCRIPTION_GRANT, value=30, max_uses=3
+        )
+        await session.commit()
+
+        result = await promo.redeem_subscription_promo(
+            session, user_id=user.id, code="freemonth"
+        )
+        assert result.granted_days == 30
+        assert result.plan == "standard_1m"
+        assert result.credited_kopecks == 0
+        assert result.wallet_entry is None
+
+
+@pytest.mark.integration
+async def test_subscription_promo_refuses_a_length_no_tariff_sells(session_pool):
+    """Rounding to the nearest tariff would quietly hand out a different length
+    than the code promises."""
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=920002)
+        await repo.create_promo_code(
+            code="ODDDAYS", kind=promo.PROMO_SUBSCRIPTION_GRANT, value=17, max_uses=1
+        )
+        await session.commit()
+        with pytest.raises(promo.PromoTypeError):
+            await promo.redeem_subscription_promo(session, user_id=user.id, code="ODDDAYS")
+
+
+@pytest.mark.integration
+async def test_subscription_promo_runs_out_after_its_uses(session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        await repo.create_promo_code(
+            code="TWICE", kind=promo.PROMO_SUBSCRIPTION_GRANT, value=30, max_uses=2
+        )
+        users = [await repo.create_user(telegram_id=920100 + i) for i in range(3)]
+        await session.commit()
+
+        for u in users[:2]:
+            await promo.redeem_subscription_promo(session, user_id=u.id, code="TWICE")
+        with pytest.raises(promo.PromoExhaustedError):
+            await promo.redeem_subscription_promo(session, user_id=users[2].id, code="TWICE")
+
+
+@pytest.mark.integration
+async def test_balance_promo_still_refuses_the_subscription_path(session_pool):
+    """The two kinds must not be interchangeable — a balance code redeemed as a
+    grant would hand out free access nobody authorised."""
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=920003)
+        await repo.create_promo_code(
+            code="CASHONLY", kind=promo.PROMO_BALANCE_BONUS, value=50000, max_uses=1
+        )
+        await session.commit()
+        with pytest.raises(promo.PromoTypeError):
+            await promo.redeem_subscription_promo(session, user_id=user.id, code="CASHONLY")

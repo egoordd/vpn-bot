@@ -333,13 +333,22 @@ async def promo_code_message_handler(
             username=message.from_user.username,
         )
         try:
-            result = await billing_api.redeem_balance_promo(session, user_id=user.id, code=code)
+            result = await billing_api.redeem_promo(session, user_id=user.id, code=code)
         except promo.PromoError as exc:
             await message.answer(_promo_error_text(exc), reply_markup=back_to_wallet_keyboard())
             return
         balance = await wallet.get_balance(session, user.id)
 
     await state.clear()
+    if result.kind == promo.PROMO_SUBSCRIPTION_GRANT:
+        # A grant hands over access itself, so there is no balance to report and
+        # nowhere to send the user but the connect screen.
+        await message.answer(
+            f"🎉 Промокод применён: подписка на {result.granted_days} дней уже активна.\n\n"
+            "Откройте «Подключить VPN» — конфигурация готова.",
+            reply_markup=back_to_wallet_keyboard(),
+        )
+        return
     await message.answer(
         f"🎉 Промокод применён: +{format_rub(result.credited_kopecks)}\n"
         f"Баланс: <b>{format_rub(balance)}</b>",
