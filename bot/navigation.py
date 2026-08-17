@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
@@ -33,4 +34,14 @@ async def show_screen(
         await message.answer(text, reply_markup=reply_markup)
         return
 
-    await message.edit_text(text, reply_markup=reply_markup)
+    try:
+        await message.edit_text(text, reply_markup=reply_markup)
+    except TelegramBadRequest as exc:
+        # Tapping the button for the screen you are already on asks Telegram to
+        # replace a message with itself, which it refuses. Nothing is wrong —
+        # the user sees exactly what they asked for — but it raised, so the
+        # handler died mid-flow and the owner got an error alert for a no-op.
+        # Anything else is a real failure and still propagates.
+        if "message is not modified" not in str(exc):
+            raise
+        logger.debug("Screen already showed this content; nothing to redraw")
