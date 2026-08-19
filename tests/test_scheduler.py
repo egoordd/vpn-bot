@@ -966,3 +966,56 @@ async def test_inbound_drift_survives_unreachable_panel(monkeypatch):
     await tasks.check_inbound_drift()
 
     alert.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_drift_check_audits_the_accounts_not_only_the_setting(monkeypatch):
+    """The setting can be right while customers are still short-changed. On
+    2026-08-19 the API process serving the website had been started five hours
+    before .env was edited and kept issuing the old three tags for nine days, to
+    six paying customers — the configuration matched the panel the whole time."""
+    gateway = SimpleNamespace(
+        provider="marzban",
+        client=SimpleNamespace(
+            get_inbounds=AsyncMock(return_value={"vless": [{"tag": "A"}, {"tag": "B"}]}),
+            list_users=AsyncMock(
+                return_value=[
+                    {"username": "shortchanged", "status": "active", "inbounds": {"vless": ["A"]}},
+                    {"username": "fine", "status": "active", "inbounds": {"vless": ["A", "B"]}},
+                    {"username": "gone", "status": "disabled", "inbounds": {"vless": []}},
+                ]
+            ),
+        ),
+    )
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: gateway)
+    monkeypatch.setattr(tasks.settings, "MARZBAN_DEFAULT_INBOUNDS", '{"vless": ["A", "B"]}')
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr(tasks, "send_alert", alert)
+
+    await tasks.check_inbound_drift()
+
+    sent = " ".join(str(call.args[0]) for call in alert.await_args_list)
+    assert "shortchanged" in sent
+    assert "fine" not in sent, "a fully provisioned account is not a problem"
+    assert "gone" not in sent, "disabled accounts are not customers"
+
+
+@pytest.mark.integration
+async def test_drift_check_stays_quiet_when_every_account_is_whole(monkeypatch):
+    gateway = SimpleNamespace(
+        provider="marzban",
+        client=SimpleNamespace(
+            get_inbounds=AsyncMock(return_value={"vless": [{"tag": "A"}]}),
+            list_users=AsyncMock(
+                return_value=[{"username": "ok", "status": "active", "inbounds": {"vless": ["A"]}}]
+            ),
+        ),
+    )
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: gateway)
+    monkeypatch.setattr(tasks.settings, "MARZBAN_DEFAULT_INBOUNDS", '{"vless": ["A"]}')
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr(tasks, "send_alert", alert)
+
+    await tasks.check_inbound_drift()
+
+    alert.assert_not_awaited()

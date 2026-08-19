@@ -699,6 +699,37 @@ async def check_inbound_drift() -> None:
             if tag and tag not in known:
                 missing.append(tag)
 
+    # The check above compares the panel against our configuration, which only
+    # catches a configuration that was never updated. On 2026-08-19 the
+    # configuration was right and customers were still short-changed: the API
+    # process serving the website had been started five hours before the file
+    # was edited and kept issuing the old three tags for nine days, to six
+    # paying customers. So the accounts themselves are audited too — that is the
+    # thing we actually promise, and it is wrong no matter which layer broke.
+    short: list[str] = []
+    try:
+        for user in await gateway.client.list_users():
+            if user.get("status") != "active":
+                continue
+            held = {tag for tags in (user.get("inbounds") or {}).values() for tag in tags}
+            if any(set(tags) - held for tags in defaults.values()):
+                short.append(str(user.get("username")))
+    except Exception:
+        logger.exception("Inbound drift check could not audit accounts")
+
+    if short:
+        logger.warning("Accounts issued fewer inbounds than configured: %s", ", ".join(short[:20]))
+        await send_alert(
+            "⚠️ У части активных подписок меньше инбаундов, чем задано в настройке.\n\n"
+            f"Затронуто аккаунтов: {len(short)}\n"
+            + "\n".join(f"• {name}" for name in short[:10])
+            + ("\n…" if len(short) > 10 else "")
+            + "\n\nОбычно это служба, запущенная до правки .env — перезапустите "
+            "unlock-api и unlock-vpnbot, затем выровняйте аккаунты.",
+            throttle_key="inbound_short_accounts",
+            cooldown=86400.0,
+        )
+
     if not missing:
         return
 

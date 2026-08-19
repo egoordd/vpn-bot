@@ -252,6 +252,13 @@ class MarzbanClient:
             raise MarzbanError(f"Unexpected create_user response: {response}")
         return self._normalize_user(_user_from_payload(response))
 
+    async def list_users(self, limit: int = 1000) -> list[dict[str, Any]]:
+        """Raw user records from the panel, for auditing what they were issued."""
+        response = await self._request("GET", f"/api/users?limit={limit}")
+        if not isinstance(response, dict):
+            raise MarzbanError(f"Unexpected list_users response: {response}")
+        return list(response.get("users") or [])
+
     async def get_user(self, username: str) -> MarzbanUser:
         response = await self._request("GET", f"/api/user/{quote(username, safe='')}")
         if not isinstance(response, dict):
