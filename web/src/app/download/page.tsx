@@ -20,7 +20,6 @@ const LINKS = {
   windows: "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe",
   macDmg: "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg",
   iosGlobal: "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215",
-  iosRu: "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6788279553",
   linuxDeb: "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.deb",
   linuxRpm: "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.rpm",
   linuxPkg:
@@ -122,19 +121,19 @@ export default function DownloadPage() {
             </p>
           </header>
 
-          <section className="dl__warn" aria-labelledby="fakes">
-            <Pill tone="warn">Осторожно</Pill>
-            <h2 id="fakes" className="dl__warn-title">
-              В поиске App Store настоящего Happ нет
+          <section className="dl__warn" aria-labelledby="appstore">
+            <Pill tone="warn">iPhone и iPad</Pill>
+            <h2 id="appstore" className="dl__warn-title">
+              Happ в App Store виден не всем
             </h2>
             <p>
-              По запросу «Happ» в российском App Store находятся <b>«Happ VPN»</b> и{" "}
-              <b>«Happ VPN&nbsp;++»</b>. Это другие приложения: у них другие разработчики и другие
-              идентификаторы, а название просто похожее. Ставить их не нужно.
+              Появится приложение в магазине или нет, зависит от одного — <b>какая страна указана
+              в вашем Apple&nbsp;ID</b>. Если российская, Happ там не показывается. Само приложение
+              работает и обновляется, дело только в витрине магазина.
             </p>
             <p className="dl__warn-check">
-              Настоящий Happ издан <b>Flyfrog LLC</b>. Это написано на странице приложения, в
-              разделе «Разработчик». Если там другое имя, перед вами не Happ.
+              Решается сменой страны App Store — это обычная настройка аккаунта, занимает пару минут
+              и в любой момент отменяется. Как именно — расписано ниже.
             </p>
           </section>
 
@@ -184,18 +183,9 @@ export default function DownloadPage() {
             <div className="dl__case">
               <h3 className="dl__case-title">Если Apple ID российский</h3>
               <p>
-                Сначала попробуйте прямую ссылку. У разработчика есть отдельная версия для России,{" "}
-                <b>Happ Proxy Utility Plus</b>. Поиском она не находится и открывается не у всех
-                аккаунтов.
-              </p>
-              <div className="dl__actions">
-                <Button href={LINKS.iosRu} variant="ghost">
-                  Российская версия
-                </Button>
-              </div>
-              <p className="dl__hint">
-                Если установилась, идите подключаться. Если App Store отвечает, что приложение
-                недоступно, меняйте страну магазина.
+                Отдельная российская сборка <b>Happ Proxy Utility Plus</b> раньше существовала, но
+                её убрали из App Store — сейчас она не открывается ни с какого аккаунта. Остаётся
+                один рабочий путь: сменить страну магазина, это делается за пару минут и обратимо.
               </p>
             </div>
 
