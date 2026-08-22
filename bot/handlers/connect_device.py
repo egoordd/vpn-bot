@@ -1,8 +1,17 @@
 import html
 import logging
+import re
 
 from aiogram import F, Router
-from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
@@ -12,6 +21,7 @@ from services.tariffs import resolve_tariff
 from database.models import Subscription
 from database.repository import Repository
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
+from services import mailer
 from services.qrcode import generate_qr_png_bytes
 from services.subscription import connect_page_url, to_gateway_subscription_url, to_happ_import_url
 from services.wireguard import WireGuardError, rotate_user_key
@@ -47,6 +57,11 @@ def _connect_device_keyboard(
         rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=site_url)])
     if auto_url:
         rows.append([InlineKeyboardButton(text="⚡️ Авто-обход — все локации", url=auto_url)])
+    # A customer in Russia cannot open Telegram without a working tunnel, so the
+    # screen that hands out the link is unreachable exactly when it is needed —
+    # "чтобы подключить VPN, надо включить другой". Mail puts the link somewhere
+    # that survives losing the tunnel.
+    rows.append([InlineKeyboardButton(text="📧 Прислать ссылку на почту", callback_data=f"connect_mail{suffix}")])
     rows.append([InlineKeyboardButton(text="❓ Как подключить вручную", callback_data=f"connect_help{suffix}")])
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -305,3 +320,127 @@ async def connect_help_handler(
         )
 
 
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class ConnectEmailInput(StatesGroup):
+    email = State()
+
+
+def _email_prompt_keyboard(sub_id: int | None) -> InlineKeyboardMarkup:
+    back = f"connect_loc:{sub_id}" if sub_id is not None else "connect_device"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data=back)],
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="main_menu")],
+        ]
+    )
+
+
+def _subscription_email_body(url: str) -> tuple[str, str]:
+    text = (
+        "Ваша ссылка-подписка UnLock VPN:\n\n"
+        f"{url}\n\n"
+        "Как подключиться:\n"
+        "1. Установите приложение — https://unlockvpn.site/download\n"
+        "2. Добавьте в него эту ссылку.\n"
+        "3. Включите туннель.\n\n"
+        "Ссылка постоянная: сохраните это письмо, и доступ можно будет восстановить "
+        "даже без Telegram.\n\n"
+        "Помощь: https://t.me/unlock_support_bot"
+    )
+    safe = html.escape(url)
+    body = (
+        "<p>Ваша ссылка-подписка <b>UnLock VPN</b>:</p>"
+        f'<p><a href="{safe}">{safe}</a></p>'
+        "<p>Как подключиться:</p><ol>"
+        '<li>Установите приложение — <a href="https://unlockvpn.site/download">'
+        "unlockvpn.site/download</a></li>"
+        "<li>Добавьте в него эту ссылку.</li><li>Включите туннель.</li></ol>"
+        "<p>Ссылка постоянная: сохраните это письмо, и доступ можно будет восстановить "
+        "даже без Telegram.</p>"
+    )
+    return text, body
+
+
+@router.callback_query(F.data.startswith("connect_mail"))
+async def connect_email_prompt_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    _, _, raw_id = (callback.data or "").partition(":")
+    sub_id = int(raw_id) if raw_id.isdigit() else None
+    if not mailer.is_configured():
+        await callback.answer("Отправка почты сейчас недоступна", show_alert=True)
+        return
+    await state.set_state(ConnectEmailInput.email)
+    await state.update_data(sub_id=sub_id)
+    await show_screen(
+        callback,
+        "📧 <b>Ссылка на почту</b>\n\n"
+        "Отправьте адрес — пришлём вашу ссылку-подписку письмом.\n\n"
+        + bq(
+            "Письмо пригодится, когда Telegram недоступен:",
+            "ссылку можно будет взять из почты и подключиться без бота.",
+        ),
+        _email_prompt_keyboard(sub_id),
+    )
+    await callback.answer()
+
+
+@router.message(ConnectEmailInput.email)
+async def connect_email_message_handler(
+    message: Message,
+    state: FSMContext,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    email = (message.text or "").strip()
+    data = await state.get_data()
+    sub_id = data.get("sub_id")
+    if not _EMAIL_RE.match(email) or len(email) > 320:
+        await message.answer(
+            "Это не похоже на email. Отправьте адрес вида <code>name@mail.ru</code>.",
+            reply_markup=_email_prompt_keyboard(sub_id),
+        )
+        return
+
+    await state.clear()
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+        )
+        try:
+            subs_with_links = await _active_subs_with_links(repo, user.id)
+        except PanelGatewayError:
+            logger.exception("Could not resolve subscription URL for email delivery user_id=%s", user.id)
+            subs_with_links = []
+        # Remember the address: it is also where a чек goes, and it is what makes
+        # recovering access possible later without Telegram.
+        await repo.update_user(user.id, email=email)
+
+    chosen = next((u for sub, u in subs_with_links if sub.id == sub_id), None)
+    if chosen is None and subs_with_links:
+        chosen = subs_with_links[0][1]
+    if not chosen:
+        await message.answer(
+            "Не нашли активную подписку. Откройте «🔌 Подключить VPN» ещё раз.",
+            reply_markup=back_to_menu_keyboard(),
+        )
+        return
+
+    text, body = _subscription_email_body(chosen)
+    sent = await mailer.send_email(email, "Ваша ссылка UnLock VPN", text, html=body)
+    if sent:
+        await message.answer(
+            f"📧 Отправили ссылку на <code>{html.escape(email)}</code>.\n\n"
+            "Если письма нет — загляните в «Спам».",
+            reply_markup=back_to_menu_keyboard(),
+        )
+    else:
+        # Never claim delivery we did not achieve: the whole point is that this
+        # copy is reachable when Telegram is not.
+        await message.answer(
+            "Не удалось отправить письмо. Попробуйте позже или напишите в поддержку.",
+            reply_markup=back_to_menu_keyboard(),
+        )
