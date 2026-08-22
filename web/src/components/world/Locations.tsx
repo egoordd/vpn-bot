@@ -2,16 +2,13 @@ import { WorldMap } from "./WorldMap";
 import "./locations.css";
 
 const LIVE = [
-  { flag: "🇩🇪", name: "Германия", note: "новый · Франкфурт" },
+  { flag: "🇩🇪", name: "Германия", note: "самый быстрый" },
+  { flag: "🇳🇱", name: "Нидерланды", note: "стабильно и быстро" },
   { flag: "🇺🇸", name: "США", note: "стабильно и быстро" },
   { flag: "🇵🇱", name: "Польша", note: "стабильно и быстро" },
 ];
 
-// 🇳🇱 sits here, not above: the node stopped passing traffic from Russia and is
-// being rebuilt, and a location we cannot serve does not belong in the list of
-// ones we can.
 const SOON = [
-  { flag: "🇳🇱", name: "Нидерланды" },
   { flag: "🇫🇮", name: "Финляндия" },
   { flag: "🇬🇧", name: "Англия" },
   { flag: "🗽", name: "Нью-Йорк" },

@@ -217,9 +217,31 @@ CASCADE_SID = os.environ.get("CASCADE_SID", "9a5e913a359a98a8")
 # (relay port, label, the exit it terminates on). The exit matters: a cascade
 # is a tunnel to the relay *and onward*, so it is only as alive as the node it
 # hands traffic to — see build_cascade_links.
+# Order decides the load: «Авто-обход» keeps one entry per host, every cascade
+# lives on the relay, so whichever country is first here is the one the balancer
+# rides and the one listed first for anyone choosing by hand.
+#
+# Poland leads from 2026-08-22, reversing the 2026-08-04 order. That order was
+# right when it was made — Frankfurt measured 114 Mbit/s against Warsaw's 75 —
+# and putting Poland first back then cost a third of the throughput and drew
+# "yesterday it was perfect, today it lags". Poland has since roughly doubled.
+# Three 100 MB pulls from the Moscow relay through each exit:
+#
+#     Poland      145, 127, 153  ->  142 Mbit/s
+#     Frankfurt   113, 137, 127  ->  126 Mbit/s
+#     Amsterdam    82, 133,  55  ->   90 Mbit/s
+#
+# Frankfurt still wins on latency (37 ms against Poland's 67 from Moscow), but a
+# cascade carries bulk traffic and its users have already accepted the Moscow
+# detour, so throughput is what they feel. Amsterdam is both slowest and by far
+# the least consistent, so it is not a candidate whatever its ping says.
+#
+# The load this moves is the point: Frankfurt was carrying 389 GB of the 554 we
+# served in thirty days, and `cascade-de` alone accounted for 297 GB of it,
+# climbing 24 GB a day. Poland has two idle cores and 3 GB free.
 CASCADE_COUNTRIES = (
-    (2096, "🇩🇪 Германия ✅ РУ сервисы", "166.0.28.132.sslip.io"),
     (2091, "🇵🇱 Польша ✅ РУ сервисы", "78.17.154.225.sslip.io"),
+    (2096, "🇩🇪 Германия ✅ РУ сервисы", "166.0.28.132.sslip.io"),
     # 🇳🇱 restored 2026-07-28 at the owner's call: it works from their vantage
     # point, which counts for more than one test line. Note it still measured
     # 1-3/10 from a Novosibirsk MTS line the same day, so if the silent

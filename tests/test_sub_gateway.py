@@ -717,11 +717,18 @@ def test_logging_survives_a_body_it_cannot_count(capsys):
 
 def test_the_fastest_cascade_comes_first():
     """«Авто-обход» takes one entry per host and every cascade shares the relay,
-    so whichever is listed first is the one the balancer gets. Measured from
-    Moscow 2026-08-04: Frankfurt 114 Mbit/s, Warsaw 75."""
+    so whichever is listed first is the one the balancer gets, and it should be
+    the exit that moves bulk traffic fastest.
+
+    Frankfurt held this slot on a 2026-08-04 measurement (114 Mbit/s against
+    Warsaw's 75). Re-measured 2026-08-22 with three 100 MB pulls from the Moscow
+    relay through each exit, Poland averaged 142 Mbit/s to Frankfurt's 126 and
+    was the steadier of the two. Frankfurt keeps the latency crown (37 ms vs
+    67), but a cascade user has already taken the Moscow detour and feels
+    throughput, not ping."""
     first_port, first_label, _ = sub_gateway.CASCADE_COUNTRIES[0]
-    assert "Германия" in first_label, "the fastest exit must lead the list"
-    assert first_port == 2096
+    assert "Польша" in first_label, "the fastest exit must lead the list"
+    assert first_port == 2091
 
 
 # --- a cascade is only as alive as the exit it hands traffic to ----------------
@@ -765,4 +772,5 @@ def test_announce_tells_the_two_automatic_entries_apart():
     text = sub_gateway.SUB_ANNOUNCE
     assert "Авто-обход" in text
     assert "РУ-сервисов" in text
+
 

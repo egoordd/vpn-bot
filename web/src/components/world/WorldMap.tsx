@@ -53,7 +53,7 @@ const NODES: readonly Node[] = [
   { id: "us", flag: "🇺🇸", name: "США", status: "live", col: 12, row: 6 },
   // Offline since 2026-08-01 — the node stopped passing traffic from Russia and
   // is being rebuilt. Shown as coming back rather than as a server we have.
-  { id: "nl", flag: "🇳🇱", name: "Нидерланды", status: "soon", col: 22, row: 4 },
+  { id: "nl", flag: "🇳🇱", name: "Нидерланды", status: "live", col: 22, row: 4 },
   { id: "pl", flag: "🇵🇱", name: "Польша", status: "live", col: 24, row: 5, labelBelow: true },
   { id: "uk", flag: "🇬🇧", name: "Англия", status: "soon", col: 20, row: 4 },
   { id: "de", flag: "🇩🇪", name: "Германия", status: "live", col: 22, row: 6, labelBelow: true },
@@ -88,7 +88,7 @@ export function WorldMap() {
         viewBox={`0 0 ${W} ${H}`}
         className="wmap__svg"
         role="img"
-        aria-label="Карта мира: активные локации UnLock — США, Польша, Германия; скоро — Нидерланды, Финляндия, Англия, Нью-Йорк, Лос-Анджелес, ОАЭ"
+        aria-label="Карта мира: активные локации UnLock — США, Польша, Германия, Нидерланды; скоро — Финляндия, Англия, Нью-Йорк, Лос-Анджелес, ОАЭ"
       >
         <g className="wmap__land">
           {dots.map((d, i) => (
