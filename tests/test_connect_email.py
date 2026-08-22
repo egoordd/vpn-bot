@@ -113,3 +113,30 @@ async def test_no_subscription_means_no_mail(session_pool, monkeypatch):
 
     send.assert_not_awaited()
     assert "не нашли активную подписку" in message.answer.await_args.args[0].lower()
+
+
+@pytest.mark.integration
+async def test_mailing_the_link_also_opens_the_site_cabinet(session_pool):
+    """The two halves have to meet: the bot saves the address on the Telegram
+    account, and registering on the site with that same address claims THAT
+    account rather than creating a second one. Otherwise we would be telling a
+    customer to go to a cabinet that shows an empty account — which is exactly
+    how the last support ticket started."""
+    from services import billing_api
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=900904)
+        await repo.update_user(user.id, email="vladimir@mail.ru")
+        await session.commit()
+        telegram_id = user.telegram_id
+
+        claimed = await billing_api.register_web_account(
+            session, email="vladimir@mail.ru", password="correct horse battery"
+        )
+        assert claimed == telegram_id, "the cabinet must land on his real account"
+
+        again = await billing_api.authenticate_web_account(
+            session, email="vladimir@mail.ru", password="correct horse battery"
+        )
+        assert again == telegram_id
