@@ -68,9 +68,21 @@ const CATALOG: Record<Platform, AppEntry[]> = {
   ],
   windows: [
     {
-      name: "Hiddify",
-      note: "рекомендуем",
+      name: "Happ",
+      note: "проще всего",
       recommended: true,
+      scheme: (u) => `happ://add/${u}`,
+      // Our own /download page, where the link is a verified `latest` release
+      // that cannot go stale. Sending Windows users to a third party's site to
+      // pick a file themselves is how one of them ended up on a release asset
+      // that no longer exists and reported a 404 — the page also disagreed with
+      // /download, which has recommended Happ all along.
+      store: { windows: "/download" },
+      guide: true,
+    },
+    {
+      name: "Hiddify",
+      note: "кросс-платформенный",
       scheme: (u) => `hiddify://import/${u}`,
       store: { windows: "https://hiddify.com/" },
     },
@@ -105,9 +117,16 @@ const CATALOG: Record<Platform, AppEntry[]> = {
   ],
   linux: [
     {
-      name: "Hiddify",
-      note: "рекомендуем",
+      name: "Happ",
+      note: "проще всего",
       recommended: true,
+      scheme: (u) => `happ://add/${u}`,
+      store: { linux: "/download" },
+      guide: true,
+    },
+    {
+      name: "Hiddify",
+      note: "кросс-платформенный",
       scheme: (u) => `hiddify://import/${u}`,
       store: { linux: "https://hiddify.com/" },
     },
