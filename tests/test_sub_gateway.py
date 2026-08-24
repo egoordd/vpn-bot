@@ -774,3 +774,36 @@ def test_announce_tells_the_two_automatic_entries_apart():
     assert "РУ-сервисов" in text
 
 
+
+
+# --- "never expires" has to look like a date, not like 1970 -------------------
+
+def test_unlimited_expiry_is_sent_as_a_real_future_date():
+    """An unlimited link was reported as «link has expired» when a device tried
+    to add it, while the gateway had served that exact token sixteen entries,
+    four times in five minutes, without an error. expire=0 means unlimited by
+    convention, but it is also a valid timestamp pointing at 1970, and a client
+    reading it as one sees a subscription that ran out fifty years ago."""
+    out = sub_gateway._normalise_userinfo("upload=0; download=68170256201; total=0; expire=0")
+    assert "expire=0;" not in out and not out.endswith("expire=0")
+    assert f"expire={sub_gateway._NEVER_EXPIRES}" in out
+    assert sub_gateway._userinfo_expired(out) is False
+
+
+def test_a_real_expiry_is_passed_through_untouched():
+    """Only unlimited accounts carry expire=0. Rewriting anything else would
+    hand a lapsed subscription a future date and keep serving it."""
+    past = "upload=0; download=1; total=0; expire=1000000"
+    assert sub_gateway._normalise_userinfo(past) == past
+    assert sub_gateway._userinfo_expired(past) is True
+
+
+def test_a_zero_inside_another_number_is_not_rewritten():
+    """expire=0 must match the whole value, not the leading zero of a real one."""
+    live = "upload=0; download=1; total=0; expire=2000000000"
+    assert sub_gateway._normalise_userinfo(live) == live
+
+
+def test_missing_userinfo_stays_missing():
+    assert sub_gateway._normalise_userinfo(None) is None
+    assert sub_gateway._normalise_userinfo("") == ""

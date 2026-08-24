@@ -478,6 +478,29 @@ def _userinfo_expired(userinfo: str | None) -> bool:
     return 0 < expire < time.time()
 
 
+# A far-future stand-in for "never expires".
+#
+# The convention is that expire=0 means unlimited, and this gateway reads it
+# that way (see _userinfo_expired). Clients do not all agree: an unlimited link
+# was reported as «link has expired» when a device tried to add it on
+# 2026-08-24, while the gateway had served that exact token sixteen entries,
+# four times in five minutes, with no error. Zero is also a perfectly good
+# timestamp pointing at 1970, and a client that reads it as one sees a
+# subscription that ran out fifty years ago.
+#
+# Only unlimited accounts carry expire=0, which is why nothing else showed this.
+# Sending a real date instead removes the ambiguity without changing what the
+# subscription is worth.
+_NEVER_EXPIRES = 4102444800  # 2100-01-01 UTC
+
+
+def _normalise_userinfo(userinfo: str | None) -> str | None:
+    """Replace an unlimited expire=0 with a date no client can misread."""
+    if not userinfo:
+        return userinfo
+    return re.sub(r"expire=0(?![0-9])", f"expire={_NEVER_EXPIRES}", userinfo)
+
+
 def _marzban_sub_active(token: str) -> bool:
     """False when Marzban reports the user as expired/disabled/limited.
 
@@ -801,7 +824,7 @@ class Handler(BaseHTTPRequestHandler):
             if is_json and (is_auto or is_split):
                 extra.update(AUTO_HEADERS)
             if userinfo:
-                extra["subscription-userinfo"] = userinfo
+                extra["subscription-userinfo"] = _normalise_userinfo(userinfo)
             ctype = "application/json; charset=utf-8" if is_json else "text/plain; charset=utf-8"
             _log_served(token, ua, "json" if is_json else "base64", body)
             self._send(200, body.encode("utf-8"), ctype, extra)
@@ -814,7 +837,7 @@ class Handler(BaseHTTPRequestHandler):
         payload, userinfo = result
         extra = _client_headers()
         if userinfo:
-            extra["subscription-userinfo"] = userinfo
+            extra["subscription-userinfo"] = _normalise_userinfo(userinfo)
         _log_served(token, ua, "base64", payload)
         self._send(200, payload.encode("ascii"), "text/plain; charset=utf-8", extra)
 
