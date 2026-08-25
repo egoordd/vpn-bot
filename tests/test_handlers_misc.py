@@ -235,3 +235,36 @@ async def test_help_command_shows_connect_and_support():
     assert "Как подключиться" in text
     assert "Поддержка" in text
     assert "700" in text
+
+
+@pytest.mark.integration
+async def test_topup_screen_warns_that_it_needs_crypto():
+    """Topping up is crypto-only, and paying a CryptoBot invoice needs crypto
+    already in that wallet. Five top-ups have been attempted since the method
+    went live and none completed; one customer spent a day believing he had paid
+    and had only been stuck at CryptoBot's password screen. Buying a tariff does
+    take a card, so the screen has to say so before it hands out an invoice."""
+    from bot.handlers import wallet as wallet_handlers
+
+    shown: list[str] = []
+
+    async def capture(callback, text, keyboard=None):
+        shown.append(text)
+
+    class _State:
+        async def clear(self):
+            pass
+
+    callback = SimpleNamespace(data="topup_menu", answer=AsyncMock(),
+                               message=SimpleNamespace(photo=None))
+    original = wallet_handlers._edit_current_message
+    wallet_handlers._edit_current_message = capture
+    try:
+        await wallet_handlers.topup_menu_handler(callback, _State())
+    finally:
+        wallet_handlers._edit_current_message = original
+
+    body = shown[0]
+    assert "криптовалютой" in body, "the requirement must be stated, not discovered"
+    assert "картой" in body.lower(), "a card buyer needs to be sent somewhere that works"
+    assert "Купить подписку" in body

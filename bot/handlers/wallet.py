@@ -124,13 +124,23 @@ async def wallet_handler(
 @router.callback_query(F.data == "topup_menu")
 async def topup_menu_handler(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
+    # Say the crypto requirement out loud, before the invoice. Topping up is
+    # crypto-only, and paying a CryptoBot invoice needs crypto already sitting
+    # in that wallet — which most of our buyers do not have. Five top-ups have
+    # been attempted since the method went live and none completed; one customer
+    # spent a day believing he had paid, and had only been stuck at CryptoBot's
+    # password screen. Buying a tariff outright does take a card, so anyone
+    # without crypto should be sent there instead of into this dead end.
     text = (
         "➕ <b>Пополнение баланса</b>\n\n"
         + bq(
-            "💵 Счёт выставляется в USDT через CryptoBot",
+            "💵 Пополнение работает только криптовалютой (USDT через CryptoBot)",
+            "⚠️ Нужен счёт в CryptoBot с криптовалютой на нём",
             "💰 Баланс зачисляется в рублях автоматически",
         )
-        + "\n\nВыберите сумму или укажите свою."
+        + "\n\n💳 <b>Хотите оплатить картой?</b> Баланс для этого не нужен — "
+        "вернитесь в меню и нажмите «🛒 Купить подписку», там есть оплата картой.\n\n"
+        "Выберите сумму или укажите свою."
     )
     await _edit_current_message(callback, text, topup_keyboard(TOPUP_PRESETS_KOPECKS))
     await callback.answer()
