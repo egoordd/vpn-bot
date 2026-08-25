@@ -134,3 +134,23 @@ async def test_unavailable_is_a_cryptobot_error_subclass():
     from services.cryptobot import CryptoBotUnavailableError
 
     assert issubclass(CryptoBotUnavailableError, CryptoBotError)
+
+
+@pytest.mark.unit
+def test_an_invoice_outlives_a_slow_transfer():
+    """An hour is the wrong scale for this payment method. Paying from a
+    CryptoBot balance is instant, but a transfer from an outside wallet has to
+    confirm on-chain first. A customer said on 2026-08-25 that he had paid
+    "within the hour" and found nothing credited; his invoice had lapsed unpaid,
+    and no invoice on the account had ever been paid — five attempts, none
+    completed."""
+    assert cryptobot.CRYPTO_INVOICE_TTL >= 6 * 3600
+
+
+@pytest.mark.unit
+def test_the_lifetime_is_what_new_invoices_get():
+    """The constant is worthless if the default argument still says 3600."""
+    import inspect
+
+    default = inspect.signature(cryptobot.create_invoice).parameters["expires_in"].default
+    assert default == cryptobot.CRYPTO_INVOICE_TTL

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import os
+
 import aiohttp
 
 from config import settings
@@ -19,6 +21,20 @@ class CryptoBotUnavailableError(CryptoBotError):
 def is_configured() -> bool:
     """Whether CryptoBot crypto payments are available (token present)."""
     return bool(settings.CRYPTOBOT_TOKEN.strip())
+
+
+# How long a crypto invoice stays payable.
+#
+# It was an hour, which is the wrong scale for this payment method. Paying from
+# a CryptoBot balance is instant, but a transfer from an outside wallet has to
+# confirm on-chain first, and an hour is not a comfortable margin for that. A
+# customer told us on 2026-08-25 that he had paid "within the hour" and found
+# nothing credited; his invoice had lapsed unpaid, and no invoice on this
+# account has ever been paid — five attempts, none completed.
+#
+# Six hours costs nothing: an unpaid invoice simply expires later, and the
+# payload carries the user and amount, so a late payment still lands correctly.
+CRYPTO_INVOICE_TTL = int(os.environ.get("CRYPTO_INVOICE_TTL", str(6 * 3600)))
 
 
 async def _request(method: str, endpoint: str, **params: Any) -> Any:
@@ -72,7 +88,7 @@ async def create_invoice(
     payload: str,
     description: str,
     asset: str = "USDT",
-    expires_in: int = 3600,
+    expires_in: int = CRYPTO_INVOICE_TTL,
 ) -> dict[str, Any]:
     result = await _request(
         "POST",
