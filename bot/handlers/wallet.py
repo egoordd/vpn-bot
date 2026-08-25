@@ -197,13 +197,25 @@ async def topup_amount_message_handler(
     )
 
 
-def _topup_payment_keyboard(pay_url: str, amount_usdt: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"🔓 Оплатить — {amount_usdt} USDT", url=pay_url)],
-            [InlineKeyboardButton(text="◀️ К кошельку", callback_data="wallet")],
-        ]
-    )
+def _topup_payment_keyboard(
+    pay_url: str, amount_usdt: str, web_url: str | None = None
+) -> InlineKeyboardMarkup:
+    """Both ways in, because one of them fails depending on where you tap it.
+
+    The Telegram link (t.me/CryptoBot?start=…) works inside the app and breaks
+    in a browser: Telegram asks to log in, wants the two-factor password, and
+    then loses the invoice the link was carrying, so the page closes with
+    nothing paid. A customer hit exactly that on 2026-08-25 and spent a day
+    believing his 600 RUB had gone somewhere.
+
+    CryptoBot also issues a plain web address that opens the same invoice with
+    no Telegram login at all, so it is offered next to the first one.
+    """
+    rows = [[InlineKeyboardButton(text=f"🔓 Оплатить — {amount_usdt} USDT", url=pay_url)]]
+    if web_url:
+        rows.append([InlineKeyboardButton(text="🌐 Открыть в браузере", url=web_url)])
+    rows.append([InlineKeyboardButton(text="◀️ К кошельку", callback_data="wallet")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def _create_topup_invoice(
@@ -234,7 +246,8 @@ async def _create_topup_invoice(
         await on_error("Не удалось создать счёт. Попробуйте позже.")
         return
 
-    pay_url = invoice.get("pay_url") or invoice.get("bot_invoice_url")
+    pay_url = invoice.get("bot_invoice_url") or invoice.get("pay_url")
+    web_url = invoice.get("web_app_invoice_url")
     external_invoice_id = invoice.get("invoice_id")
     if not pay_url or external_invoice_id is None:
         logger.error("CryptoBot returned malformed top-up invoice: %s", invoice)
@@ -258,9 +271,15 @@ async def _create_topup_invoice(
             f"💵 К оплате: {amount_usdt} USDT",
             f"📈 Курс: {settings.RUB_PER_USDT}₽/USDT",
         )
-        + "\n\nБаланс зачислится автоматически в течение минуты после оплаты."
+        + "\n\nОплатить нужно криптовалютой со счёта в CryptoBot.\n"
+        "Если кнопка открывает Telegram и просит пароль, а потом закрывается — "
+        "жмите «🌐 Открыть в браузере», там вход не нужен.\n\n"
+        "Баланс зачислится автоматически в течение минуты после оплаты."
     )
-    await send(text, reply_markup=_topup_payment_keyboard(str(pay_url), amount_usdt))
+    await send(
+        text,
+        reply_markup=_topup_payment_keyboard(str(pay_url), amount_usdt, web_url),
+    )
 
 
 @router.callback_query(F.data.startswith("topup:"))

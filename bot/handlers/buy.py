@@ -38,13 +38,17 @@ def _crypto_minor_units(amount: str) -> int:
     return crypto_minor_units(amount)
 
 
-def _payment_keyboard(pay_url: str, amount: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"🔓 Оплатить — {amount} USDT", url=pay_url)],
-            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
-        ]
-    )
+def _payment_keyboard(
+    pay_url: str, amount: str, web_url: str | None = None
+) -> InlineKeyboardMarkup:
+    """Telegram link plus the plain web one, because either can be the broken
+    path. Opened in a browser, t.me/CryptoBot asks to log in, wants the
+    two-factor password, then loses the invoice it was carrying and closes."""
+    rows = [[InlineKeyboardButton(text=f"🔓 Оплатить — {amount} USDT", url=pay_url)]]
+    if web_url:
+        rows.append([InlineKeyboardButton(text="🌐 Открыть в браузере", url=web_url)])
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def _edit_current_message(callback: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup) -> None:
@@ -231,6 +235,7 @@ async def _create_payment_invoice(
 
     external_invoice_id = invoice.get("invoice_id")
     pay_url = invoice.get("bot_invoice_url") or invoice.get("pay_url") or invoice.get("mini_app_invoice_url")
+    web_url = invoice.get("web_app_invoice_url")
     if external_invoice_id is None or not pay_url:
         logger.error("CryptoBot invoice has no invoice_id or payment URL: %s", invoice)
         await _send_callback_message(callback, bot, "CryptoBot вернул некорректный счёт. Напишите в поддержку.")
@@ -261,7 +266,7 @@ async def _create_payment_invoice(
         + tail
     )
 
-    keyboard = _payment_keyboard(str(pay_url), intent.amount)
+    keyboard = _payment_keyboard(str(pay_url), intent.amount, web_url)
     await _send_callback_message(callback, bot, text, keyboard)
 
 
