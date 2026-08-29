@@ -4,7 +4,7 @@ import pytest
 
 from database.repository import Repository
 from services.panel_client import PanelUsage, PanelUser, RemnawaveNotFoundError
-from services.panel_gateway import PanelAccount, PanelUserNotFoundError
+from services.panel_gateway import PanelAccount, PanelGatewayError, PanelUserNotFoundError
 from services.payment import PLANS
 from services.subscription import (
     _aware,
@@ -195,6 +195,8 @@ class FakePanelClient:
         self.exists = exists
         self.created: list[dict[str, object]] = []
         self.modified: list[dict[str, object]] = []
+        self.reset_calls: list[str] = []
+        self.last_username = ""
 
     async def get_user(self, username: str) -> PanelUser:
         if not self.exists:
@@ -211,7 +213,12 @@ class FakePanelClient:
         self.exists = True
         return self._panel_user(str(kwargs["username"]))
 
+    async def reset_user_traffic(self, uuid: str) -> PanelUser:
+        self.reset_calls.append(uuid)
+        return self._panel_user(self.last_username)
+
     def _panel_user(self, username: str) -> PanelUser:
+        self.last_username = username
         return PanelUser(
             uuid="uuid",
             username=username,
@@ -229,10 +236,12 @@ class FakePanelClient:
 class FakeGenericPanelGateway:
     provider = "marzban"
 
-    def __init__(self, exists: bool = False):
+    def __init__(self, exists: bool = False, reset_fails: bool = False):
         self.exists = exists
+        self.reset_fails = reset_fails
         self.created: list[dict[str, object]] = []
         self.modified: list[dict[str, object]] = []
+        self.reset_calls: list[str] = []
 
     def build_username(self, telegram_id: int) -> str:
         return f"mz_{telegram_id}"
@@ -252,7 +261,13 @@ class FakeGenericPanelGateway:
         self.exists = True
         return self._account(str(kwargs["username"]))
 
-    def _account(self, username: str) -> PanelAccount:
+    async def reset_traffic(self, username: str) -> PanelAccount:
+        if self.reset_fails:
+            raise PanelGatewayError("panel refused the reset")
+        self.reset_calls.append(username)
+        return self._account(username, used_traffic_bytes=0)
+
+    def _account(self, username: str, used_traffic_bytes: int = 77) -> PanelAccount:
         return PanelAccount(
             username=username,
             short_uuid=username,
@@ -260,7 +275,7 @@ class FakeGenericPanelGateway:
             status="active",
             expire_at=1783036800,
             traffic_limit_bytes=10 * 1024**3,
-            used_traffic_bytes=77,
+            used_traffic_bytes=used_traffic_bytes,
             lifetime_used_traffic_bytes=88,
             device_limit=None,
             provider=self.provider,
@@ -435,3 +450,62 @@ def test_to_happ_import_url_auto_flavor():
         to_happ_import_url("https://sub.unlockvpn.site/sub/abc123")
         == "https://sub.unlockvpn.site/happ/abc123"
     )
+
+
+@pytest.mark.unit
+async def test_renewal_zeroes_the_carried_over_traffic_counter(db_session):
+    """Paying again must buy a fresh allowance, not the remains of the last one.
+
+    The panel counts traffic against the account rather than the period paid
+    for, so without this a customer who burned 140 of 150 GB and then renewed
+    would get 10 GB for their money.
+    """
+    user = await Repository(db_session).create_user(telegram_id=6001)
+    gateway = FakeGenericPanelGateway(exists=True)
+
+    subscription = await activate_panel_subscription(db_session, user.id, "standard_1m", panel_gateway=gateway)
+
+    assert gateway.reset_calls == ["mz_6001"]
+    assert subscription.traffic_used_bytes == 0
+    assert gateway.modified[0]["traffic_resets_monthly"] is True
+
+
+@pytest.mark.unit
+async def test_first_purchase_creates_the_account_without_a_reset(db_session):
+    """A brand-new panel account has nothing to zero."""
+    user = await Repository(db_session).create_user(telegram_id=6002)
+    gateway = FakeGenericPanelGateway(exists=False)
+
+    await activate_panel_subscription(db_session, user.id, "standard_1m", panel_gateway=gateway)
+
+    assert gateway.reset_calls == []
+    assert gateway.created[0]["traffic_resets_monthly"] is True
+
+
+@pytest.mark.unit
+async def test_trial_never_resets_an_existing_counter(db_session):
+    """Otherwise re-taking the trial would hand out free traffic on demand."""
+    user = await Repository(db_session).create_user(telegram_id=6003)
+    gateway = FakeGenericPanelGateway(exists=True)
+
+    await activate_panel_subscription(db_session, user.id, "trial", panel_gateway=gateway)
+
+    assert gateway.reset_calls == []
+    assert gateway.modified[0]["traffic_resets_monthly"] is False
+
+
+@pytest.mark.unit
+async def test_a_failed_reset_still_delivers_the_paid_subscription(db_session):
+    """Losing the purchase is worse than carrying a stale counter for a while.
+
+    The panel's own 30-day sweep clears the counter either way; a crash here
+    would take the activation down with it.
+    """
+    user = await Repository(db_session).create_user(telegram_id=6004)
+    gateway = FakeGenericPanelGateway(exists=True, reset_fails=True)
+
+    subscription = await activate_panel_subscription(db_session, user.id, "standard_1m", panel_gateway=gateway)
+
+    assert subscription.is_active is True
+    assert subscription.panel_username == "mz_6004"
+    assert gateway.reset_calls == []

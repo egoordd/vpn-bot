@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,6 +15,8 @@ from services.panel_gateway import (
 )
 from services.payment import PLANS
 from services.tariffs import TARIFFS, Tariff, resolve_tariff
+
+logger = logging.getLogger(__name__)
 
 
 def _aware(value: datetime) -> datetime:
@@ -183,7 +186,24 @@ async def activate_panel_subscription(
             status="active",
             tag=tariff.tier,
             inbounds=region_inbounds,
+            traffic_resets_monthly=tariff.traffic_resets_monthly,
         )
+        # A renewal reuses the panel account, and the panel counts traffic
+        # against the account, not against the period that was paid for. Left
+        # alone, last month's consumption is still sitting there when the new
+        # month starts, so someone who used 140 of 150 GB and then paid again
+        # would get 10 GB for their money. Zero it at the boundary; this also
+        # re-anchors the panel's own 30-day refill to the day they paid.
+        if tariff.traffic_resets_monthly:
+            try:
+                panel_user = await gateway.reset_traffic(panel_username)
+            except Exception:
+                # Deliberately broad: the customer has paid, and nothing about
+                # zeroing a counter is worth losing that. A panel that cannot
+                # reset leaves them on the carried-over counter until the
+                # rolling sweep clears it — bad, but recoverable. A crash here
+                # would drop the purchase itself, which is not.
+                logger.exception("Failed to reset traffic on renewal for %s", panel_username)
     else:
         panel_user = await gateway.create_user(
             username=panel_username,
@@ -195,6 +215,7 @@ async def activate_panel_subscription(
             description=f"Telegram user {user.telegram_id}",
             tag=tariff.tier,
             inbounds=region_inbounds,
+            traffic_resets_monthly=tariff.traffic_resets_monthly,
         )
 
     await repo.deactivate_subscriptions_in_lane(user_id, is_premium)

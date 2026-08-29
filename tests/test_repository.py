@@ -286,3 +286,75 @@ async def test_node_repository_methods(db_session):
 
     assert await repo.delete_node(premium_busy.id) is True
     assert await repo.delete_node(premium_busy.id) is False
+
+
+@pytest.mark.integration
+async def test_traffic_limited_subscriptions_skip_rows_a_renewal_superseded(db_session):
+    """Only the newest row per panel account may be revived.
+
+    A renewal deactivates the earlier rows in the lane but leaves their status
+    alone, so an old `limited` row can outlive its replacement. Reviving one
+    would leave the user holding two live subscriptions against a single panel
+    account.
+    """
+    repo = Repository(db_session)
+    user = await repo.create_user(telegram_id=7101)
+    now = datetime.now(timezone.utc)
+
+    superseded = await repo.create_subscription(
+        user_id=user.id,
+        plan="standard_1m",
+        tier="standard",
+        panel_username="tg_7101",
+        traffic_limit_bytes=150 * 1024**3,
+        started_at=now - timedelta(days=20),
+        expires_at=now + timedelta(days=10),
+        is_active=False,
+        status="limited",
+    )
+    newest = await repo.create_subscription(
+        user_id=user.id,
+        plan="standard_1m",
+        tier="standard",
+        panel_username="tg_7101",
+        traffic_limit_bytes=150 * 1024**3,
+        started_at=now,
+        expires_at=now + timedelta(days=40),
+        is_active=False,
+        status="limited",
+    )
+
+    parked = await repo.list_traffic_limited_subscriptions()
+
+    assert [item.id for item in parked] == [newest.id]
+    assert superseded.id not in {item.id for item in parked}
+
+
+@pytest.mark.integration
+async def test_traffic_limited_subscriptions_ignore_expired_and_healthy_rows(db_session):
+    repo = Repository(db_session)
+    user = await repo.create_user(telegram_id=7102)
+    now = datetime.now(timezone.utc)
+
+    await repo.create_subscription(
+        user_id=user.id,
+        plan="standard_1m",
+        tier="standard",
+        panel_username="tg_7102_expired",
+        started_at=now - timedelta(days=60),
+        expires_at=now - timedelta(days=1),
+        is_active=False,
+        status="limited",
+    )
+    await repo.create_subscription(
+        user_id=user.id,
+        plan="standard_1m",
+        tier="standard",
+        panel_username="tg_7102_active",
+        started_at=now,
+        expires_at=now + timedelta(days=30),
+        is_active=True,
+        status="active",
+    )
+
+    assert await repo.list_traffic_limited_subscriptions() == []

@@ -46,6 +46,7 @@ class FakeMarzbanClient:
     def __init__(self):
         self.created: list[dict[str, object]] = []
         self.modified: list[dict[str, object]] = []
+        self.reset_calls: list[str] = []
 
     async def get_user(self, username: str) -> MarzbanUser:
         if username == "missing":
@@ -60,14 +61,20 @@ class FakeMarzbanClient:
         self.modified.append({"username": username, **kwargs})
         return self._user(username, status=str(kwargs.get("status") or "active"))
 
-    def _user(self, username: str, status: str = "active") -> MarzbanUser:
+    async def reset_user_data_usage(self, username: str) -> MarzbanUser:
+        if username == "missing":
+            raise MarzbanNotFoundError("missing")
+        self.reset_calls.append(username)
+        return self._user(username, used_traffic_bytes=0)
+
+    def _user(self, username: str, status: str = "active", used_traffic_bytes: int = 123) -> MarzbanUser:
         return MarzbanUser(
             username=username,
             status=status,
             subscription_url=f"https://panel.example/sub/{username}",
             expire=1783036800,
             data_limit_bytes=10 * 1024**3,
-            used_traffic_bytes=123,
+            used_traffic_bytes=used_traffic_bytes,
             lifetime_used_traffic_bytes=456,
             proxies={"vless": {}},
             inbounds={"vless": ["VLESS TCP REALITY"]},
@@ -162,3 +169,67 @@ def test_panel_configuration_selects_provider(monkeypatch):
 
     assert is_panel_configured() is True
     assert isinstance(get_panel_gateway(), RemnawavePanelGateway)
+
+
+@pytest.mark.unit
+async def test_marzban_gateway_lets_the_tariff_decide_the_reset_strategy(monkeypatch):
+    """The per-user flag must beat the global setting.
+
+    A stale MARZBAN_DATA_LIMIT_RESET_STRATEGY in .env is what sold one-shot
+    quotas for months, so the tariff's own answer has to win outright.
+    """
+    monkeypatch.setattr("services.panel_gateway.settings.MARZBAN_DATA_LIMIT_RESET_STRATEGY", "no_reset")
+    client = FakeMarzbanClient()
+    gateway = MarzbanPanelGateway(client)
+    expires_at = datetime(2026, 7, 3, tzinfo=timezone.utc)
+
+    await gateway.create_user(username="tg_100", expire_at=expires_at, traffic_resets_monthly=True)
+    await gateway.modify_user(username="tg_100", expire_at=expires_at, traffic_resets_monthly=False)
+
+    assert client.created[0]["data_limit_reset_strategy"] == "month"
+    assert client.modified[0]["data_limit_reset_strategy"] == "no_reset"
+
+
+@pytest.mark.unit
+async def test_marzban_gateway_falls_back_to_the_setting_when_unspecified(monkeypatch):
+    monkeypatch.setattr("services.panel_gateway.settings.MARZBAN_DATA_LIMIT_RESET_STRATEGY", "week")
+    client = FakeMarzbanClient()
+    gateway = MarzbanPanelGateway(client)
+
+    await gateway.create_user(username="tg_100", expire_at=datetime(2026, 7, 3, tzinfo=timezone.utc))
+
+    assert client.created[0]["data_limit_reset_strategy"] == "week"
+
+
+@pytest.mark.unit
+async def test_marzban_gateway_reset_traffic_zeroes_the_counter():
+    client = FakeMarzbanClient()
+    gateway = MarzbanPanelGateway(client)
+
+    account = await gateway.reset_traffic("tg_100")
+
+    assert client.reset_calls == ["tg_100"]
+    assert account.used_traffic_bytes == 0
+
+
+@pytest.mark.unit
+async def test_marzban_gateway_reset_traffic_maps_not_found():
+    gateway = MarzbanPanelGateway(FakeMarzbanClient())
+
+    with pytest.raises(PanelUserNotFoundError):
+        await gateway.reset_traffic("missing")
+
+
+@pytest.mark.unit
+async def test_remnawave_gateway_lets_the_tariff_decide_the_reset_strategy(monkeypatch):
+    monkeypatch.setattr("services.panel_gateway.settings.REMNAWAVE_DEFAULT_TRAFFIC_RESET_STRATEGY", "NO_RESET")
+    client = FakeRemnawaveClient()
+    gateway = RemnawavePanelGateway(client)
+
+    await gateway.create_user(
+        username="tg_100",
+        expire_at=datetime(2026, 7, 3, tzinfo=timezone.utc),
+        traffic_resets_monthly=True,
+    )
+
+    assert client.created[0]["traffic_limit_strategy"] == "MONTH"

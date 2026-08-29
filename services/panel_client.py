@@ -320,6 +320,17 @@ class RemnawaveClient:
         await self._request("DELETE", f"/api/users/{quote(uuid, safe='')}")
         return True
 
+    async def reset_user_traffic(self, uuid: str) -> PanelUser:
+        """Zero the traffic counter for a user, addressed by UUID.
+
+        Untested against a live panel: Remnawave has been dormant since the
+        migration was abandoned and Marzban serves every node today.
+        """
+        response = await self._request("POST", f"/api/users/{quote(uuid, safe='')}/actions/reset-traffic")
+        if not isinstance(response, dict):
+            raise RemnawaveError(f"Unexpected reset_user_traffic response: {response}")
+        return _user_from_payload(response)
+
     async def get_usage(self, username: str) -> PanelUsage:
         user = await self.get_user(username)
         return user.usage

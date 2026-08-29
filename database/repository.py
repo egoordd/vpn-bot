@@ -318,6 +318,39 @@ class Repository:
         )
         return list(result.scalars().all())
 
+    async def list_traffic_limited_subscriptions(self) -> list[Subscription]:
+        """Paid-up subscriptions parked by the traffic cap, awaiting a refill.
+
+        Hitting the cap flips a subscription inactive, which drops it out of
+        `list_active_panel_subscriptions` — so when the panel refills the
+        monthly allowance and unblocks the account, nothing on our side ever
+        notices and the subscription stays dead for the rest of a term the
+        customer already paid for. These rows are the ones worth re-checking.
+
+        Only the newest row per panel account qualifies: a renewal supersedes
+        earlier rows in the lane, and reviving one of those would leave a user
+        holding two live subscriptions against a single panel account.
+        """
+        newest = (
+            select(func.max(Subscription.id))
+            .where(Subscription.panel_username.is_not(None))
+            .group_by(Subscription.panel_username)
+            .scalar_subquery()
+        )
+        result = await self.session.execute(
+            select(Subscription)
+            .options(selectinload(Subscription.user))
+            .where(
+                Subscription.is_active.is_(False),
+                Subscription.status == "limited",
+                Subscription.expires_at > _now(),
+                Subscription.panel_username.is_not(None),
+                Subscription.id.in_(newest),
+            )
+            .order_by(Subscription.id)
+        )
+        return list(result.scalars().all())
+
     async def get_expiring_subscriptions(self, days: int = 3) -> list[Subscription]:
         now = _now()
         deadline = now + timedelta(days=days)

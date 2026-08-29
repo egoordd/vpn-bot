@@ -1019,3 +1019,75 @@ async def test_drift_check_stays_quiet_when_every_account_is_whole(monkeypatch):
     await tasks.check_inbound_drift()
 
     alert.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_traffic_sync_revives_a_subscription_after_the_allowance_refills(fake_bot, session_pool):
+    """The cap parks a subscription; the monthly refill has to bring it back.
+
+    Hitting the cap sets is_active=False, which drops the row out of the active
+    query — so without a dedicated sweep the subscription stays dead for the
+    rest of a term the customer already paid for, even though the panel has
+    long since refilled the allowance and unblocked the account.
+    """
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=531)
+        subscription = await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_3m",
+            tier="standard",
+            panel_username="tg_531",
+            traffic_limit_bytes=150 * 1024**3,
+            traffic_used_bytes=150 * 1024**3,
+            started_at=datetime.now(timezone.utc) - timedelta(days=35),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=55),
+            is_active=False,
+            status="limited",
+        )
+
+    synced = await tasks.traffic_sync(
+        fake_bot,
+        session_pool,
+        panel_client=FakePanelClient({"tg_531": _panel_user("tg_531", used=0, limit=150 * 1024**3)}),
+    )
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+
+    assert synced == 1
+    assert refreshed.is_active is True
+    assert refreshed.status == "active"
+    assert refreshed.traffic_used_bytes == 0
+    fake_bot.send_message.assert_awaited_once()
+
+
+@pytest.mark.integration
+async def test_traffic_sync_leaves_a_parked_subscription_alone_while_still_over(fake_bot, session_pool):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=532)
+        subscription = await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_3m",
+            tier="standard",
+            panel_username="tg_532",
+            traffic_limit_bytes=150 * 1024**3,
+            traffic_used_bytes=150 * 1024**3,
+            started_at=datetime.now(timezone.utc) - timedelta(days=10),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=80),
+            is_active=False,
+            status="limited",
+        )
+
+    await tasks.traffic_sync(
+        fake_bot,
+        session_pool,
+        panel_client=FakePanelClient({"tg_532": _panel_user("tg_532", used=150 * 1024**3, limit=150 * 1024**3)}),
+    )
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+
+    assert refreshed.is_active is False
+    assert refreshed.status == "limited"

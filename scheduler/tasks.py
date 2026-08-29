@@ -170,6 +170,10 @@ async def traffic_sync(
     async with session_pool() as session:
         repo = Repository(session)
         subscriptions = await repo.list_active_panel_subscriptions()
+        # Subscriptions the traffic cap parked are inactive by definition, so
+        # the query above never returns them. Without this they stay dead for
+        # the rest of a paid term even after the panel refills the allowance.
+        subscriptions += await repo.list_traffic_limited_subscriptions()
         for subscription in subscriptions:
             if not subscription.panel_username:
                 continue
@@ -206,6 +210,7 @@ async def traffic_sync(
                 status = "LIMITED"
 
             had_no_traffic = (subscription.traffic_used_bytes or 0) == 0
+            was_parked = not subscription.is_active
             await repo.update_subscription(
                 subscription.id,
                 status=status.lower(),
@@ -221,6 +226,18 @@ async def traffic_sync(
             # Funnel: the first bytes through the panel mean the user actually connected.
             if had_no_traffic and used_traffic_bytes > 0:
                 await repo.record_funnel_event(subscription.user_id, "first_connect")
+
+            if was_parked and not should_deactivate:
+                try:
+                    await bot.send_message(
+                        chat_id=subscription.user.telegram_id,
+                        text=(
+                            "✅ <b>Трафик обновлён</b>\n\n"
+                            + bq("📊 Месячная квота начислена заново — подписка снова работает")
+                        ),
+                    )
+                except Exception:
+                    logger.exception("Failed to notify revived subscription_id=%s", subscription.id)
 
             if should_deactivate:
                 if subscription.tier == "premium":

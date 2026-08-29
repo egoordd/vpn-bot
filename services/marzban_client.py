@@ -293,6 +293,19 @@ class MarzbanClient:
             raise MarzbanError(f"Unexpected modify_user response: {response}")
         return self._normalize_user(_user_from_payload(response))
 
+    async def reset_user_data_usage(self, username: str) -> MarzbanUser:
+        """Zero the traffic counter and lift a traffic-triggered block.
+
+        Marzban files the spent bytes into the user's usage log before zeroing,
+        so lifetime totals survive, and it flips a `limited` user back to
+        `active` — which is what makes a renewal usable again straight away
+        instead of waiting for the panel's own 30-day sweep.
+        """
+        response = await self._request("POST", f"/api/user/{quote(username, safe='')}/reset")
+        if not isinstance(response, dict):
+            raise MarzbanError(f"Unexpected reset_user_data_usage response: {response}")
+        return self._normalize_user(_user_from_payload(response))
+
     async def delete_user(self, username: str) -> bool:
         await self._request("DELETE", f"/api/user/{quote(username, safe='')}")
         return True

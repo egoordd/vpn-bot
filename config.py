@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     REMNAWAVE_API_URL: str = ""
     REMNAWAVE_API_TOKEN: SecretStr = SecretStr("")
     REMNAWAVE_USERNAME_PREFIX: str = "tg"
-    REMNAWAVE_DEFAULT_TRAFFIC_RESET_STRATEGY: str = "NO_RESET"
+    REMNAWAVE_DEFAULT_TRAFFIC_RESET_STRATEGY: str = "MONTH"
     REMNAWAVE_DEFAULT_INTERNAL_SQUAD_UUIDS: str = ""
     REMNAWAVE_NODE_CONFIG_PROFILE_UUID: str = ""
     REMNAWAVE_NODE_INBOUND_UUIDS: str = ""
@@ -134,7 +134,11 @@ class Settings(BaseSettings):
     # region's inbound so their traffic routes through that node.
     # Example: {"ams": {"vless": ["VLESS Reality AMS"]}}
     MARZBAN_REGION_INBOUNDS: str = "{}"
-    MARZBAN_DATA_LIMIT_RESET_STRATEGY: str = "no_reset"
+    # Fallback only: every tariff now states whether its allowance refills, and
+    # the panel gateway passes that through per user. The default is monthly so
+    # a stale .env cannot quietly sell a one-shot bucket, which is exactly how
+    # the quota came to last for the whole life of a link.
+    MARZBAN_DATA_LIMIT_RESET_STRATEGY: str = "month"
 
     VULTR_API_URL: str = "https://api.vultr.com/v2"
     VULTR_API_TOKEN: SecretStr = SecretStr("")

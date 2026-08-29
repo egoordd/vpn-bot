@@ -93,7 +93,7 @@ async def test_create_user_sends_remnawave_payload():
         "username": "tg_1001",
         "status": "ACTIVE",
         "trafficLimitBytes": 10 * 1024**3,
-        "trafficLimitStrategy": "NO_RESET",
+        "trafficLimitStrategy": "MONTH",
         "expireAt": "2026-07-03T00:00:00Z",
         "tag": "STANDARD",
         "telegramId": 1001,

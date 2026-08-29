@@ -37,3 +37,35 @@ def test_country_flag_converts_iso_codes():
     assert country_flag("") == "🌍"
     assert country_flag("XXX") == "🌍"
     assert PREMIUM_REGIONS["ams"].flag == "🇳🇱"
+
+
+@pytest.mark.unit
+def test_paid_tariffs_sell_a_monthly_allowance_not_a_term_pool():
+    """A longer term buys more months of the same allowance, not one big bucket.
+
+    A pooled bucket let a heavy first month strand the customer for the rest of
+    the term, and the bot has always advertised "150 ГБ трафика в месяц".
+    """
+    for code in ("standard_1m", "standard_3m", "standard_6m", "standard_12m"):
+        assert resolve_tariff(code).traffic_limit_bytes == 150 * BYTES_IN_GB
+    for code in ("premium_1m", "premium_3m", "premium_6m", "premium_12m"):
+        assert resolve_tariff(code).traffic_limit_bytes == 300 * BYTES_IN_GB
+
+
+@pytest.mark.unit
+def test_monthly_allowance_still_adds_up_to_the_old_term_total():
+    """Pacing the quota must not quietly shrink what the term is worth."""
+    assert resolve_tariff("standard_3m").total_traffic_gb == 450
+    assert resolve_tariff("standard_6m").total_traffic_gb == 900
+    assert resolve_tariff("standard_12m").total_traffic_gb == 1800
+    assert resolve_tariff("premium_12m").total_traffic_gb == 3600
+
+
+@pytest.mark.unit
+def test_trial_allowance_never_refills():
+    """Three days never reach a refill boundary, and a refilling trial is free VPN."""
+    trial = resolve_tariff("trial")
+
+    assert trial.traffic_resets_monthly is False
+    assert trial.traffic_months == 1
+    assert trial.total_traffic_gb == 10

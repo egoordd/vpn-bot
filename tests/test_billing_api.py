@@ -123,7 +123,7 @@ async def test_build_payment_intent_creates_user_and_standard_payload(db_session
     assert intent.amount == "1.99"
     assert intent.amount_minor == 199
     assert intent.asset == "USDT"
-    assert intent.description == "Общий тариф на 30 дней"
+    assert intent.description == "Общий тариф на 30 дней, 150 ГБ в месяц"
     assert re.match(rf"^unlock:{user.id}:standard_1m:[0-9a-f]{{32}}$", intent.payload)
 
 

@@ -65,6 +65,7 @@ class PanelGateway(Protocol):
         description: str | None = None,
         tag: str | None = None,
         inbounds: dict[str, list[str]] | None = None,
+        traffic_resets_monthly: bool | None = None,
     ) -> PanelAccount:
         pass
 
@@ -79,7 +80,11 @@ class PanelGateway(Protocol):
         description: str | None = None,
         tag: str | None = None,
         inbounds: dict[str, list[str]] | None = None,
+        traffic_resets_monthly: bool | None = None,
     ) -> PanelAccount:
+        pass
+
+    async def reset_traffic(self, username: str) -> PanelAccount:
         pass
 
 
@@ -91,6 +96,11 @@ class RemnawavePanelGateway:
 
     def build_username(self, telegram_id: int) -> str:
         return build_panel_username(telegram_id)
+
+    def _reset_strategy(self, resets_monthly: bool | None) -> str:
+        if resets_monthly is None:
+            return settings.REMNAWAVE_DEFAULT_TRAFFIC_RESET_STRATEGY
+        return "MONTH" if resets_monthly else "NO_RESET"
 
     def _account(self, user: PanelUser) -> PanelAccount:
         return PanelAccount(
@@ -126,6 +136,7 @@ class RemnawavePanelGateway:
         description: str | None = None,
         tag: str | None = None,
         inbounds: dict[str, list[str]] | None = None,
+        traffic_resets_monthly: bool | None = None,
     ) -> PanelAccount:
         del inbounds  # Remnawave routes via internal squads, not Marzban inbounds.
         active_internal_squads = settings.remnawave_default_internal_squad_uuids_list or None
@@ -140,6 +151,7 @@ class RemnawavePanelGateway:
                 description=description,
                 tag=tag,
                 active_internal_squads=active_internal_squads,
+                traffic_limit_strategy=self._reset_strategy(traffic_resets_monthly),
             )
             return self._account(user)
         except RemnawaveError as exc:
@@ -156,6 +168,7 @@ class RemnawavePanelGateway:
         description: str | None = None,
         tag: str | None = None,
         inbounds: dict[str, list[str]] | None = None,
+        traffic_resets_monthly: bool | None = None,
     ) -> PanelAccount:
         del inbounds  # Remnawave routes via internal squads, not Marzban inbounds.
         active_internal_squads = settings.remnawave_default_internal_squad_uuids_list or None
@@ -169,8 +182,18 @@ class RemnawavePanelGateway:
                 description=description,
                 tag=tag,
                 active_internal_squads=active_internal_squads,
+                traffic_limit_strategy=self._reset_strategy(traffic_resets_monthly),
             )
             return self._account(user)
+        except RemnawaveError as exc:
+            raise PanelGatewayError(str(exc)) from exc
+
+    async def reset_traffic(self, username: str) -> PanelAccount:
+        try:
+            user = await self.client.get_user(username)
+            return self._account(await self.client.reset_user_traffic(user.uuid))
+        except RemnawaveNotFoundError as exc:
+            raise PanelUserNotFoundError(str(exc)) from exc
         except RemnawaveError as exc:
             raise PanelGatewayError(str(exc)) from exc
 
@@ -183,6 +206,11 @@ class MarzbanPanelGateway:
 
     def build_username(self, telegram_id: int) -> str:
         return build_marzban_username(telegram_id)
+
+    def _reset_strategy(self, resets_monthly: bool | None) -> str:
+        if resets_monthly is None:
+            return settings.MARZBAN_DATA_LIMIT_RESET_STRATEGY
+        return "month" if resets_monthly else "no_reset"
 
     def _account(self, user: MarzbanUser) -> PanelAccount:
         traffic_limit = user.data_limit_bytes if user.data_limit_bytes > 0 else None
@@ -219,6 +247,7 @@ class MarzbanPanelGateway:
         description: str | None = None,
         tag: str | None = None,
         inbounds: dict[str, list[str]] | None = None,
+        traffic_resets_monthly: bool | None = None,
     ) -> PanelAccount:
         del device_limit, tag
         try:
@@ -228,7 +257,7 @@ class MarzbanPanelGateway:
                 data_limit_bytes=traffic_limit_bytes,
                 proxies=settings.marzban_default_proxies_dict,
                 inbounds=inbounds or settings.marzban_default_inbounds_dict,
-                data_limit_reset_strategy=settings.MARZBAN_DATA_LIMIT_RESET_STRATEGY,
+                data_limit_reset_strategy=self._reset_strategy(traffic_resets_monthly),
                 status=status.lower(),
                 note=description or (f"Telegram user {telegram_id}" if telegram_id is not None else None),
             )
@@ -249,6 +278,7 @@ class MarzbanPanelGateway:
         description: str | None = None,
         tag: str | None = None,
         inbounds: dict[str, list[str]] | None = None,
+        traffic_resets_monthly: bool | None = None,
     ) -> PanelAccount:
         del device_limit, tag
         try:
@@ -258,11 +288,19 @@ class MarzbanPanelGateway:
                 data_limit_bytes=traffic_limit_bytes,
                 proxies=settings.marzban_default_proxies_dict,
                 inbounds=inbounds or settings.marzban_default_inbounds_dict,
-                data_limit_reset_strategy=settings.MARZBAN_DATA_LIMIT_RESET_STRATEGY,
+                data_limit_reset_strategy=self._reset_strategy(traffic_resets_monthly),
                 status=status.lower(),
                 note=description,
             )
             return self._account(user)
+        except MarzbanError as exc:
+            raise PanelGatewayError(str(exc)) from exc
+
+    async def reset_traffic(self, username: str) -> PanelAccount:
+        try:
+            return self._account(await self.client.reset_user_data_usage(username))
+        except MarzbanNotFoundError as exc:
+            raise PanelUserNotFoundError(str(exc)) from exc
         except MarzbanError as exc:
             raise PanelGatewayError(str(exc)) from exc
 
