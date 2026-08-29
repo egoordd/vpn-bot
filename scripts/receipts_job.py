@@ -181,12 +181,24 @@ async def _egress_address() -> str:
 def describe(exc: Exception, egress: str) -> str:
     """Plain wording for the alert, and the one fact that usually explains it.
 
-    ФНС refuses foreign addresses, so on a machine that is often behind a VPN
-    the honest first suspicion is the exit country — a raw ClientConnectorDNSError
-    tells the owner nothing they can act on. Our own tunnel sends .ru straight
-    out of the device and is therefore fine; someone else's is not.
+    The exit country is only a suspect when we never got an answer. An HTTP
+    status is proof ФНС heard us, and blaming the address there is worse than
+    saying nothing: this hint sent three separate investigations after the VPN
+    while the real fault was the login being refused.
     """
     kind = type(exc).__name__
+    reached_fns = "HTTP " in str(exc) or "unauthorized" in str(exc)
+
+    if reached_fns and "entity.not.found" in str(exc):
+        return (
+            "ФНС не узнаёт наш вход в «Мой налог» — учётка, а не сеть: "
+            "тот же ответ приходит на заведомо несуществующий ИНН, так что "
+            "пароль здесь ни при чём.\n\n"
+            "Проверьте в приложении «Мой налог», открывается ли кабинет и "
+            "жив ли статус самозанятого. До этого чеки выписываться не будут."
+        )
+    if reached_fns:
+        return f"ФНС ответила отказом: {exc}\n\nСеть в порядке — отвечает, значит доходим."
     if "DNS" in kind or "Resolve" in kind:
         text = "Не удалось определить адрес ФНС."
     elif isinstance(exc, (asyncio.TimeoutError, TimeoutError)):

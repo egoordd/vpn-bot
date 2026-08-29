@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from scripts import receipts_job
+from services import moynalog
 
 
 class _FakeResponse:
@@ -174,3 +175,36 @@ def test_an_unknown_failure_keeps_its_detail():
 
 def test_the_egress_hint_is_skipped_when_unknown():
     assert "Внешний адрес" not in receipts_job.describe(TimeoutError(), "")
+
+
+def test_an_http_answer_is_never_blamed_on_the_exit_country():
+    """A status code proves ФНС heard us, so the VPN is not a suspect.
+
+    This hint sent three investigations after the exit address while the login
+    was the thing being refused.
+    """
+    text = receipts_job.describe(
+        moynalog.MoyNalogError('HTTP 500: {"code":"internal"}'), "107.189.22.160"
+    )
+
+    assert "Внешний адрес" not in text
+    assert "зарубежные адреса" not in text
+    assert "HTTP 500" in text
+
+
+def test_an_unknown_login_is_named_as_an_account_problem():
+    text = receipts_job.describe(
+        moynalog.MoyNalogError('HTTP 422: {"code":"entity.not.found","message":"Не найдено"}'),
+        "107.189.22.160",
+    )
+
+    assert "Внешний адрес" not in text
+    assert "самозанятого" in text
+    assert "пароль здесь ни при чём" in text
+
+
+def test_a_silent_network_still_points_at_the_exit_country():
+    """The hint keeps earning its place when nothing answered at all."""
+    text = receipts_job.describe(TimeoutError(), "107.189.22.160")
+
+    assert "Внешний адрес" in text
