@@ -63,6 +63,7 @@ function planFromBillingDto(plan: BillingPlanDto, sortOrder: number): Tariff {
     priceRub: plan.priceRub,
     cryptoAmount: plan.cryptoAmount,
     trafficGb: plan.trafficLimitBytes === null ? null : Math.round(plan.trafficLimitBytes / GB),
+    trafficResetsMonthly: plan.tier !== "trial",
     deviceLimit: plan.deviceLimit,
     description: plan.description,
     sortOrder,

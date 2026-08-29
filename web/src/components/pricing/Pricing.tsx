@@ -7,7 +7,7 @@ import { Pill } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import { formatRubFromRubles } from "@/lib/money";
 import { botLink } from "@/lib/site";
-import { type Tier, pricePerMonth, tariffsByTier } from "@/lib/tariffs";
+import { type Tier, pricePerMonth, tariffsByTier, trafficLabel } from "@/lib/tariffs";
 import "./pricing.css";
 
 const RECOMMENDED = new Set(["standard_3m", "premium_3m"]);
@@ -74,7 +74,7 @@ export function Pricing() {
 
                 <ul className="plan__features">
                   <li>
-                    <Dot /> {plan.trafficGb} ГБ трафика
+                    <Dot /> {trafficLabel(plan)}
                   </li>
                   <li>
                     <Dot /> До {plan.deviceLimit} устройств

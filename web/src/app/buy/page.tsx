@@ -39,6 +39,7 @@ export default function BuyPage({
           planTitle={plan.title}
           priceRub={plan.priceRub}
           trafficGb={plan.trafficGb}
+          trafficResetsMonthly={plan.trafficResetsMonthly}
           deviceLimit={plan.deviceLimit}
         />
       </div>

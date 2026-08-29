@@ -14,7 +14,10 @@ export interface Tariff {
   durationDays: number;
   priceRub: number;
   cryptoAmount: string;
+  /** One month's allowance. Paid tariffs refill it every 30 days. */
   trafficGb: number | null;
+  /** False only for the trial, whose single bucket never refills. */
+  trafficResetsMonthly: boolean;
   deviceLimit: number | null;
   description: string;
   sortOrder: number;
@@ -29,6 +32,7 @@ export const TARIFFS: Record<string, Tariff> = {
     priceRub: 0,
     cryptoAmount: "0",
     trafficGb: 10,
+    trafficResetsMonthly: false,
     deviceLimit: 1,
     description: "Пробный доступ: 3 дня, 10 ГБ",
     sortOrder: 0,
@@ -41,8 +45,9 @@ export const TARIFFS: Record<string, Tariff> = {
     priceRub: 149,
     cryptoAmount: "1.99",
     trafficGb: 150,
+    trafficResetsMonthly: true,
     deviceLimit: 3,
-    description: "Общий тариф на 30 дней",
+    description: "Общий тариф на 30 дней, 150 ГБ в месяц",
     sortOrder: 10,
   },
   standard_3m: {
@@ -52,9 +57,10 @@ export const TARIFFS: Record<string, Tariff> = {
     durationDays: 90,
     priceRub: 399,
     cryptoAmount: "4.99",
-    trafficGb: 450,
+    trafficGb: 150,
+    trafficResetsMonthly: true,
     deviceLimit: 3,
-    description: "Общий тариф на 90 дней",
+    description: "Общий тариф на 90 дней, 150 ГБ в месяц",
     sortOrder: 20,
   },
   standard_6m: {
@@ -64,9 +70,10 @@ export const TARIFFS: Record<string, Tariff> = {
     durationDays: 180,
     priceRub: 699,
     cryptoAmount: "7.99",
-    trafficGb: 900,
+    trafficGb: 150,
+    trafficResetsMonthly: true,
     deviceLimit: 5,
-    description: "Общий тариф на 180 дней",
+    description: "Общий тариф на 180 дней, 150 ГБ в месяц",
     sortOrder: 30,
   },
   standard_12m: {
@@ -76,9 +83,10 @@ export const TARIFFS: Record<string, Tariff> = {
     durationDays: 365,
     priceRub: 1199,
     cryptoAmount: "12.99",
-    trafficGb: 1800,
+    trafficGb: 150,
+    trafficResetsMonthly: true,
     deviceLimit: 5,
-    description: "Общий тариф на 12 месяцев",
+    description: "Общий тариф на 12 месяцев, 150 ГБ в месяц",
     sortOrder: 40,
   },
   premium_1m: {
@@ -89,8 +97,9 @@ export const TARIFFS: Record<string, Tariff> = {
     priceRub: 399,
     cryptoAmount: "4.99",
     trafficGb: 300,
+    trafficResetsMonthly: true,
     deviceLimit: 5,
-    description: "Premium-тариф на 30 дней",
+    description: "Premium-тариф на 30 дней, 300 ГБ в месяц",
     sortOrder: 50,
   },
   premium_3m: {
@@ -100,9 +109,10 @@ export const TARIFFS: Record<string, Tariff> = {
     durationDays: 90,
     priceRub: 999,
     cryptoAmount: "11.99",
-    trafficGb: 900,
+    trafficGb: 300,
+    trafficResetsMonthly: true,
     deviceLimit: 5,
-    description: "Premium-тариф на 90 дней",
+    description: "Premium-тариф на 90 дней, 300 ГБ в месяц",
     sortOrder: 60,
   },
   premium_6m: {
@@ -112,9 +122,10 @@ export const TARIFFS: Record<string, Tariff> = {
     durationDays: 180,
     priceRub: 1799,
     cryptoAmount: "19.99",
-    trafficGb: 1800,
+    trafficGb: 300,
+    trafficResetsMonthly: true,
     deviceLimit: 8,
-    description: "Premium-тариф на 180 дней",
+    description: "Premium-тариф на 180 дней, 300 ГБ в месяц",
     sortOrder: 70,
   },
   premium_12m: {
@@ -124,9 +135,10 @@ export const TARIFFS: Record<string, Tariff> = {
     durationDays: 365,
     priceRub: 2999,
     cryptoAmount: "34.99",
-    trafficGb: 3600,
+    trafficGb: 300,
+    trafficResetsMonthly: true,
     deviceLimit: 8,
-    description: "Premium-тариф на 12 месяцев",
+    description: "Premium-тариф на 12 месяцев, 300 ГБ в месяц",
     sortOrder: 80,
   },
 };
@@ -157,4 +169,15 @@ export function tariffsByTier(tier: Tier): Tariff[] {
 export function pricePerMonth(tariff: Tariff): number {
   const months = Math.max(1, Math.round(tariff.durationDays / 30));
   return Math.round(tariff.priceRub / months);
+}
+
+
+/** How much traffic a tariff grants, worded so the period is unmistakable.
+ *
+ * A refilling allowance printed bare reads as the whole term — "150 ГБ" on a
+ * three-month plan looks like a worse deal than the monthly one it repeats.
+ */
+export function trafficLabel(plan: Pick<Tariff, "trafficGb" | "trafficResetsMonthly">): string | null {
+  if (plan.trafficGb === null) return null;
+  return plan.trafficResetsMonthly ? `${plan.trafficGb} ГБ трафика в месяц` : `${plan.trafficGb} ГБ трафика`;
 }

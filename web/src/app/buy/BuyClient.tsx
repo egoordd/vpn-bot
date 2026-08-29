@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { formatRubFromRubles } from "@/lib/money";
+import { trafficLabel } from "@/lib/tariffs";
 
 export const ORDER_STORAGE_KEY = "ulk_order";
 
@@ -24,10 +25,18 @@ interface BuyClientProps {
   planTitle: string;
   priceRub: number;
   trafficGb: number | null;
+  trafficResetsMonthly: boolean;
   deviceLimit: number | null;
 }
 
-export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimit }: BuyClientProps) {
+export function BuyClient({
+  planCode,
+  planTitle,
+  priceRub,
+  trafficGb,
+  trafficResetsMonthly,
+  deviceLimit,
+}: BuyClientProps) {
   const [telegramId, setTelegramId] = useState<number | null>(null);
   const [email, setEmail] = useState("");
   // A lapsed customer cannot open Telegram in Russia, so the link already in
@@ -100,7 +109,9 @@ export function BuyClient({ planCode, planTitle, priceRub, trafficGb, deviceLimi
           <span className="buy__price-value">{formatRubFromRubles(priceRub)}</span>
         </p>
         <ul className="buy__features mono">
-          {trafficGb !== null && <li>{trafficGb} ГБ трафика</li>}
+          {trafficLabel({ trafficGb, trafficResetsMonthly }) !== null && (
+            <li>{trafficLabel({ trafficGb, trafficResetsMonthly })}</li>
+          )}
           {deviceLimit !== null && <li>до {deviceLimit} устройств</li>}
           <li>все локации и протоколы одной ссылкой</li>
         </ul>
