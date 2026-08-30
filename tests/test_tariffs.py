@@ -69,3 +69,23 @@ def test_trial_allowance_never_refills():
     assert trial.traffic_resets_monthly is False
     assert trial.traffic_months == 1
     assert trial.total_traffic_gb == 10
+
+
+@pytest.mark.unit
+def test_trial_runs_a_week():
+    assert resolve_tariff("trial").duration_days == 7
+
+
+@pytest.mark.unit
+def test_day_counts_are_declined_for_russian():
+    """Copy derives the trial length, so the wording has to survive any number.
+
+    The length was hand-typed in thirteen places before; moving it from three
+    days to seven meant editing all of them.
+    """
+    from bot.texts import plural_days, trial_days
+
+    assert [plural_days(n) for n in (1, 2, 4, 5, 11, 14, 21, 22)] == [
+        "1 день", "2 дня", "4 дня", "5 дней", "11 дней", "14 дней", "21 день", "22 дня",
+    ]
+    assert trial_days() == "7 дней"

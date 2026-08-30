@@ -7,7 +7,7 @@ import { Pill } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import { formatRubFromRubles } from "@/lib/money";
 import { botLink } from "@/lib/site";
-import { type Tier, pricePerMonth, tariffsByTier, trafficLabel } from "@/lib/tariffs";
+import { type Tier, pricePerMonth, tariffsByTier, trafficLabel, TRIAL_DAYS_LABEL } from "@/lib/tariffs";
 import "./pricing.css";
 
 const RECOMMENDED = new Set(["standard_3m", "premium_3m"]);
@@ -34,7 +34,7 @@ export function Pricing() {
           <h2 id="pricing-heading">Платите за плотность, а не за обещания</h2>
           <p className="lead pricing__sub">
             Чем выше тариф — тем меньше людей на ноде и стабильнее скорость.
-            Пробник на 3 дня доступен всем и бесплатно.
+            Пробник на {TRIAL_DAYS_LABEL} доступен всем и бесплатно.
           </p>
 
           <div className="pricing__toggle" role="tablist" aria-label="Уровень тарифа">
@@ -105,7 +105,7 @@ export function Pricing() {
               Бесплатно
             </Pill>
             <h3 id="trial-heading" className="pricing__trial-title">
-              Сначала попробовать: 3 дня в Telegram-боте
+              Сначала попробовать: {TRIAL_DAYS_LABEL} в Telegram-боте
             </h3>
             <p className="pricing__trial-sub">
               Пробный период выдаёт бот — оплата и карта для него не нужны. Там же будет ваша

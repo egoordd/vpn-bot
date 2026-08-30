@@ -5,6 +5,7 @@ import { formatDate, formatGb, daysLeft, trafficPercent } from "@/lib/format";
 import { botLink } from "@/lib/site";
 import type { SubscriptionSnapshot } from "@/lib/billing/types";
 import "./subscription-card.css";
+import { TRIAL_DAYS_LABEL } from "@/lib/tariffs";
 
 export function SubscriptionCard({ sub }: { sub: SubscriptionSnapshot }) {
   if (!sub.exists) {
@@ -14,7 +15,7 @@ export function SubscriptionCard({ sub }: { sub: SubscriptionSnapshot }) {
           <span className="card__title">Подписка</span>
           <Pill tone="warn">нет активной</Pill>
         </div>
-        <p className="sub__empty">У вас пока нет подписки. Активируйте пробный период на 3 дня — без карты.</p>
+        <p className="sub__empty">У вас пока нет подписки. Активируйте пробный период на {TRIAL_DAYS_LABEL} — без карты.</p>
         <TrialButton />
       </article>
     );

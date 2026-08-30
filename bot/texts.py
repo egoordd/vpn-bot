@@ -38,3 +38,25 @@ def format_gb(value_bytes: int | None) -> str:
 def bq(*lines: str) -> str:
     """Wrap lines into a Telegram blockquote card."""
     return "<blockquote>" + "\n".join(lines) + "</blockquote>"
+
+
+def plural_days(count: int) -> str:
+    """`5 дней`, `2 дня`, `1 день` — Russian counting, so copy can be derived.
+
+    The trial length was written out by hand in thirteen places; changing it
+    from three days to seven meant editing every one of them. Deriving the
+    words means the next change is one number.
+    """
+    tail = abs(count) % 100
+    if 11 <= tail <= 14:
+        word = "дней"
+    else:
+        last = tail % 10
+        word = "день" if last == 1 else "дня" if 2 <= last <= 4 else "дней"
+    return f"{count} {word}"
+
+
+def trial_days() -> str:
+    from services.tariffs import resolve_tariff
+
+    return plural_days(resolve_tariff("trial").duration_days)

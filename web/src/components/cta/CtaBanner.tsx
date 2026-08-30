@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { botLink } from "@/lib/site";
 import "./cta.css";
+import { TRIAL_DAYS_LABEL } from "@/lib/tariffs";
 
 export function CtaBanner() {
   return (
@@ -10,7 +11,7 @@ export function CtaBanner() {
         <div className="cta__card">
           <div className="cta__glow" aria-hidden />
           <Pill tone="accent" live>
-            3 дня бесплатно
+            {TRIAL_DAYS_LABEL} бесплатно
           </Pill>
           <h2 id="cta-heading" className="cta__title">
             Проверьте, как это —<br />

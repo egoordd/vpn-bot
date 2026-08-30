@@ -1,12 +1,13 @@
 import { Button } from "@/components/ui/Button";
 import { botLink } from "@/lib/site";
 import "./how.css";
+import { TRIAL_DAYS_LABEL } from "@/lib/tariffs";
 
 const STEPS = [
   {
     n: "01",
     title: "Запустите бота",
-    body: "Нажмите «Активировать пробный период» — бот даст бесплатный доступ на 3 дня. Без оплаты и регистрации.",
+    body: `Нажмите «Активировать пробный период» — бот даст бесплатный доступ на ${TRIAL_DAYS_LABEL}. Без оплаты и регистрации.`,
   },
   {
     n: "02",

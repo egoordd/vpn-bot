@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from bot.banners import pick_start_banner, send_banner
 from bot.keyboards.main_menu import main_menu_keyboard, my_subs_keyboard
 from bot.navigation import show_screen
-from bot.texts import aware as _aware, bq, format_gb as _format_gb, format_msk as _format_msk
+from bot.texts import aware as _aware, bq, format_gb as _format_gb, format_msk as _format_msk, trial_days
 from database.models import Subscription, User
 from database.repository import Repository
 from services.money import format_rub
@@ -81,7 +81,7 @@ def _menu_text(
     if not subscriptions:
         if trial_available:
             sections.append(
-                "🎁 Вам доступен <b>бесплатный пробный период — 3 дня</b>.\n"
+                f"🎁 Вам доступен <b>бесплатный пробный период — {trial_days()}</b>.\n"
                 "Нажмите «🎁 Активировать пробный период» — ссылка придёт сразу, без оплаты."
             )
         else:
@@ -237,7 +237,7 @@ async def activate_trial_handler(callback: CallbackQuery, session_pool: async_se
         rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=connect_url)])
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     text = (
-        "🎉 <b>Пробный период активирован — 3 дня!</b>\n\n"
+        f"🎉 <b>Пробный период активирован — {trial_days()}!</b>\n\n"
         "🔗 <b>Ссылка-подписка:</b>\n"
         f"<code>{html.escape(sub_url)}</code>\n\n"
         "Нажмите «Подключить VPN» — откроется страница с приложениями и пошаговой инструкцией."

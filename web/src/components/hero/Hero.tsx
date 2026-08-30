@@ -3,6 +3,7 @@ import { Pill } from "@/components/ui/Pill";
 import { botLink } from "@/lib/site";
 import { HeroLock } from "./HeroLock";
 import "./hero.css";
+import { TRIAL_DAYS_LABEL } from "@/lib/tariffs";
 
 export function Hero() {
   return (
@@ -37,7 +38,7 @@ export function Hero() {
 
           <ul className="hero__points">
             <li>
-              <CheckIcon /> 3 дня бесплатно в Telegram
+              <CheckIcon /> {TRIAL_DAYS_LABEL} бесплатно в Telegram
             </li>
             <li>
               <CheckIcon /> Удобная оплата

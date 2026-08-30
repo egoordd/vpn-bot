@@ -1,5 +1,6 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from bot.texts import trial_days
 from services.payment import PLANS
 from services.tariffs import PREMIUM_REGIONS
 
@@ -13,7 +14,7 @@ def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = F
     rows: list[list[InlineKeyboardButton]] = []
     if trial_available:
         rows.append(
-            [InlineKeyboardButton(text="🎁 Активировать пробный период — 3 дня", callback_data="activate_trial")]
+            [InlineKeyboardButton(text=f"🎁 Активировать пробный период — {trial_days()}", callback_data="activate_trial")]
         )
     rows.append([InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_menu")])
     if has_subscription:

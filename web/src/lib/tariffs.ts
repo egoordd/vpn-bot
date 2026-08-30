@@ -28,13 +28,13 @@ export const TARIFFS: Record<string, Tariff> = {
     code: "trial",
     title: "Пробник",
     tier: "trial",
-    durationDays: 3,
+    durationDays: 7,
     priceRub: 0,
     cryptoAmount: "0",
     trafficGb: 10,
     trafficResetsMonthly: false,
     deviceLimit: 1,
-    description: "Пробный доступ: 3 дня, 10 ГБ",
+    description: "Пробный доступ: 7 дней, 10 ГБ",
     sortOrder: 0,
   },
   standard_1m: {
@@ -181,3 +181,21 @@ export function trafficLabel(plan: Pick<Tariff, "trafficGb" | "trafficResetsMont
   if (plan.trafficGb === null) return null;
   return plan.trafficResetsMonthly ? `${plan.trafficGb} ГБ трафика в месяц` : `${plan.trafficGb} ГБ трафика`;
 }
+
+
+/** `5 дней`, `2 дня`, `1 день` — so trial copy is never a hand-typed number.
+ *
+ * The length was spelled out in nine components; moving it from three days to
+ * seven meant editing every one. Now it is one field.
+ */
+export function pluralDays(count: number): string {
+  const tail = Math.abs(count) % 100;
+  if (tail >= 11 && tail <= 14) return `${count} дней`;
+  const last = tail % 10;
+  if (last === 1) return `${count} день`;
+  if (last >= 2 && last <= 4) return `${count} дня`;
+  return `${count} дней`;
+}
+
+/** How long the free trial runs, worded for prose. */
+export const TRIAL_DAYS_LABEL = pluralDays(TARIFFS.trial.durationDays);

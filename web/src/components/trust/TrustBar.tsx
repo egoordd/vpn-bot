@@ -1,8 +1,9 @@
 import "./trust.css";
+import { TRIAL_DAYS_LABEL } from "@/lib/tariffs";
 
 const ITEMS = [
   { value: "1 тап", label: "подключение без настроек" },
-  { value: "3 дня", label: "бесплатно, без оплаты" },
+  { value: TRIAL_DAYS_LABEL, label: "бесплатно, без оплаты" },
   { value: "2 страны", label: "и новые на подходе" },
   { value: "24/7", label: "стабильная скорость" },
 ];

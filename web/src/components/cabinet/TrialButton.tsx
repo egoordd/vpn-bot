@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { TRIAL_DAYS_LABEL } from "@/lib/tariffs";
 
 /**
  * One-tap trial activation for a logged-in cabinet user: hits /api/trial and
@@ -43,7 +44,7 @@ export function TrialButton() {
   return (
     <div className="trialbtn">
       <Button className="sub__cta" onClick={activate} disabled={busy}>
-        {busy ? "Активируем…" : "Активировать пробный период — 3 дня"}
+        {busy ? "Активируем…" : `Активировать пробный период — ${TRIAL_DAYS_LABEL}`}
       </Button>
       {error && <p className="trialbtn__error">{error}</p>}
     </div>
