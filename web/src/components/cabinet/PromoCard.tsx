@@ -3,17 +3,28 @@
 import { useState } from "react";
 
 import { formatRub } from "@/lib/money";
-import type { DiscountResult } from "@/lib/billing/types";
+import type { PromoFailure, PromoRedemption } from "@/lib/billing/types";
 import "./promo-card.css";
 
 type State =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "ok"; result: DiscountResult }
+  | { status: "ok"; result: PromoRedemption }
   | { status: "error"; message: string };
 
-/** Sample checkout amount used to preview a discount (Standard · 1 месяц). */
-const SAMPLE_AMOUNT_KOPECKS = 14900;
+/** One sentence per reason. The card used to answer "не найден" to everything,
+ *  including codes that were merely spent or already used by this account. */
+const FAILURES: Record<PromoFailure, string> = {
+  promo_not_found: "Такого промокода нет. Проверьте раскладку и лишние пробелы.",
+  promo_expired: "Срок действия промокода истёк.",
+  promo_inactive: "Промокод отключён.",
+  promo_exhausted: "Промокод уже разобрали — закончились активации.",
+  promo_user_limit: "Вы уже использовали этот промокод.",
+  promo_min_amount: "Промокод действует от большей суммы.",
+  promo_wrong_type: "Этот промокод применяется при оплате, а не здесь.",
+  unauthorized: "Войдите в кабинет, чтобы применить промокод.",
+  unavailable: "Не удалось проверить промокод. Попробуйте позже.",
+};
 
 export function PromoCard() {
   const [code, setCode] = useState("");
@@ -28,16 +39,17 @@ export function PromoCard() {
       const res = await fetch("/api/promo", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code: trimmed, amountKopecks: SAMPLE_AMOUNT_KOPECKS }),
+        body: JSON.stringify({ code: trimmed }),
       });
-      const data = (await res.json()) as { result: DiscountResult | null };
+      const data = (await res.json()) as { result?: PromoRedemption; error?: PromoFailure };
       if (!res.ok || !data.result) {
-        setState({ status: "error", message: "Промокод не найден или недействителен." });
+        setState({ status: "error", message: FAILURES[data.error ?? "unavailable"] ?? FAILURES.unavailable });
         return;
       }
+      setCode("");
       setState({ status: "ok", result: data.result });
     } catch {
-      setState({ status: "error", message: "Не удалось проверить промокод. Попробуйте позже." });
+      setState({ status: "error", message: FAILURES.unavailable });
     }
   }
 
@@ -59,21 +71,26 @@ export function PromoCard() {
           onChange={(e) => setCode(e.target.value.toUpperCase())}
         />
         <button type="submit" className="promo__btn" disabled={state.status === "loading"}>
-          {state.status === "loading" ? "Проверяю…" : "Применить"}
+          {state.status === "loading" ? "Применяю…" : "Применить"}
         </button>
       </form>
 
       <div className="promo__result" aria-live="polite">
-        {state.status === "ok" && (
+        {state.status === "ok" && state.result.grantedDays !== null && (
           <p className="promo__ok">
-            Скидка <strong>{formatRub(state.result.discountKopecks)}</strong> — к оплате{" "}
-            <strong>{formatRub(state.result.finalKopecks)}</strong> вместо{" "}
-            {formatRub(state.result.originalKopecks)}.
+            Промокод применён: подписка на <strong>{state.result.grantedDays} дней</strong> уже
+            активна. Ссылка для подключения — на этой странице.
+          </p>
+        )}
+        {state.status === "ok" && state.result.grantedDays === null && (
+          <p className="promo__ok">
+            Промокод применён: <strong>+{formatRub(state.result.creditedKopecks)}</strong> на баланс.
+            Теперь на счету {formatRub(state.result.balanceKopecks)}.
           </p>
         )}
         {state.status === "error" && <p className="promo__err">{state.message}</p>}
         {state.status === "idle" && (
-          <p className="promo__hint">Скидка применится при следующей оплате тарифа.</p>
+          <p className="promo__hint">Промокод зачислит бонус или откроет подписку сразу.</p>
         )}
       </div>
     </article>

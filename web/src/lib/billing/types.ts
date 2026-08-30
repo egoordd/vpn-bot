@@ -91,3 +91,24 @@ export interface WebOrderStatus {
   status: "pending" | "succeeded";
   subscription?: WebOrderSubscription;
 }
+
+/** What redeeming a promo actually did. */
+export interface PromoRedemption {
+  code: string;
+  kind: string;
+  creditedKopecks: number;
+  grantedDays: number | null;
+  balanceKopecks: number;
+}
+
+/** Why a promo could not be redeemed — one reason per case, never a lump. */
+export type PromoFailure =
+  | "promo_not_found"
+  | "promo_expired"
+  | "promo_inactive"
+  | "promo_exhausted"
+  | "promo_user_limit"
+  | "promo_min_amount"
+  | "promo_wrong_type"
+  | "unauthorized"
+  | "unavailable";

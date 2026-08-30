@@ -1,20 +1,7 @@
+import { LIVE_LOCATIONS as LIVE, SOON_LOCATIONS as SOON } from "@/lib/locations";
+
 import { WorldMap } from "./WorldMap";
 import "./locations.css";
-
-const LIVE = [
-  { flag: "🇩🇪", name: "Германия", note: "самый быстрый" },
-  { flag: "🇳🇱", name: "Нидерланды", note: "стабильно и быстро" },
-  { flag: "🇺🇸", name: "США", note: "стабильно и быстро" },
-  { flag: "🇵🇱", name: "Польша", note: "стабильно и быстро" },
-];
-
-const SOON = [
-  { flag: "🇫🇮", name: "Финляндия" },
-  { flag: "🇬🇧", name: "Англия" },
-  { flag: "🗽", name: "Нью-Йорк" },
-  { flag: "🌴", name: "Лос-Анджелес" },
-  { flag: "🇦🇪", name: "ОАЭ" },
-];
 
 export function Locations() {
   return (

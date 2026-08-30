@@ -82,6 +82,13 @@ class WebCheckoutRequest(BaseModel):
     subscription: str | None = Field(default=None, max_length=512)
 
 
+class WebPromoRedeemRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    telegram_id: int = Field(alias="telegramId")
+    code: str = Field(min_length=1, max_length=64)
+
+
 class WebEmailUpdateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -321,6 +328,33 @@ def create_app() -> FastAPI:
         except promo.PromoError as exc:
             raise _promo_http_error(exc)
         return _discount_payload(result)
+
+    @application.post("/web/promo/redeem")
+    async def web_promo_redeem(body: WebPromoRedeemRequest, session: SessionDep) -> dict[str, Any]:
+        """Redeem a promo for a site visitor, exactly as the bot redeems it.
+
+        The site used to only *preview a discount*, which no code we sell has
+        ever been: every live code grants a subscription or credits the wallet,
+        so the cabinet answered "промокод не найден" to perfectly valid codes.
+        Redemption is the operation people actually want, and routing it
+        through billing_api keeps the site from having to know the kinds.
+        """
+        repo = Repository(session)
+        user = await repo.get_user_by_telegram_id(body.telegram_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user_not_found")
+        try:
+            result = await billing_api.redeem_promo(session, user_id=user.id, code=body.code)
+        except promo.PromoError as exc:
+            raise _promo_http_error(exc)
+        balance = await wallet.get_balance(session, user.id)
+        return {
+            "code": result.code,
+            "kind": result.kind,
+            "creditedKopecks": result.credited_kopecks,
+            "grantedDays": result.granted_days,
+            "balanceKopecks": balance,
+        }
 
     @application.get("/web/account/by-telegram/{telegram_id}")
     async def web_account_by_telegram(telegram_id: int, session: SessionDep) -> dict[str, Any]:

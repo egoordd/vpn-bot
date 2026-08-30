@@ -1,3 +1,5 @@
+import { LIVE_LOCATIONS, SOON_LOCATIONS } from "@/lib/locations";
+
 import "./world.css";
 
 // Equirectangular dot-grid world (42×21). Land cells are rendered as dim pearl
@@ -36,41 +38,21 @@ const LAND_ROWS: ReadonlyArray<ReadonlyArray<[number, number]>> = [
   [],
 ];
 
-interface Node {
-  id: string;
-  flag: string;
-  name: string;
-  status: "live" | "soon";
-  col: number;
-  row: number;
-  labelBelow?: boolean;
-}
-
-// Equirectangular-ish placement on the 42×21 grid. Live nodes glow + carry a
-// label; coming-soon nodes are faint hollow rings (named in the list below, so
-// the dense Europe cluster stays readable without overlapping map labels).
-const NODES: readonly Node[] = [
-  { id: "us", flag: "🇺🇸", name: "США", status: "live", col: 12, row: 6 },
-  // Offline since 2026-08-01 — the node stopped passing traffic from Russia and
-  // is being rebuilt. Shown as coming back rather than as a server we have.
-  { id: "nl", flag: "🇳🇱", name: "Нидерланды", status: "live", col: 22, row: 4 },
-  { id: "pl", flag: "🇵🇱", name: "Польша", status: "live", col: 24, row: 5, labelBelow: true },
-  { id: "uk", flag: "🇬🇧", name: "Англия", status: "soon", col: 20, row: 4 },
-  { id: "de", flag: "🇩🇪", name: "Германия", status: "live", col: 22, row: 6, labelBelow: true },
-  { id: "fi", flag: "🇫🇮", name: "Финляндия", status: "soon", col: 25, row: 3 },
-  { id: "ny", flag: "🗽", name: "Нью-Йорк", status: "soon", col: 14, row: 6 },
-  { id: "la", flag: "🌴", name: "Лос-Анджелес", status: "soon", col: 8, row: 7 },
-  { id: "ae", flag: "🇦🇪", name: "ОАЭ", status: "soon", col: 27, row: 8 },
-];
-
-const LIVE = NODES.filter((n) => n.status === "live");
-const SOON = NODES.filter((n) => n.status === "soon");
+// Placement, names and status all come from the shared location list, so a
+// server that goes live is added in exactly one place.
+const LIVE = LIVE_LOCATIONS;
+const SOON = SOON_LOCATIONS;
 
 const cx = (col: number) => col * GAP + PAD;
 const cy = (row: number) => row * GAP + PAD;
 
-const us = NODES[0];
-const nl = NODES[1];
+const byId = (id: string) => {
+  const found = LIVE_LOCATIONS.find((n) => n.id === id);
+  if (!found) throw new Error(`WorldMap: no live location "${id}" to anchor the arc`);
+  return found;
+};
+const us = byId("us");
+const nl = byId("nl");
 const ARC = `M ${cx(us.col)} ${cy(us.row)} Q ${(cx(us.col) + cx(nl.col)) / 2} ${Math.min(cy(us.row), cy(nl.row)) - 64} ${cx(nl.col)} ${cy(nl.row)}`;
 
 export function WorldMap() {
@@ -88,7 +70,7 @@ export function WorldMap() {
         viewBox={`0 0 ${W} ${H}`}
         className="wmap__svg"
         role="img"
-        aria-label="Карта мира: активные локации UnLock — США, Польша, Германия, Нидерланды; скоро — Финляндия, Англия, Нью-Йорк, Лос-Анджелес, ОАЭ"
+        aria-label={`Карта мира: активные локации UnLock — ${LIVE.map((n) => n.name).join(", ")}; скоро — ${SOON.map((n) => n.name).join(", ")}`}
       >
         <g className="wmap__land">
           {dots.map((d, i) => (

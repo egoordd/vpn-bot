@@ -1115,3 +1115,58 @@ async def test_web_trial_activate_guards(api_client, session_pool, monkeypatch):
     resp = await api_client.post("/web/trial/activate", json={"telegramId": -777003})
     assert resp.status_code == 409
     assert resp.json()["detail"] == "has_active_subscription"
+
+
+@pytest.mark.asyncio
+async def test_web_promo_redeem_credits_the_wallet(api_client, session_pool):
+    """The site must be able to redeem, not merely preview a discount.
+
+    Every code we have ever sold grants a subscription or credits the wallet;
+    the site only knew how to preview a percentage discount, so it answered
+    "промокод не найден" to codes that were perfectly valid.
+    """
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=9101)
+        await repo.create_promo_code(code="SITEBONUS", kind=PROMO_BALANCE_BONUS, value=5000)
+
+    response = await api_client.post(
+        "/web/promo/redeem", json={"telegramId": 9101, "code": "SITEBONUS"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["creditedKopecks"] == 5000
+    assert body["balanceKopecks"] == 5000
+    assert body["grantedDays"] is None
+
+    async with session_pool() as session:
+        assert await wallet.get_balance(session, user.id) == 5000
+
+
+@pytest.mark.asyncio
+async def test_web_promo_redeem_reports_each_refusal_distinctly(api_client, session_pool):
+    """One reason per case: the card cannot say "не найден" to a spent code."""
+    async with session_pool() as session:
+        repo = Repository(session)
+        await repo.create_user(telegram_id=9102)
+        await repo.create_promo_code(code="ONCEONLY", kind=PROMO_BALANCE_BONUS, value=1000)
+
+    first = await api_client.post("/web/promo/redeem", json={"telegramId": 9102, "code": "ONCEONLY"})
+    assert first.status_code == 200
+
+    again = await api_client.post("/web/promo/redeem", json={"telegramId": 9102, "code": "ONCEONLY"})
+    assert again.status_code == 409
+    assert again.json()["detail"] == "promo_user_limit"
+
+    missing = await api_client.post("/web/promo/redeem", json={"telegramId": 9102, "code": "NOSUCH"})
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "promo_not_found"
+
+
+@pytest.mark.asyncio
+async def test_web_promo_redeem_rejects_an_unknown_account(api_client):
+    response = await api_client.post("/web/promo/redeem", json={"telegramId": 999111, "code": "X"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "user_not_found"

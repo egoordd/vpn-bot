@@ -3,6 +3,8 @@ import "server-only";
 import { TARIFFS, type Tariff, type Tier } from "@/lib/tariffs";
 import type {
   AccountOverview,
+  PromoFailure,
+  PromoRedemption,
   BillingPlanDto,
   CheckoutResult,
   DiscountResult,
@@ -215,6 +217,32 @@ export async function previewDiscount(
   } catch {
     return null;
   }
+}
+
+export async function redeemPromo(
+  telegramId: number,
+  code: string,
+): Promise<{ ok: true; result: PromoRedemption } | { ok: false; error: PromoFailure }> {
+  if (!API_URL) return { ok: false, error: "unavailable" };
+  const res = await fetch(`${API_URL}/web/promo/redeem`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+    },
+    body: JSON.stringify({ telegramId, code }),
+    cache: "no-store",
+  });
+  if (res.ok) return { ok: true, result: (await res.json()) as PromoRedemption };
+  // The backend already distinguishes every failure; keep that distinction
+  // instead of collapsing it into one unhelpful "не найден".
+  let detail = "unavailable";
+  try {
+    detail = ((await res.json()) as { detail?: string }).detail ?? "unavailable";
+  } catch {
+    /* non-JSON error body: fall through to "unavailable" */
+  }
+  return { ok: false, error: detail as PromoFailure };
 }
 
 export type TrialActivationResult =
