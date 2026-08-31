@@ -1,4 +1,4 @@
-aiogram==3.13.1
+aiogram==3.31.0
 SQLAlchemy==2.0.36
 asyncpg==0.30.0
 redis==5.2.0
@@ -6,12 +6,18 @@ APScheduler==3.10.4
 alembic==1.14.0
 pydantic-settings==2.6.1
 qrcode==8.0
-Pillow==11.0.0
-python-dotenv==1.0.1
+Pillow==12.3.0
+python-dotenv==1.2.3
 greenlet==3.1.1
-aiohttp==3.10.11
-fastapi==0.115.6
-uvicorn[standard]==0.32.1
+aiohttp==3.13.5
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
 httpx==0.28.1
 aiohttp-socks==0.9.1
-cryptography==44.0.0
+cryptography==50.0.1
+
+# aiohttp остаётся на 3.13, хотя 3.14 закрывает ещё четырнадцать уязвимостей:
+# aioresponses, на которой держатся тесты HTTP-клиентов, в последней версии
+# 0.7.9 не понимает изменившуюся сигнатуру ClientResponse в 3.14 и роняет
+# сорок тестов. Поднимать версию, теряя проверку платёжного клиента, — обмен
+# не в нашу пользу. Ждём совместимую aioresponses либо замену заглушек.
