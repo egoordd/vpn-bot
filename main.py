@@ -78,7 +78,6 @@ async def main() -> None:
     dispatcher.include_router(buy.router)
     dispatcher.include_router(wallet.router)
     dispatcher.include_router(subscription.router)
-    dispatcher.include_router(locations.router)
     dispatcher.include_router(connect_device.router)
     dispatcher.include_router(instructions.router)
     dispatcher.include_router(support.router)
