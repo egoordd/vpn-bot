@@ -849,3 +849,37 @@ def test_the_replacement_us_node_sorts_as_far_away_as_the_old_one():
     assert sub_gateway.NODE_PRIORITY["172.86.119.133.sslip.io"] > sub_gateway.NODE_PRIORITY[
         "166.0.28.132.sslip.io"
     ]
+
+
+@pytest.mark.unit
+def test_device_report_folds_happ_ids_that_change_with_the_date():
+    """Одно устройство Happ сообщает два идентификатора, чередуя их по дню.
+
+    Замечено на живом журнале: один и тот же телефон присылал
+    ...875576 по нечётным дням и ...875676 по чётным, ровно чередуясь.
+    Без свёртки счёт устройств завышался в полтора раза — 160 против 106
+    на недельной выборке, и половина клиентов выглядела бы нарушителями.
+    """
+    from scripts.device_report import device_key
+
+    odd, _ = device_key("Happ/3.26.3/Android/17839452147361875576")
+    even, _ = device_key("Happ/3.26.3/Android/17839452147361875676")
+
+    assert odd == even
+
+
+@pytest.mark.unit
+def test_device_report_does_not_count_link_previews_as_devices():
+    """Мессенджер сам открывает ссылку, когда её вставили в чат.
+
+    Это не устройство клиента, но и не шум: сам факт означает, что ссылку
+    куда-то отправили, поэтому такие обращения считаются отдельно.
+    """
+    from scripts.device_report import device_key
+
+    for crawler in ("TelegramBot (like TwitterBot)", "GoogleMessages", "WhatsApp/2.0"):
+        _, is_crawler = device_key(crawler)
+        assert is_crawler, crawler
+
+    _, is_crawler = device_key("Happ/5.6.0/ios/2608171408551")
+    assert not is_crawler
