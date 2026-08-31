@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
 import { TelegramLoginButton } from "@/components/auth/TelegramLoginButton";
 
@@ -16,14 +16,18 @@ const ERRORS: Record<string, string> = {
   rate_limited: "Слишком много попыток. Подождите несколько минут.",
 };
 
-export function CabinetLogin({ note }: { note?: string }) {
+interface CabinetLoginProps {
+  /** Where "Войти через Telegram" points; null when the bot token is unset. */
+  telegramLoginHref: string | null;
+  note?: string;
+}
+
+export function CabinetLogin({ telegramLoginHref, note }: CabinetLoginProps) {
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const onTelegram = useCallback(() => window.location.reload(), []);
 
   async function submit() {
     setError(null);
@@ -116,7 +120,7 @@ export function CabinetLogin({ note }: { note?: string }) {
       </div>
 
       <div className="cab__login-or mono">или</div>
-      <TelegramLoginButton onSuccess={onTelegram} onError={setError} />
+      <TelegramLoginButton href={telegramLoginHref} />
 
       <p className="cab__login-alt mono">
         Покупали по email? Зарегистрируйтесь с тем же адресом — прошлые покупки появятся

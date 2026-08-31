@@ -1,0 +1,19 @@
+.tglogin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  width: 100%;
+  padding: 0.7em 1em;
+  border-radius: var(--radius-md, 10px);
+  background: #2aabee;
+  color: #fff;
+  font-weight: 600;
+  font-size: var(--text-base);
+  text-decoration: none;
+  transition: filter var(--duration, 160ms) ease;
+}
+.tglogin:hover { filter: brightness(1.06); }
+.tglogin:active { filter: brightness(0.96); }
+.tglogin:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tglogin__icon { width: 1.15em; height: 1.15em; flex: none; }

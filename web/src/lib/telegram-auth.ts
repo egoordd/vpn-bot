@@ -1,3 +1,5 @@
+import "server-only";
+
 import crypto from "crypto";
 
 /**
@@ -91,4 +93,31 @@ export function verifyTelegramInitData(
   } catch {
     return null;
   }
+}
+
+
+/**
+ * Where to send someone to sign in with Telegram, without loading their script.
+ *
+ * The official Login Widget injects a script from telegram.org that evaluates
+ * strings as code, which our Content-Security-Policy refuses — and relaxing the
+ * policy with 'unsafe-eval' to accommodate one button would weaken every page
+ * on the site. Telegram's redirect flow needs no third-party script at all: the
+ * browser navigates there, the person confirms, and Telegram sends them back to
+ * `returnTo` with the same signed payload in the URL fragment.
+ *
+ * The bot id is the numeric half of the token and is public — it travels in
+ * every widget on every site that uses one. The secret half never leaves here.
+ */
+export function telegramLoginUrl(returnTo: string, botToken = process.env.BOT_TOKEN ?? ""): string | null {
+  const botId = botToken.split(":")[0];
+  if (!botId || !/^\d+$/.test(botId)) return null;
+  const origin = new URL(returnTo).origin;
+  const params = new URLSearchParams({
+    bot_id: botId,
+    origin,
+    request_access: "write",
+    return_to: returnTo,
+  });
+  return `https://oauth.telegram.org/auth?${params.toString()}`;
 }

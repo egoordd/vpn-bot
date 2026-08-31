@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 import { CabinetCards } from "@/components/cabinet/CabinetCards";
 import { Logo } from "@/components/ui/Logo";
 import { Pill } from "@/components/ui/Pill";
 import { getAccountByTelegram, getAccountOverview, isBillingLive } from "@/lib/billing/client";
+import { telegramLoginUrl } from "@/lib/telegram-auth";
 import { USER_SESSION_COOKIE, verifyUserSession } from "@/lib/web-session";
 import { CabinetLogin } from "./CabinetLogin";
 import { LogoutButton } from "./LogoutButton";
@@ -21,6 +22,12 @@ const DEMO_USER_ID = 1;
 
 export default async function CabinetPage() {
   const telegramId = verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  // Taken from the request, not from NEXT_PUBLIC_SITE_URL: Telegram rejects the
+  // login when `origin` does not match the domain the person is actually on,
+  // and that variable is currently set to a domain that does not resolve.
+  const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "unlockvpn.site";
+  const proto = headers().get("x-forwarded-proto") ?? "https";
+  const tgHref = telegramLoginUrl(`${proto}://${host}/auth/telegram/callback`);
 
   if (!isBillingLive) {
     const demo = await getAccountOverview(DEMO_USER_ID);
@@ -34,7 +41,7 @@ export default async function CabinetPage() {
   if (!telegramId) {
     return (
       <CabinetShell>
-        <CabinetLogin />
+        <CabinetLogin telegramLoginHref={tgHref} />
       </CabinetShell>
     );
   }
@@ -44,6 +51,7 @@ export default async function CabinetPage() {
     return (
       <CabinetShell>
         <CabinetLogin
+          telegramLoginHref={tgHref}
           note="Мы не нашли аккаунт с этим Telegram. Нажмите /start в боте @unlkvpn_bot или купите подписку на сайте — аккаунт появится автоматически."
         />
       </CabinetShell>

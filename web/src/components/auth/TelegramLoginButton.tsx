@@ -1,66 +1,32 @@
-"use client";
-
-import { useEffect, useRef } from "react";
-
-declare global {
-  interface Window {
-    onTelegramAuth?: (user: Record<string, unknown>) => void;
-  }
-}
+import "./telegram-login.css";
 
 interface TelegramLoginButtonProps {
-  onSuccess?: () => void;
-  onError?: (message: string) => void;
+  /** Built server-side by telegramLoginUrl(); null when the bot token is unset. */
+  href: string | null;
 }
 
 /**
- * Official Telegram Login Widget. Renders an iframe button; Telegram calls
- * `onTelegramAuth` with a signed payload which we verify server-side before
- * setting the session cookie.
+ * Sign in with Telegram, as a plain link.
  *
- * NOTE: the widget only works on the domain registered via @BotFather
- * /setdomain for the bot.
+ * This used to be Telegram's official widget, which injects a script from
+ * telegram.org and builds its button inside an iframe. That script evaluates
+ * strings as code, so our Content-Security-Policy blocked it and the button
+ * silently never appeared — the page just showed "или" followed by nothing.
+ * The fix is not to allow 'unsafe-eval' site-wide for one button: Telegram's
+ * redirect flow carries the same signed payload and needs no third-party
+ * script, so the policy got tighter instead of looser.
  */
-export function TelegramLoginButton({ onSuccess, onError }: TelegramLoginButtonProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    window.onTelegramAuth = async (user: Record<string, unknown>) => {
-      try {
-        const res = await fetch("/api/auth/telegram", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(user),
-        });
-        if (!res.ok) {
-          onError?.("Не удалось войти через Telegram. Попробуйте ещё раз.");
-          return;
-        }
-        onSuccess?.();
-      } catch {
-        onError?.("Сеть недоступна. Попробуйте ещё раз.");
-      }
-    };
-
-    const botName = process.env.NEXT_PUBLIC_TELEGRAM_BOT ?? "unlkvpn_bot";
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.async = true;
-    script.setAttribute("data-telegram-login", botName);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-radius", "12");
-    script.setAttribute("data-onauth", "onTelegramAuth(user)");
-    script.setAttribute("data-request-access", "write");
-    container.appendChild(script);
-
-    return () => {
-      container.innerHTML = "";
-      delete window.onTelegramAuth;
-    };
-  }, [onSuccess, onError]);
-
-  return <div ref={containerRef} />;
+export function TelegramLoginButton({ href }: TelegramLoginButtonProps) {
+  if (!href) return null;
+  return (
+    <a className="tglogin" href={href}>
+      <svg className="tglogin__icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M21.9 4.3 18.6 20c-.2.9-.7 1.1-1.5.7l-4.1-3-2 1.9c-.2.2-.4.4-.9.4l.3-4.2 7.6-6.9c.3-.3-.1-.4-.5-.2l-9.4 5.9-4-1.3c-.9-.3-.9-.9.2-1.3l15.7-6c.7-.3 1.4.2 1.1 1.3Z"
+        />
+      </svg>
+      Войти через Telegram
+    </a>
+  );
 }

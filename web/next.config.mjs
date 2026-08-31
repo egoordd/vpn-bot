@@ -20,10 +20,11 @@ const nextConfig = {
       "img-src 'self' data: https:",
       "font-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
-      // telegram.org serves the Login Widget script; oauth.telegram.org is the
-      // widget's auth iframe/redirect target.
-      "script-src 'self' 'unsafe-inline' https://telegram.org",
-      "frame-src https://oauth.telegram.org",
+      // No third-party script or frame: signing in with Telegram is a plain
+      // navigation to oauth.telegram.org and back, so their widget script —
+      // which needs 'unsafe-eval' and was silently blocked here — is gone.
+      "script-src 'self' 'unsafe-inline'",
+      "frame-src 'none'",
       "connect-src 'self'",
       "manifest-src 'self'",
     ].join("; ");
