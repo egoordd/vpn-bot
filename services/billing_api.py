@@ -15,7 +15,7 @@ from services import promo, referral, wallet
 from services.money import format_rub
 from services.payment import PLANS, create_invoice_payload, normalize_payment_plan_code
 from services.subscription import activate_panel_subscription, get_subscription_info
-from services.tariffs import PREMIUM_REGIONS, TARIFFS, RegionOption, Tariff, resolve_premium_region, resolve_tariff
+from services.tariffs import TARIFFS, Tariff, resolve_tariff
 
 
 @dataclass(frozen=True)
@@ -85,14 +85,6 @@ def _plan_from_tariff(tariff: Tariff) -> BillingPlan:
     )
 
 
-def _region_from_option(region: RegionOption) -> BillingRegion:
-    return BillingRegion(
-        code=region.code,
-        title=region.title,
-        city=region.city,
-        country_code=region.country_code,
-        is_on_demand=region.is_on_demand,
-    )
 
 
 def _snapshot_from_info(info: dict[str, object]) -> SubscriptionSnapshot:
@@ -134,11 +126,6 @@ def get_billing_plan(code: str) -> BillingPlan:
     return _plan_from_tariff(resolve_tariff(plan_code))
 
 
-def list_billing_regions() -> list[BillingRegion]:
-    return [
-        _region_from_option(region)
-        for region in sorted(PREMIUM_REGIONS.values(), key=lambda item: (item.title, item.code))
-    ]
 
 
 async def get_subscription_snapshot(session: AsyncSession, user_id: int) -> SubscriptionSnapshot:

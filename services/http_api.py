@@ -153,14 +153,6 @@ def _plan_payload(plan: BillingPlan) -> dict[str, Any]:
     }
 
 
-def _region_payload(region: BillingRegion) -> dict[str, Any]:
-    return {
-        "code": region.code,
-        "title": region.title,
-        "city": region.city,
-        "countryCode": region.country_code,
-        "isOnDemand": region.is_on_demand,
-    }
 
 
 def _subscription_payload(sub: SubscriptionSnapshot) -> dict[str, Any]:
@@ -311,10 +303,6 @@ def create_app() -> FastAPI:
         items = billing_api.list_billing_plans(tier=tier)
         return {"plans": [_plan_payload(plan) for plan in items]}
 
-    @application.get("/regions")
-    async def regions() -> dict[str, Any]:
-        items = billing_api.list_billing_regions()
-        return {"regions": [_region_payload(region) for region in items]}
 
     @application.get("/account/{user_id}")
     async def account(user_id: int, session: SessionDep) -> dict[str, Any]:

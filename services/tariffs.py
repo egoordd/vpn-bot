@@ -57,18 +57,6 @@ def country_flag(country_code: str) -> str:
     return "".join(chr(0x1F1E6 + (ord(ch) - ord("A"))) for ch in code)
 
 
-@dataclass(frozen=True)
-class RegionOption:
-    code: str
-    title: str
-    city: str
-    country_code: str
-    is_on_demand: bool = False
-
-    @property
-    def flag(self) -> str:
-        return country_flag(self.country_code)
-
 
 TARIFFS: dict[str, Tariff] = {
     "trial": Tariff(
@@ -135,27 +123,6 @@ TARIFFS: dict[str, Tariff] = {
 }
 
 
-PREMIUM_REGIONS: dict[str, RegionOption] = {
-    "ams": RegionOption(
-        code="ams",
-        title="Нидерланды, Амстердам",
-        city="Amsterdam",
-        country_code="NL",
-    ),
-    "fra": RegionOption(
-        code="fra",
-        title="Германия, Франкфурт",
-        city="Frankfurt",
-        country_code="DE",
-    ),
-    "waw": RegionOption(
-        code="waw",
-        title="Польша, Варшава",
-        city="Warsaw",
-        country_code="PL",
-        is_on_demand=True,
-    ),
-}
 
 
 LEGACY_PLAN_ALIASES = {
@@ -174,9 +141,3 @@ def resolve_tariff(code: str) -> Tariff:
         raise ValueError(f"Unknown tariff: {code}") from exc
 
 
-def resolve_premium_region(code: str) -> RegionOption:
-    region_code = code.strip().lower()
-    try:
-        return PREMIUM_REGIONS[region_code]
-    except KeyError as exc:
-        raise ValueError(f"Unknown premium region: {code}") from exc

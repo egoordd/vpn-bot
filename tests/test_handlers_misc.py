@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from bot.handlers import instructions, locations, subscription, support
+from bot.handlers import instructions, subscription, support
 from database.repository import Repository
 
 
@@ -123,103 +123,13 @@ async def test_subscription_handler_panel_subscription_shows_limits_and_link(ses
     assert "https://sub.example/api/sub/short" in text
 
 
-@pytest.mark.integration
-async def test_locations_handler_standard_subscription_prompts_premium(session_pool):
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.create_user(telegram_id=933)
-        await repo.create_subscription(
-            user_id=user.id,
-            plan="standard_1m",
-            tier="standard",
-            started_at=datetime.now(timezone.utc),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-            is_active=True,
-        )
-
-    message = SimpleNamespace(edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=933, username="loc"),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await locations.locations_handler(callback, session_pool)
-
-    text = message.edit_text.await_args.args[0]
-    assert "Польша" in text  # все три страны в списке локаций
-    callback.answer.assert_awaited_once()
 
 
 _AMS_INBOUNDS = '{"ams": {"vless": ["VLESS Reality AMS"]}}'
 
 
-@pytest.mark.integration
-async def test_locations_handler_shows_shared_locations_info(session_pool):
-    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=934, username="loc"),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await locations.locations_handler(callback, session_pool)
-
-    text = message.edit_text.await_args.args[0]
-    assert "США" in text and "Польша" in text and "Германия" in text
-    assert "приложении" in text
-    # The screen promises what the subscription contains. Amsterdam stayed on
-    # this list for two days after being pulled, telling every customer they had
-    # a server their app never showed.
-    assert "Нидерланды" not in text
 
 
-@pytest.mark.integration
-async def test_set_location_handler_switches_static_region(session_pool, monkeypatch):
-    import services.subscription as subscription_module
-
-    monkeypatch.setattr(locations.settings, "MARZBAN_REGION_INBOUNDS", _AMS_INBOUNDS)
-    monkeypatch.setattr(subscription_module.settings, "MARZBAN_REGION_INBOUNDS", _AMS_INBOUNDS)
-
-    class FakeGateway:
-        provider = "fake"
-
-        async def modify_user(self, **kwargs):
-            assert kwargs["inbounds"] == {"vless": ["VLESS Reality AMS"]}
-            return SimpleNamespace(subscription_url="https://sub/ams", username="tg_935p", status="active")
-
-    monkeypatch.setattr(subscription_module, "get_panel_gateway", lambda: FakeGateway())
-
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.create_user(telegram_id=935)
-        subscription_row = await repo.create_subscription(
-            user_id=user.id,
-            plan="premium_1m",
-            tier="premium",
-            region=None,
-            panel_username="tg_935p",
-            started_at=datetime.now(timezone.utc),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-            is_active=True,
-        )
-
-    message = SimpleNamespace(edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        data="set_location:ams",
-        from_user=SimpleNamespace(id=935, username="loc"),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await locations.set_location_handler(callback, session_pool)
-
-    async with session_pool() as session:
-        refreshed = await Repository(session).get_subscription(subscription_row.id)
-
-    assert refreshed.region == "ams"
-    assert refreshed.subscription_url == "https://sub/ams"
-    assert "Локация обновлена" in message.edit_text.await_args.args[0]
 
 
 @pytest.mark.unit

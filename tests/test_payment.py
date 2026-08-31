@@ -68,7 +68,6 @@ def test_legacy_payment_plan_aliases_normalize():
         "unlock:1:bad:abc",
         "unlock:not-int:1m:abc",
         "unlock:1:trial:abc",
-        "unlock:1:standard_1m:ams:abc",
         "unlock:1:premium_1m:bad:abc",
     ],
 )
@@ -124,3 +123,18 @@ def test_usdt_amount_for_kopecks_rounds_up():
     assert payment.usdt_amount_for_kopecks(9000, Decimal("90")) == "1.00"
     with pytest.raises(ValueError):
         payment.usdt_amount_for_kopecks(15000, Decimal("0"))
+
+
+@pytest.mark.unit
+def test_parse_invoice_payload_keeps_reading_old_region_payloads():
+    """Счёт, выписанный до удаления Premium, должен остаться оплачиваемым.
+
+    Пятая часть несла регион. Создавать такие больше нельзя, но человек,
+    открывший счёт до правки, не должен упереться в ошибку разбора — регион
+    просто отбрасывается.
+    """
+    details = parse_invoice_payload_details("unlock:1:standard_1m:ams:abc")
+
+    assert details.user_id == 1
+    assert details.plan == "standard_1m"
+    assert details.region is None

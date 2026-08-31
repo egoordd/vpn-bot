@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from decimal import ROUND_UP, Decimal
 
-from services.tariffs import TARIFFS, Tariff, resolve_premium_region, resolve_tariff
+from services.tariffs import TARIFFS, Tariff, resolve_tariff
 
 
 PAYMENT_PLAN_CODES = (
@@ -60,14 +60,9 @@ def normalize_payment_plan_code(plan: str) -> str:
 
 def create_invoice_payload(user_id: int, plan: str, region: str | None = None) -> str:
     plan_code = normalize_payment_plan_code(plan)
-    tariff = resolve_tariff(plan_code)
-    if tariff.tier == "premium":
-        if region is None:
-            raise ValueError("Premium plan requires region")
-        region_code = resolve_premium_region(region).code
-        return f"unlock:{user_id}:{plan_code}:{region_code}:{uuid.uuid4().hex}"
     if region is not None:
-        raise ValueError("Region is only supported for premium plans")
+        # Regions existed only to pick a Premium location, and Premium is gone.
+        raise ValueError("Region is no longer supported")
     return f"unlock:{user_id}:{plan_code}:{uuid.uuid4().hex}"
 
 
@@ -82,18 +77,14 @@ def parse_invoice_payload_details(payload: str) -> ParsedInvoicePayload:
         plan = normalize_payment_plan_code(raw_plan)
     except ValueError:
         raise ValueError("Unknown invoice plan")
-    tariff = resolve_tariff(plan)
+    resolve_tariff(plan)
 
-    region = None
-    if len(parts) == 5:
-        if tariff.tier != "premium":
-            raise ValueError("Region is only supported for premium plans")
-        try:
-            region = resolve_premium_region(parts[3]).code
-        except ValueError:
-            raise ValueError("Unknown invoice region")
-
-    return ParsedInvoicePayload(user_id=user_id, plan=plan, region=region)
+    # Five-part payloads carried a Premium region. Premium is gone and nothing
+    # mints them any more, but invoices already issued must still be readable:
+    # a person who opened one before the change should still be able to pay it.
+    # The region itself no longer means anything, so it is dropped rather than
+    # resolved against a table that no longer exists.
+    return ParsedInvoicePayload(user_id=user_id, plan=plan, region=None)
 
 
 def parse_invoice_payload(payload: str) -> tuple[int, str]:

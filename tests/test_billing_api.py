@@ -14,8 +14,7 @@ from services.billing_api import (
     get_subscription_snapshot,
     get_wallet,
     list_billing_plans,
-    list_billing_regions,
-    preview_checkout_discount,
+        preview_checkout_discount,
     redeem_balance_promo,
     register_cryptobot_payment,
     reward_referral_for_payment,
@@ -90,12 +89,6 @@ def test_get_billing_plan_normalizes_legacy_alias():
     assert plan.title == "Standard 1 месяц"
 
 
-@pytest.mark.unit
-def test_list_billing_regions_returns_premium_region_dto():
-    regions = {region.code: region for region in list_billing_regions()}
-
-    assert regions["ams"].country_code == "NL"
-    assert regions["waw"].is_on_demand is True
 
 
 @pytest.mark.unit

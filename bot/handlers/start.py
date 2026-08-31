@@ -24,7 +24,7 @@ from services.subscription import (
     connect_page_url,
     to_gateway_subscription_url,
 )
-from services.tariffs import resolve_premium_region, resolve_tariff
+from services.tariffs import resolve_tariff
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -55,18 +55,8 @@ def _subscription_card(subscription: Subscription) -> str:
         f"📊 Трафик: {used} / {limit} ГБ",
         f"📱 Устройств: до {devices}",
     ]
-    if subscription.tier == "premium":
-        label = "💎 Premium"
-        if subscription.region:
-            try:
-                region = resolve_premium_region(subscription.region)
-                lines.append(f"📍 Локация: {region.flag} {region.title}")
-            except ValueError:
-                pass
-    else:
-        label = "🌐 Обычный"
     lines.append(f"📅 До: {_format_msk(subscription.expires_at)}")
-    return f"📦 <b>{label}</b>\n" + bq(*lines)
+    return "📦 <b>Подписка</b>\n" + bq(*lines)
 
 
 def _menu_text(

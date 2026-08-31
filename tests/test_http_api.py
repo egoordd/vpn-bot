@@ -92,12 +92,6 @@ async def test_plans_filters_by_tier(api_client):
     assert plans and all(plan["tier"] == "standard" for plan in plans)
 
 
-@pytest.mark.asyncio
-async def test_regions(api_client):
-    response = await api_client.get("/regions")
-    assert response.status_code == 200
-    regions = response.json()["regions"]
-    assert regions and {"code", "title", "city", "countryCode", "isOnDemand"} <= set(regions[0])
 
 
 @pytest.mark.asyncio

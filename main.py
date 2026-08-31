@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from services.alerts import send_alert
 
-from bot.handlers import admin, buy, connect_device, help, instructions, locations, review, start, subscription, support, wallet
+from bot.handlers import admin, buy, connect_device, help, instructions, review, start, subscription, support, wallet
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
 from bot.middlewares.update_timing import SlowUpdateLoggingMiddleware
 from config import settings

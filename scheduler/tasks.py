@@ -11,13 +11,6 @@ from bot.keyboards.main_menu import back_to_menu_keyboard
 from bot.texts import bq, format_msk
 from config import settings
 from database.repository import Repository
-from services.autoscaler import (
-    AutoscalePoolResult,
-    ProvisionNodeRequest,
-    assign_subscription_to_node,
-    autoscale_premium_pool,
-    release_subscription_nodes,
-)
 from services.cryptobot import CryptoBotUnavailableError, get_invoices_by_status
 from services.panel_gateway import (
     PanelGateway,
@@ -39,7 +32,7 @@ from services.subscription import (
     connect_page_url,
     to_gateway_subscription_url,
 )
-from services.tariffs import resolve_premium_region, resolve_tariff
+from services.tariffs import resolve_tariff
 from services.wireguard import WireGuardError, ensure_user_peer, remove_peer
 
 logger = logging.getLogger(__name__)
@@ -291,62 +284,6 @@ def _remnawave_api_configured() -> bool:
     return bool(settings.REMNAWAVE_API_URL.strip() and settings.remnawave_api_token.strip())
 
 
-def _autoscaler_configured() -> bool:
-    return bool(
-        _remnawave_api_configured()
-        and settings.vultr_api_token.strip()
-        and settings.VULTR_DEFAULT_OS_ID
-        and settings.REMNAWAVE_NODE_CONFIG_PROFILE_UUID.strip()
-        and settings.remnawave_node_inbound_uuids_list
-    )
-
-
-async def autoscale_check(
-    session_pool: async_sessionmaker[AsyncSession],
-    *,
-    regions: list[str] | None = None,
-    min_free_slots: int | None = None,
-    min_active_nodes: int | None = None,
-    max_provisions_per_region: int | None = None,
-    decommission_empty: bool | None = None,
-) -> AutoscalePoolResult:
-    regions_to_check = regions if regions is not None else settings.autoscale_premium_regions_list
-    result = AutoscalePoolResult(checked_regions=len(regions_to_check))
-    if not regions_to_check:
-        return result
-    if regions is None and not _autoscaler_configured():
-        logger.info("Autoscale check skipped: autoscaler external settings are incomplete")
-        return result
-
-    async with session_pool() as session:
-        try:
-            return await autoscale_premium_pool(
-                session,
-                regions=regions_to_check,
-                min_free_slots=(
-                    settings.AUTOSCALE_PREMIUM_MIN_FREE_SLOTS
-                    if min_free_slots is None
-                    else min_free_slots
-                ),
-                min_active_nodes=(
-                    settings.AUTOSCALE_PREMIUM_MIN_ACTIVE_NODES
-                    if min_active_nodes is None
-                    else min_active_nodes
-                ),
-                max_provisions_per_region=(
-                    settings.AUTOSCALE_MAX_PROVISIONS_PER_REGION
-                    if max_provisions_per_region is None
-                    else max_provisions_per_region
-                ),
-                decommission_empty=(
-                    settings.AUTOSCALE_DECOMMISSION_EMPTY
-                    if decommission_empty is None
-                    else decommission_empty
-                ),
-            )
-        except Exception:
-            logger.exception("Autoscale check failed")
-            return result
 
 
 async def _send_access_bundle(bot: Bot, telegram_id: int, config_text: str, expires_at: datetime) -> None:
@@ -365,27 +302,13 @@ async def _send_access_bundle(bot: Bot, telegram_id: int, config_text: str, expi
     )
 
 
-def _subscription_access_text(
-    subscription_url: str,
-    expires_at: datetime,
-    *,
-    premium_region_title: str | None = None,
-) -> str:
-    card_lines = [f"📅 Активна до: {format_msk(expires_at)}"]
-    if premium_region_title:
-        card_lines.append(f"🌍 Локация: {premium_region_title}")
-    note = (
-        "\n\n⏳ Если сервер только поднят, клиент увидит обновление в течение ~2 минут."
-        if premium_region_title
-        else ""
-    )
+def _subscription_access_text(subscription_url: str, expires_at: datetime) -> str:
     return (
         "🎉 <b>Оплата получена!</b>\n\n"
-        + bq(*card_lines)
+        + bq(f"📅 Активна до: {format_msk(expires_at)}")
         + "\n\n🔗 <b>Ссылка-подписка:</b>\n"
         f"<code>{subscription_url}</code>\n\n"
         "Нажмите «Подключить VPN» — откроется страница с приложениями и пошаговой инструкцией."
-        + note
         + f"\n\nПроблемы? {settings.support_contact}"
     )
 
@@ -395,8 +318,6 @@ async def _send_subscription_bundle(
     telegram_id: int,
     subscription_url: str,
     expires_at: datetime,
-    *,
-    premium_region_title: str | None = None,
 ) -> None:
     # Deliver the link + a button to the /connect setup page — no QR image.
     connect_url = connect_page_url(subscription_url)
@@ -414,7 +335,6 @@ async def _send_subscription_bundle(
         text=_subscription_access_text(
             subscription_url,
             expires_at,
-            premium_region_title=premium_region_title,
         ),
         reply_markup=keyboard,
     )
@@ -574,7 +494,6 @@ async def poll_cryptobot_payments(
                 access_kind = "subscription"
                 subscription_url = ""
                 config_text = ""
-                premium_region_title = None
 
                 if _remnawave_configured():
                     subscription = await activate_panel_subscription(
@@ -585,28 +504,6 @@ async def poll_cryptobot_payments(
                     if not subscription.subscription_url:
                         raise RuntimeError("Panel subscription has no subscription_url")
                     subscription_url = to_gateway_subscription_url(subscription.subscription_url)
-                    tariff = resolve_tariff(plan)
-                    if tariff.tier == "premium":
-                        region_option = (
-                            resolve_premium_region(payload_details.region)
-                            if payload_details.region is not None
-                            else None
-                        )
-                        assigned_node = await assign_subscription_to_node(
-                            session=session,
-                            subscription_id=subscription.id,
-                            tier="premium",
-                            region=region_option.code if region_option else None,
-                            provision_request=ProvisionNodeRequest(
-                                region=region_option.code if region_option else None,
-                                country_code=region_option.country_code if region_option else None,
-                            ),
-                        )
-                        assigned_region = assigned_node.region
-                        try:
-                            premium_region_title = resolve_premium_region(assigned_region).title
-                        except ValueError:
-                            premium_region_title = assigned_region
                 else:
                     access_kind = "wireguard"
                     subscription = await activate_subscription(
@@ -663,7 +560,6 @@ async def poll_cryptobot_payments(
                         telegram_id=user.telegram_id,
                         subscription_url=subscription_url,
                         expires_at=subscription.expires_at,
-                        premium_region_title=premium_region_title,
                     )
                 else:
                     await _send_access_bundle(
@@ -818,16 +714,4 @@ def setup_scheduler(bot: Bot, session_pool: async_sessionmaker[AsyncSession]) ->
         coalesce=True,
         next_run_time=datetime.now(timezone.utc),
     )
-    if settings.autoscale_premium_regions_list:
-        scheduler.add_job(
-            autoscale_check,
-            trigger="interval",
-            seconds=settings.AUTOSCALE_CHECK_INTERVAL_SECONDS,
-            args=[session_pool],
-            id="autoscale_check",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            next_run_time=datetime.now(timezone.utc),
-        )
     return scheduler

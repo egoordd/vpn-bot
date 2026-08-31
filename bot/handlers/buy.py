@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.handlers.start import _menu_state
 from bot.keyboards.main_menu import (
-    premium_location_keyboard,
     renew_durations_keyboard,
     renew_menu_keyboard,
     tier_plans_keyboard,
@@ -28,7 +27,7 @@ from services.cryptobot import CryptoBotError, create_invoice
 from services.cryptobot import is_configured as is_cryptobot_configured
 from services.money import format_rub
 from services.payment import PLANS, normalize_payment_plan_code
-from services.tariffs import country_flag, resolve_premium_region, resolve_tariff
+from services.tariffs import resolve_tariff
 from services import yookassa
 
 logger = logging.getLogger(__name__)
@@ -67,23 +66,11 @@ async def _send_callback_message(
         await bot.send_message(callback.from_user.id, text, reply_markup=reply_markup)
 
 
-def _premium_location_text(plan: str) -> str:
-    plan_data = PLANS[plan]
-    return (
-        "🌍 <b>Выбор локации</b>\n\n"
-        + bq(
-            f"💎 Тариф: {plan_data['title']}",
-            f"💵 Стоимость: {plan_data['rub_amount']}₽",
-        )
-        + "\n\nВыберите локацию premium-ноды. Если в регионе нет свободного места, "
-        "сервер будет поднят автоматически (~2 минуты после оплаты)."
-    )
 
 
 def _checkout_keyboard(
     *,
     plan: str,
-    region: str | None,
     balance_ok: bool,
     crypto_ok: bool,
     price_kopecks: int,
@@ -91,7 +78,7 @@ def _checkout_keyboard(
     tier: str = "standard",
     balance_kopecks: int = 0,
 ) -> InlineKeyboardMarkup:
-    suffix = f":{region}" if region else ""
+    suffix = ""
     rows: list[list[InlineKeyboardButton]] = []
     if yookassa_ok:
         # Card is the primary method → first button. Creates a YooKassa payment on
@@ -127,7 +114,7 @@ def _checkout_keyboard(
     if not balance_ok and balance_kopecks > 0:
         rows.append([InlineKeyboardButton(text="➕ Пополнить баланс", callback_data="topup_menu")])
     # One step back = this tier's plan list, not the tier-select screen.
-    back_callback = f"buy_tier:{tier}" if tier != "premium" else "buy_menu"
+    back_callback = f"buy_tier:{tier}"
     rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -137,7 +124,6 @@ async def _show_checkout(
     session_pool: async_sessionmaker[AsyncSession],
     *,
     plan: str,
-    region: str | None = None,
 ) -> None:
     tariff = resolve_tariff(plan)
     price_kopecks = tariff.price_rub * 100
@@ -150,13 +136,9 @@ async def _show_checkout(
         )
         balance = await repo.get_balance(user.id) or 0
 
-    region_option = resolve_premium_region(region) if region else None
-    # Balance checkout: standard always; premium only for regions backed by a
-    # static panel node (others need autoscaler and stay crypto-only).
-    premium_static = tariff.tier == "premium" and settings.marzban_inbounds_for_region(region) is not None
-    balance_ok = balance >= price_kopecks and (tariff.tier == "standard" or premium_static)
+    balance_ok = balance >= price_kopecks
     crypto_ok = is_cryptobot_configured()
-    # YooKassa card path: standard plans only for now (premium needs region/node
+    # YooKassa card path.
     # assignment which the redirect webhook does not perform).
     yookassa_ok = yookassa.is_configured() and tariff.tier == "standard"
 
@@ -164,8 +146,6 @@ async def _show_checkout(
         f"💎 Тариф: {tariff.title}",
         f"💵 Стоимость: {tariff.price_rub}₽",
     ]
-    if region_option is not None:
-        card_lines.append(f"📍 Локация: {region_option.flag} {region_option.title}")
     # A zero balance is noise on the payment screen — show the wallet only
     # when there is actually money on it.
     if balance > 0:
@@ -179,8 +159,6 @@ async def _show_checkout(
                 "💳 <i>Картой (рекомендуем):</i> нажмите «Оплатить картой» — откроется "
                 "защищённая страница оплаты. После оплаты подписка придёт сюда автоматически."
             )
-    elif tariff.tier == "premium":
-        sections.append("⚠️ Оплата Premium временно доступна только криптовалютой, а она сейчас недоступна. Попробуйте позже.")
     elif balance > 0:
         need = price_kopecks - balance
         sections.append(f"💰 На балансе не хватает {format_rub(need)}. Пополните баланс и оплатите в один тап.")
@@ -192,7 +170,6 @@ async def _show_checkout(
         "\n\n".join(sections),
         _checkout_keyboard(
             plan=plan,
-            region=region,
             balance_ok=balance_ok,
             crypto_ok=crypto_ok,
             price_kopecks=price_kopecks,
@@ -210,7 +187,6 @@ async def _create_payment_invoice(
     session_pool: async_sessionmaker[AsyncSession],
     *,
     plan: str,
-    region: str | None = None,
 ) -> None:
     async with session_pool() as session:
         intent = await build_payment_intent(
@@ -218,7 +194,6 @@ async def _create_payment_invoice(
             telegram_id=callback.from_user.id,
             username=callback.from_user.username,
             plan=plan,
-            region=region,
         )
 
     try:
@@ -252,11 +227,9 @@ async def _create_payment_invoice(
         f"💎 Тариф: {intent.plan.title}",
         f"💵 Стоимость: {intent.plan.price_rub}₽ ({intent.amount} USDT)",
     ]
-    if intent.region is not None:
-        card_lines.append(f"📍 Локация: {country_flag(intent.region.country_code)} {intent.region.title}")
     tail = (
-        "После оплаты premium-нода закрепляется автоматически. Если свободной нет, подготовка займёт около 2 минут."
-        if intent.plan.tier == "premium"
+        ""
+        if False
         else "Ссылка-подписка придёт автоматически в течение минуты после оплаты."
     )
     text = (
@@ -275,14 +248,13 @@ def _yookassa_pay_keyboard(
     price_rub: int,
     *,
     plan: str | None = None,
-    region: str | None = None,
     email_editable: bool = False,
 ) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(text=f"💳 Оплатить — {price_rub}₽", url=pay_url)]]
     if email_editable and plan:
         # The чек goes to the stored email; a typo would send it nowhere, so
         # let the buyer fix the address right from the payment screen.
-        suffix = f":{region}" if region else ""
+        suffix = ""
         rows.append(
             [InlineKeyboardButton(text="✏️ Изменить email для чека", callback_data=f"ykemail:{plan}{suffix}")]
         )
@@ -297,9 +269,9 @@ class YookassaEmailInput(StatesGroup):
     email = State()
 
 
-def _email_prompt_keyboard(plan: str, region: str | None = None) -> InlineKeyboardMarkup:
+def _email_prompt_keyboard(plan: str) -> InlineKeyboardMarkup:
     # Cancel = one step back to this plan's checkout, not the buy menu.
-    back = f"buy_region:{plan}:{region}" if region else f"buy:{plan}"
+    back = f"buy:{plan}"
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Отмена", callback_data=back)]])
 
 
@@ -309,7 +281,6 @@ async def _create_yookassa_invoice(
     username: str | None,
     session_pool: async_sessionmaker[AsyncSession],
     plan: str,
-    region: str | None,
     email: str | None,
     send,
 ) -> None:
@@ -319,7 +290,6 @@ async def _create_yookassa_invoice(
             telegram_id=telegram_id,
             username=username,
             plan=plan,
-            region=region,
         )
 
     try:
@@ -361,22 +331,11 @@ async def _create_yookassa_invoice(
             pay_url,
             intent.plan.price_rub,
             plan=plan,
-            region=region,
             email_editable=bool(email),
         ),
     )
 
 
-PREMIUM_SOON_TEXT = (
-    "💎 <b>Premium — скоро</b>\n\n"
-    "<blockquote>"
-    "🔒 Мало соседей на ноде (низкая плотность)\n"
-    "📌 Стабильный IP в выбранной стране\n"
-    "⚡️ Максимальная скорость"
-    "</blockquote>\n\n"
-    "Сейчас доступен <b>Обычный</b> тариф с несколькими локациями. "
-    "Premium запустим с отдельными разгруженными нодами."
-)
 
 TIER_TEXTS = {
     "standard": (
@@ -405,11 +364,6 @@ async def buy_menu_handler(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("buy_tier:"))
 async def buy_tier_handler(callback: CallbackQuery) -> None:
     tier = callback.data.split(":", maxsplit=1)[1] if callback.data else ""
-    if tier == "premium":
-        # Stale keyboards from old messages may still carry the premium button.
-        await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_plans_keyboard("standard"))
-        await callback.answer()
-        return
     text = TIER_TEXTS.get(tier)
     if text is None:
         await callback.answer("Неизвестный тариф.", show_alert=True)
@@ -456,11 +410,10 @@ async def renew_sub_handler(callback: CallbackQuery, session_pool: async_session
         if user is None or subscription is None or subscription.user_id != user.id:
             await callback.answer("Подписка не найдена", show_alert=True)
             return
-        tier, region = subscription.tier, subscription.region
+        tier = subscription.tier
 
-    label = "💎 Premium" if tier == "premium" else "🌐 Обычный"
-    text = f"🔄 <b>Продление: {label}</b>\n\nВыберите срок — он добавится к текущему:"
-    await _edit_current_message(callback, text, renew_durations_keyboard(tier, region))
+    text = "🔄 <b>Продление</b>\n\nВыберите срок — он добавится к текущему:"
+    await _edit_current_message(callback, text, renew_durations_keyboard(tier))
     await callback.answer()
 
 
@@ -490,29 +443,8 @@ async def buy_plan_handler(
         return
     tariff = resolve_tariff(plan)
 
-    if tariff.tier == "premium":
-        # Premium sales are paused until dedicated low-density nodes exist.
-        await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_plans_keyboard("standard"))
-        await callback.answer()
-        return
-
     await _show_checkout(callback, session_pool, plan=plan)
 
-
-@router.callback_query(F.data.startswith("buy_region:"))
-async def buy_region_handler(
-    callback: CallbackQuery,
-    bot: Bot,
-    session_pool: async_sessionmaker[AsyncSession],
-) -> None:
-    parts = callback.data.split(":", maxsplit=2) if callback.data else []
-    if len(parts) != 3:
-        await callback.answer("Локация не найдена", show_alert=True)
-        return
-
-    # Premium sales are paused until dedicated low-density nodes exist.
-    await _edit_current_message(callback, PREMIUM_SOON_TEXT, tier_plans_keyboard("standard"))
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("paycrypto:"))
@@ -523,27 +455,18 @@ async def pay_crypto_handler(
 ) -> None:
     parts = callback.data.split(":", maxsplit=2) if callback.data else []
     raw_plan = parts[1] if len(parts) >= 2 else ""
-    raw_region = parts[2] if len(parts) == 3 else None
     try:
         plan = normalize_payment_plan_code(raw_plan)
     except ValueError:
         await callback.answer("Тариф не найден", show_alert=True)
         return
 
-    region: str | None = None
-    if raw_region is not None:
-        try:
-            region = resolve_premium_region(raw_region).code
-        except ValueError:
-            await callback.answer("Локация не найдена", show_alert=True)
-            return
-
     if not is_cryptobot_configured():
         await callback.answer("Оплата криптовалютой сейчас недоступна.", show_alert=True)
         return
 
     await callback.answer()
-    await _create_payment_invoice(callback, bot, session_pool, plan=plan, region=region)
+    await _create_payment_invoice(callback, bot, session_pool, plan=plan)
 
 
 @router.callback_query(F.data.startswith("payyk:"))
@@ -555,20 +478,11 @@ async def pay_yookassa_handler(
 ) -> None:
     parts = callback.data.split(":", maxsplit=2) if callback.data else []
     raw_plan = parts[1] if len(parts) >= 2 else ""
-    raw_region = parts[2] if len(parts) == 3 else None
     try:
         plan = normalize_payment_plan_code(raw_plan)
     except ValueError:
         await callback.answer("Тариф не найден", show_alert=True)
         return
-
-    region: str | None = None
-    if raw_region is not None:
-        try:
-            region = resolve_premium_region(raw_region).code
-        except ValueError:
-            await callback.answer("Локация не найдена", show_alert=True)
-            return
 
     if not yookassa.is_configured():
         await callback.answer("Оплата картой сейчас недоступна.", show_alert=True)
@@ -587,7 +501,7 @@ async def pay_yookassa_handler(
     # the buyer's email, ask once. In on-page mode YooKassa collects it instead.
     if settings.YOOKASSA_RECEIPT_ENABLED and not settings.YOOKASSA_COLLECT_EMAIL_ON_PAGE and not stored_email:
         await state.set_state(YookassaEmailInput.email)
-        await state.update_data(plan=plan, region=region)
+        await state.update_data(plan=plan)
         text = (
             "📧 <b>Email для чека</b>\n\n"
             + bq(
@@ -596,7 +510,7 @@ async def pay_yookassa_handler(
             )
             + "\n\nОтправьте ваш email одним сообщением (например, <code>name@mail.ru</code>)."
         )
-        await _send_callback_message(callback, bot, text, _email_prompt_keyboard(plan, region))
+        await _send_callback_message(callback, bot, text, _email_prompt_keyboard(plan))
         return
 
     await _create_yookassa_invoice(
@@ -604,7 +518,6 @@ async def pay_yookassa_handler(
         username=callback.from_user.username,
         session_pool=session_pool,
         plan=plan,
-        region=region,
         email=stored_email,
         send=lambda text, kb: _send_callback_message(callback, bot, text, kb),
     )
@@ -618,29 +531,20 @@ async def yookassa_change_email_handler(
 ) -> None:
     parts = callback.data.split(":", maxsplit=2) if callback.data else []
     raw_plan = parts[1] if len(parts) >= 2 else ""
-    raw_region = parts[2] if len(parts) == 3 else None
     try:
         plan = normalize_payment_plan_code(raw_plan)
     except ValueError:
         await callback.answer("Тариф не найден", show_alert=True)
         return
 
-    region: str | None = None
-    if raw_region is not None:
-        try:
-            region = resolve_premium_region(raw_region).code
-        except ValueError:
-            await callback.answer("Локация не найдена", show_alert=True)
-            return
-
     await state.set_state(YookassaEmailInput.email)
-    await state.update_data(plan=plan, region=region)
+    await state.update_data(plan=plan)
     text = (
         "✏️ <b>Новый email для чека</b>\n\n"
         "Отправьте адрес одним сообщением (например, <code>name@mail.ru</code>) — "
         "мы сохраним его и выставим счёт заново."
     )
-    await _send_callback_message(callback, bot, text, _email_prompt_keyboard(plan, region))
+    await _send_callback_message(callback, bot, text, _email_prompt_keyboard(plan))
     await callback.answer()
 
 
@@ -655,14 +559,13 @@ async def yookassa_email_message_handler(
         data = await state.get_data()
         await message.answer(
             "Это не похоже на email. Отправьте адрес вида <code>name@mail.ru</code>.",
-            reply_markup=_email_prompt_keyboard(str(data.get("plan") or ""), data.get("region")),
+            reply_markup=_email_prompt_keyboard(str(data.get("plan") or "")),
         )
         return
 
     data = await state.get_data()
     await state.clear()
     plan = data.get("plan")
-    region = data.get("region")
     if not plan:
         await message.answer("Сессия оплаты истекла. Откройте тариф заново через «🛒 Купить».")
         return
@@ -679,7 +582,6 @@ async def yookassa_email_message_handler(
         username=message.from_user.username,
         session_pool=session_pool,
         plan=plan,
-        region=region,
         email=email,
         send=lambda text, kb: message.answer(text, reply_markup=kb),
     )

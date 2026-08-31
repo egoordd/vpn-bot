@@ -146,21 +146,17 @@ async def activate_panel_subscription(
     plan: str,
     panel_client: Any | None = None,
     panel_gateway: PanelGateway | None = None,
-    region: str | None = None,
 ) -> Subscription:
     tariff: Tariff = resolve_tariff(plan)
-    region_inbounds = settings.marzban_inbounds_for_region(region)
     repo = Repository(session)
     user = await repo.get_user(user_id)
     if user is None:
         raise ValueError(f"Unknown user_id: {user_id}")
 
     now = datetime.now(timezone.utc)
-    # Two independent billing lanes: premium (location-specific) and non-premium
-    # (trial + standard, main server). Each lane has its own panel user, expiry
-    # and link — buying in one lane never overwrites the other.
-    is_premium = tariff.tier == "premium"
-    latest = await repo.get_latest_subscription_in_lane(user_id, is_premium)
+    # One lane: Premium is gone, so trial and standard share a panel user, an
+    # expiry and a link, and buying always extends the same subscription.
+    latest = await repo.get_latest_subscription_in_lane(user_id, False)
     starts_at = now
     if latest and latest.is_active and _aware(latest.expires_at) > now:
         starts_at = _aware(latest.expires_at)
@@ -172,10 +168,7 @@ async def activate_panel_subscription(
     if latest and latest.panel_username:
         panel_username = latest.panel_username
     else:
-        base_username = gateway.build_username(user.telegram_id)
-        # Non-premium lane keeps the bare username (backward compatible); premium
-        # gets a distinct panel user so the two lanes don't overwrite each other.
-        panel_username = f"{base_username}p" if is_premium else base_username
+        panel_username = gateway.build_username(user.telegram_id)
 
     if await _panel_user_exists(gateway, panel_username):
         panel_user = await gateway.modify_user(
@@ -185,7 +178,6 @@ async def activate_panel_subscription(
             device_limit=tariff.device_limit,
             status="active",
             tag=tariff.tier,
-            inbounds=region_inbounds,
             traffic_resets_monthly=tariff.traffic_resets_monthly,
         )
         # A renewal reuses the panel account, and the panel counts traffic
@@ -214,16 +206,15 @@ async def activate_panel_subscription(
             status="active",
             description=f"Telegram user {user.telegram_id}",
             tag=tariff.tier,
-            inbounds=region_inbounds,
             traffic_resets_monthly=tariff.traffic_resets_monthly,
         )
 
-    await repo.deactivate_subscriptions_in_lane(user_id, is_premium)
+    await repo.deactivate_subscriptions_in_lane(user_id, False)
     subscription = await repo.create_subscription(
         user_id=user_id,
         plan=tariff.code,
         tier=tariff.tier,
-        region=region if is_premium else None,
+        region=None,
         panel_username=panel_user.username,
         sub_token=panel_user.short_uuid,
         subscription_url=panel_user.subscription_url,
@@ -240,48 +231,8 @@ async def activate_panel_subscription(
     return subscription
 
 
-class StaticRegionError(RuntimeError):
-    """Raised when a premium region has no static panel node configured."""
 
 
-async def switch_premium_region(
-    session: AsyncSession,
-    user_id: int,
-    region: str,
-    panel_gateway: PanelGateway | None = None,
-) -> Subscription:
-    """Move an active premium subscription to another static region.
-
-    Re-points the premium panel user to the region's inbound (no extra charge,
-    same expiry) — works for static nodes without the autoscaler.
-    """
-    region_inbounds = settings.marzban_inbounds_for_region(region)
-    if region_inbounds is None:
-        raise StaticRegionError(f"No static node for region: {region}")
-
-    repo = Repository(session)
-    premium = next(
-        (s for s in await repo.list_active_subscriptions(user_id) if s.tier == "premium"),
-        None,
-    )
-    if premium is None or not premium.panel_username:
-        raise ValueError("No active premium subscription to switch")
-
-    gateway = panel_gateway or get_panel_gateway()
-    panel_user = await gateway.modify_user(
-        username=premium.panel_username,
-        expire_at=_aware(premium.expires_at),
-        traffic_limit_bytes=premium.traffic_limit_bytes,
-        device_limit=premium.device_limit,
-        status="active",
-        inbounds=region_inbounds,
-    )
-    updated = await repo.update_subscription(
-        premium.id,
-        region=region,
-        subscription_url=panel_user.subscription_url or premium.subscription_url,
-    )
-    return updated or premium
 
 
 async def check_subscription_active(session: AsyncSession, user_id: int) -> bool:

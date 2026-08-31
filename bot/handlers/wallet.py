@@ -36,7 +36,7 @@ from services.subscription import (
     connect_page_url,
     to_gateway_subscription_url,
 )
-from services.tariffs import resolve_premium_region, resolve_tariff
+from services.tariffs import resolve_tariff
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -461,31 +461,11 @@ async def pay_with_balance_handler(
 ) -> None:
     parts = callback.data.split(":", 2)
     plan_code = parts[1] if len(parts) > 1 else ""
-    raw_region = parts[2] if len(parts) > 2 else None
     try:
         tariff = resolve_tariff(plan_code)
     except ValueError:
         await callback.answer("Неизвестный тариф.", show_alert=True)
         return
-
-    region: str | None = None
-    region_title: str | None = None
-    if tariff.tier == "premium":
-        if raw_region is None:
-            await callback.answer("Не выбрана локация.", show_alert=True)
-            return
-        try:
-            region_option = resolve_premium_region(raw_region)
-        except ValueError:
-            await callback.answer("Локация не найдена.", show_alert=True)
-            return
-        region = region_option.code
-        region_title = f"{region_option.flag} {region_option.title}"
-        # Balance checkout only for regions backed by a static panel node;
-        # autoscaled regions stay crypto-only until provisioning is live.
-        if settings.marzban_inbounds_for_region(region) is None:
-            await callback.answer("Эта локация пока оплачивается только криптой.", show_alert=True)
-            return
 
     if not is_panel_configured():
         await callback.answer("Сервис временно недоступен. Попробуйте позже.", show_alert=True)
@@ -521,7 +501,6 @@ async def pay_with_balance_handler(
                 session=session,
                 user_id=user.id,
                 plan=tariff.code,
-                region=region,
             )
         except (PanelGatewayError, Exception):
             logger.exception(
@@ -546,8 +525,6 @@ async def pay_with_balance_handler(
     sub_url = to_gateway_subscription_url(subscription.subscription_url) or subscription.subscription_url
     connect_url = connect_page_url(sub_url)
     card_lines = [f"💎 Тариф: {tariff.title}"]
-    if region_title is not None:
-        card_lines.append(f"🌍 Локация: {region_title}")
     card_lines.append(f"💰 Списано: {format_rub(price_kopecks)}")
     card_lines.append(f"💳 Остаток: {format_rub(balance)}")
     link_line = f"\n\n🔗 <b>Ссылка-подписка:</b>\n<code>{sub_url}</code>" if sub_url else ""

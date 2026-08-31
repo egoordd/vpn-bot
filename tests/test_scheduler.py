@@ -545,80 +545,10 @@ async def test_deactivate_expired_subscriptions_catches_remove_peer_errors(fake_
         assert refreshed.is_active is False
 
 
-@pytest.mark.integration
-async def test_deactivate_expired_subscriptions_releases_premium_nodes(fake_bot, session_pool):
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.create_user(telegram_id=702)
-        node = await repo.create_node(
-            tier="premium",
-            capacity=2,
-            region="ams",
-            provider="manual",
-            ip_address="203.0.113.70",
-            panel_node_id="panel-premium",
-            current_users=1,
-        )
-        subscription = await repo.create_subscription(
-            user_id=user.id,
-            plan="premium_1m",
-            tier="premium",
-            node_ids=["panel-premium"],
-            started_at=datetime.now(timezone.utc) - timedelta(days=31),
-            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
-            is_active=True,
-        )
-
-    await tasks.deactivate_expired_subscriptions(fake_bot, session_pool)
-
-    async with session_pool() as session:
-        repo = Repository(session)
-        refreshed_node = await repo.get_node(node.id)
-        refreshed_subscription = await repo.get_subscription(subscription.id)
-
-    assert refreshed_node.current_users == 0
-    assert refreshed_subscription.node_ids == []
-    assert refreshed_subscription.is_active is False
-    fake_bot.send_photo.assert_awaited_once()
 
 
-@pytest.mark.integration
-async def test_autoscale_check_noops_without_configured_regions(session_pool, monkeypatch):
-    autoscale_premium_pool = AsyncMock()
-    monkeypatch.setattr(tasks, "AUTOSCALE_PREMIUM_REGIONS", "", raising=False)
-    monkeypatch.setattr(tasks.settings, "AUTOSCALE_PREMIUM_REGIONS", "")
-    monkeypatch.setattr(tasks, "autoscale_premium_pool", autoscale_premium_pool)
-
-    result = await tasks.autoscale_check(session_pool)
-
-    assert result.checked_regions == 0
-    assert result.provisioned_count == 0
-    autoscale_premium_pool.assert_not_awaited()
 
 
-@pytest.mark.integration
-async def test_autoscale_check_delegates_with_explicit_regions(session_pool, monkeypatch):
-    expected = tasks.AutoscalePoolResult(checked_regions=1, provisioned_node_ids=[10])
-    autoscale_premium_pool = AsyncMock(return_value=expected)
-    monkeypatch.setattr(tasks, "autoscale_premium_pool", autoscale_premium_pool)
-
-    result = await tasks.autoscale_check(
-        session_pool,
-        regions=["ams"],
-        min_free_slots=2,
-        min_active_nodes=1,
-        max_provisions_per_region=1,
-        decommission_empty=False,
-    )
-
-    assert result is expected
-    autoscale_premium_pool.assert_awaited_once()
-    kwargs = autoscale_premium_pool.await_args.kwargs
-    assert kwargs["regions"] == ["ams"]
-    assert kwargs["min_free_slots"] == 2
-    assert kwargs["min_active_nodes"] == 1
-    assert kwargs["max_provisions_per_region"] == 1
-    assert kwargs["decommission_empty"] is False
 
 
 @pytest.mark.unit

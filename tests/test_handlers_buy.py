@@ -470,7 +470,7 @@ async def test_yookassa_change_email_flow_reissues_invoice(session_pool, fake_bo
     await buy.yookassa_change_email_handler(callback, fake_bot, state)
 
     state.set_state.assert_awaited_once()
-    assert state_data == {"plan": "standard_1m", "region": None}
+    assert state_data == {"plan": "standard_1m"}
 
     created: dict = {}
 

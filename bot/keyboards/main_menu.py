@@ -2,7 +2,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.texts import trial_days
 from services.payment import PLANS
-from services.tariffs import PREMIUM_REGIONS
 
 
 DURATION_EMOJI = {30: "🚀", 90: "💎", 180: "👑", 365: "🏆"}
@@ -82,22 +81,6 @@ def renew_durations_keyboard(tier: str, region: str | None) -> InlineKeyboardMar
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def premium_location_keyboard(plan: str) -> InlineKeyboardMarkup:
-    region_rows = [
-        [
-            InlineKeyboardButton(
-                text=f"{region.flag} {region.title}",
-                callback_data=f"buy_region:{plan}:{code}",
-            )
-        ]
-        for code, region in PREMIUM_REGIONS.items()
-    ]
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            *region_rows,
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="buy_menu")],
-        ]
-    )
 
 
 def my_subs_keyboard() -> InlineKeyboardMarkup:
