@@ -1170,3 +1170,20 @@ async def test_web_promo_redeem_rejects_an_unknown_account(api_client):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "user_not_found"
+
+
+@pytest.mark.asyncio
+async def test_the_ip_checkout_cap_survives_a_carrier_sized_burst(api_client, session_pool):
+    """Один адрес — не один человек.
+
+    Российские операторы прячут тысячи абонентов за одним адресом, поэтому
+    всплеск покупателей с рекламы приходит с общего IP. На прежнем пороге в
+    восемь запросов за десять минут такой всплеск начинал отдавать 429 живым
+    покупателям, а они не пишут в поддержку, а просто уходят.
+    """
+    from services import http_api as api_mod
+
+    assert api_mod._CHECKOUT_IP_LIMIT >= 30
+    # Личность по-прежнему ограничена жёстко: там адрес соответствует человеку.
+    assert api_mod._CHECKOUT_ID_LIMIT <= 5
+    assert api_mod._CHECKOUT_IP_LIMIT > api_mod._CHECKOUT_ID_LIMIT

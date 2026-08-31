@@ -38,10 +38,18 @@ class PromoPreviewRequest(BaseModel):
 
 _WEB_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# Abuse limits for the unauthenticated site checkout: a legit buyer makes one or
-# two payment intents, so these are generous but cap scripted floods that would
-# create junk users and spam real YooKassa payments.
-_CHECKOUT_IP_LIMIT = 8
+# Abuse limits for the unauthenticated site checkout. The per-identity cap is the
+# one that actually stops abuse: it counts a single buyer, by email or Telegram
+# id, and one person never needs six payment intents an hour.
+#
+# The per-IP cap is deliberately loose, because on this market an address is not
+# a person. Russian mobile carriers put thousands of subscribers behind one
+# CGNAT address, so a burst of buyers arriving from an ad on MTS or Beeline
+# shares a single public IP. At the old ceiling of eight per ten minutes an
+# ordinary campaign spike would have started returning 429 to real customers,
+# who do not write to support — they just leave. It still caps a scripted flood,
+# which is all it was ever there for.
+_CHECKOUT_IP_LIMIT = 40
 _CHECKOUT_IP_WINDOW = 600  # 10 min
 _CHECKOUT_ID_LIMIT = 5
 _CHECKOUT_ID_WINDOW = 3600  # 1 h
