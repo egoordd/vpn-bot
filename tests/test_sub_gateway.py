@@ -807,3 +807,45 @@ def test_a_zero_inside_another_number_is_not_rewritten():
 def test_missing_userinfo_stays_missing():
     assert sub_gateway._normalise_userinfo(None) is None
     assert sub_gateway._normalise_userinfo("") == ""
+
+
+@pytest.mark.unit
+def test_lithuania_leads_the_location_list():
+    """Литва идёт первой локацией — это витрина из рекламы.
+
+    Она обгоняет даже каскад, который выигрывает по скорости входа: место в
+    списке здесь продиктовано продуктом, а не замером. Платить за это нечем —
+    151 мс против 141 у Франкфурта, замер из Москвы 2026-08-31.
+    """
+    LT, PL, DE, US = (
+        "2.59.162.34.sslip.io",
+        "78.17.154.225.sslip.io",
+        "166.0.28.132.sslip.io",
+        "172.86.119.133.sslip.io",
+    )
+    links = [
+        f"vless://u@{US}:2102#%F0%9F%87%BA%F0%9F%87%B8",
+        f"vless://u@{PL}:2087#%F0%9F%87%B5%F0%9F%87%B1",
+        f"vless://u@{DE}:2096#%F0%9F%87%A9%F0%9F%87%AA",
+        f"vless://u@{LT}:2101#%F0%9F%87%B1%F0%9F%87%B9",
+    ]
+
+    hosts = [sub_gateway._uri_host(u) for u in sub_gateway.reorder_by_proximity(links)]
+
+    assert hosts == [LT, PL, DE, US]
+
+
+@pytest.mark.unit
+def test_the_replacement_us_node_sorts_as_far_away_as_the_old_one():
+    """Новый американский сервер должен уходить в конец, как и прежний.
+
+    Пока его не было в таблице, он получал значение по умолчанию и всплывал в
+    середину списка — впереди Германии, до которой из России вчетверо ближе.
+    """
+    assert (
+        sub_gateway.NODE_PRIORITY["172.86.119.133.sslip.io"]
+        == sub_gateway.NODE_PRIORITY["144.172.101.217.sslip.io"]
+    )
+    assert sub_gateway.NODE_PRIORITY["172.86.119.133.sslip.io"] > sub_gateway.NODE_PRIORITY[
+        "166.0.28.132.sslip.io"
+    ]
