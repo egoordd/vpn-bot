@@ -69,15 +69,15 @@ def test_list_billing_plans_excludes_trial_by_default():
 
 @pytest.mark.unit
 def test_list_billing_plans_filters_and_can_include_trial():
-    premium = list_billing_plans(tier="premium")
+    standard = list_billing_plans(tier="standard")
     with_trial = list_billing_plans(include_trial=True)
 
-    assert {plan.tier for plan in premium} == {"premium"}
-    assert [plan.code for plan in premium] == [
-        "premium_1m",
-        "premium_3m",
-        "premium_6m",
-        "premium_12m",
+    assert {plan.tier for plan in standard} == {"standard"}
+    assert [plan.code for plan in standard] == [
+        "standard_1m",
+        "standard_3m",
+        "standard_6m",
+        "standard_12m",
     ]
     assert with_trial[0].code == "trial"
 
@@ -127,43 +127,6 @@ async def test_build_payment_intent_creates_user_and_standard_payload(db_session
     assert re.match(rf"^unlock:{user.id}:standard_1m:[0-9a-f]{{32}}$", intent.payload)
 
 
-@pytest.mark.integration
-async def test_build_payment_intent_requires_valid_premium_region(db_session):
-    with pytest.raises(ValueError):
-        await build_payment_intent(
-            db_session,
-            telegram_id=1102,
-            username=None,
-            plan="premium_1m",
-        )
-
-    with pytest.raises(ValueError):
-        await build_payment_intent(
-            db_session,
-            telegram_id=1102,
-            username=None,
-            plan="standard_1m",
-            region="ams",
-        )
-
-
-@pytest.mark.integration
-async def test_build_payment_intent_adds_premium_region_to_payload(db_session):
-    intent = await build_payment_intent(
-        db_session,
-        telegram_id=1103,
-        username="premium",
-        plan="premium_1m",
-        region="AMS",
-    )
-
-    assert intent.plan.code == "premium_1m"
-    assert intent.region is not None
-    assert intent.region.code == "ams"
-    assert intent.amount == "4.99"
-    assert intent.amount_minor == 499
-    assert "Нидерланды" in intent.description
-    assert re.match(rf"^unlock:{intent.user_id}:premium_1m:ams:[0-9a-f]{{32}}$", intent.payload)
 
 
 @pytest.mark.integration

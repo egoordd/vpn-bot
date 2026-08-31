@@ -9,7 +9,6 @@ export const dynamic = "force-dynamic";
 const TIER_LABELS: Record<string, string> = {
   trial: "Пробные",
   standard: "Обычные",
-  premium: "Premium",
   vip: "VIP",
 };
 

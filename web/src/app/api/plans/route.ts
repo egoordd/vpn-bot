@@ -5,7 +5,7 @@ import { type Tier } from "@/lib/tariffs";
 
 export const dynamic = "force-dynamic";
 
-const TIERS = new Set(["trial", "standard", "premium"]);
+const TIERS = new Set(["trial", "standard"]);
 
 /** Public tariff catalogue. Uses the live billing API when configured. */
 export async function GET(request: Request) {

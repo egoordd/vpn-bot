@@ -59,7 +59,7 @@ export interface AccountOverview {
 export interface BillingPlanDto {
   code: string;
   title: string;
-  tier: "trial" | "standard" | "premium";
+  tier: "trial" | "standard";
   durationDays: number;
   priceRub: number;
   cryptoAmount: string;

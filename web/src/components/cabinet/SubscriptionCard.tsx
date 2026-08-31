@@ -23,7 +23,6 @@ export function SubscriptionCard({ sub }: { sub: SubscriptionSnapshot }) {
 
   const left = daysLeft(sub.expiresAt);
   const pct = trafficPercent(sub.trafficUsedBytes, sub.trafficLimitBytes);
-  const isPremium = sub.tier === "premium";
   const expiringSoon = left !== null && left <= 5;
 
   return (
@@ -39,7 +38,6 @@ export function SubscriptionCard({ sub }: { sub: SubscriptionSnapshot }) {
         <div>
           <h3 className="sub__plan">{sub.planTitle}</h3>
           <p className="sub__meta">
-            {isPremium ? <Pill tone="premium">Premium</Pill> : <Pill tone="neutral">Standard</Pill>}
             <span className="mono sub__devices">до {sub.deviceLimit} устройств</span>
           </p>
         </div>

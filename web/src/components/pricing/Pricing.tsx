@@ -1,21 +1,14 @@
 "use client";
 
-import { useState } from "react";
-
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import { formatRubFromRubles } from "@/lib/money";
 import { botLink } from "@/lib/site";
-import { type Tier, pricePerMonth, tariffsByTier, trafficLabel, TRIAL_DAYS_LABEL } from "@/lib/tariffs";
+import { pricePerMonth, tariffsByTier, trafficLabel, TRIAL_DAYS_LABEL } from "@/lib/tariffs";
 import "./pricing.css";
 
-const RECOMMENDED = new Set(["standard_3m", "premium_3m"]);
-
-const TIER_META: Record<"standard" | "premium", { label: string; note: string }> = {
-  standard: { label: "Standard", note: "Общий пул нод — лучшая цена" },
-  premium: { label: "Premium", note: "Меньше соседей, выбор локации" },
-};
+const RECOMMENDED = new Set(["standard_3m"]);
 
 function durationLabel(days: number): string {
   if (days >= 365) return "12 месяцев";
@@ -23,34 +16,18 @@ function durationLabel(days: number): string {
 }
 
 export function Pricing() {
-  const [tier, setTier] = useState<"standard" | "premium">("standard");
-  const plans = tariffsByTier(tier as Tier);
+  const plans = tariffsByTier("standard");
 
   return (
     <section id="pricing" className="section pricing" aria-labelledby="pricing-heading">
       <div className="container">
         <header className="pricing__head">
           <span className="eyebrow">Тарифы</span>
-          <h2 id="pricing-heading">Платите за плотность, а не за обещания</h2>
+          <h2 id="pricing-heading">Чем дольше срок, тем дешевле месяц</h2>
           <p className="lead pricing__sub">
-            Чем выше тариф — тем меньше людей на ноде и стабильнее скорость.
-            Пробник на {TRIAL_DAYS_LABEL} доступен всем и бесплатно.
+            Чем длиннее срок — тем дешевле месяц. Пробник на {TRIAL_DAYS_LABEL}
+            доступен всем и бесплатно.
           </p>
-
-          <div className="pricing__toggle" role="tablist" aria-label="Уровень тарифа">
-            {(["standard", "premium"] as const).map((t) => (
-              <button
-                key={t}
-                role="tab"
-                aria-selected={tier === t}
-                className={cn("pricing__toggle-btn", tier === t && "is-active")}
-                onClick={() => setTier(t)}
-              >
-                {TIER_META[t].label}
-              </button>
-            ))}
-          </div>
-          <p className="pricing__toggle-note mono">{TIER_META[tier].note}</p>
         </header>
 
         <div className="pricing__grid">
@@ -59,10 +36,10 @@ export function Pricing() {
             return (
               <article
                 key={plan.code}
-                className={cn("plan", recommended && "plan--featured", tier === "premium" && "plan--premium")}
+                className={cn("plan", recommended && "plan--featured")}
               >
                 {recommended && (
-                  <Pill tone={tier === "premium" ? "premium" : "accent"} className="plan__badge">
+                  <Pill tone="accent" className="plan__badge">
                     Выгодно
                   </Pill>
                 )}
@@ -80,7 +57,7 @@ export function Pricing() {
                     <Dot /> До {plan.deviceLimit} устройств
                   </li>
                   <li>
-                    <Dot /> {tier === "premium" ? "Выбор локации" : "Общий пул локаций"}
+                    <Dot /> Все локации в одной подписке
                   </li>
                   <li>
                     <Dot /> Ссылка-подписка + авто-обновление
@@ -88,11 +65,11 @@ export function Pricing() {
                 </ul>
 
                 <Button
-                  href={tier === "standard" ? `/buy?plan=${plan.code}` : botLink(`buy_${plan.code}`)}
-                  variant={recommended ? (tier === "premium" ? "premium" : "primary") : "ghost"}
+                  href={`/buy?plan=${plan.code}`}
+                  variant={recommended ? "primary" : "ghost"}
                   className="plan__cta"
                 >
-                  {tier === "standard" ? "Купить" : "Выбрать в боте"}
+                  {"Купить"}
                 </Button>
               </article>
             );

@@ -5,7 +5,7 @@
  * from this; the real billing API will eventually feed `/api/plans` so this
  * becomes the fallback rather than the source.
  */
-export type Tier = "trial" | "standard" | "premium";
+export type Tier = "trial" | "standard";
 
 export interface Tariff {
   code: string;
@@ -89,75 +89,9 @@ export const TARIFFS: Record<string, Tariff> = {
     description: "Общий тариф на 12 месяцев, 150 ГБ в месяц",
     sortOrder: 40,
   },
-  premium_1m: {
-    code: "premium_1m",
-    title: "Premium · 1 месяц",
-    tier: "premium",
-    durationDays: 30,
-    priceRub: 399,
-    cryptoAmount: "4.99",
-    trafficGb: 300,
-    trafficResetsMonthly: true,
-    deviceLimit: 5,
-    description: "Premium-тариф на 30 дней, 300 ГБ в месяц",
-    sortOrder: 50,
-  },
-  premium_3m: {
-    code: "premium_3m",
-    title: "Premium · 3 месяца",
-    tier: "premium",
-    durationDays: 90,
-    priceRub: 999,
-    cryptoAmount: "11.99",
-    trafficGb: 300,
-    trafficResetsMonthly: true,
-    deviceLimit: 5,
-    description: "Premium-тариф на 90 дней, 300 ГБ в месяц",
-    sortOrder: 60,
-  },
-  premium_6m: {
-    code: "premium_6m",
-    title: "Premium · 6 месяцев",
-    tier: "premium",
-    durationDays: 180,
-    priceRub: 1799,
-    cryptoAmount: "19.99",
-    trafficGb: 300,
-    trafficResetsMonthly: true,
-    deviceLimit: 8,
-    description: "Premium-тариф на 180 дней, 300 ГБ в месяц",
-    sortOrder: 70,
-  },
-  premium_12m: {
-    code: "premium_12m",
-    title: "Premium · 12 месяцев",
-    tier: "premium",
-    durationDays: 365,
-    priceRub: 2999,
-    cryptoAmount: "34.99",
-    trafficGb: 300,
-    trafficResetsMonthly: true,
-    deviceLimit: 8,
-    description: "Premium-тариф на 12 месяцев, 300 ГБ в месяц",
-    sortOrder: 80,
-  },
 };
 
-export interface RegionOption {
-  code: string;
-  title: string;
-  city: string;
-  countryCode: string;
-  isOnDemand: boolean;
-}
 
-export const PREMIUM_REGIONS: RegionOption[] = [
-  // Not selectable while the node is rebuilt — picking it would hand out a
-  // subscription pointing at inbounds nothing serves.
-  { code: "ams", title: "Нидерланды, Амстердам", city: "Amsterdam", countryCode: "NL", isOnDemand: true },
-  { code: "fra", title: "Германия, Франкфурт", city: "Frankfurt", countryCode: "DE", isOnDemand: false },
-  { code: "waw", title: "Польша, Варшава", city: "Warsaw", countryCode: "PL", isOnDemand: true },
-];
 
 export function tariffsByTier(tier: Tier): Tariff[] {
   return Object.values(TARIFFS)

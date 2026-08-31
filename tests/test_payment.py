@@ -19,10 +19,6 @@ def test_plans_shape():
         "standard_3m",
         "standard_6m",
         "standard_12m",
-        "premium_1m",
-        "premium_3m",
-        "premium_6m",
-        "premium_12m",
     }
     for plan in PLANS.values():
         assert {"days", "rub_amount", "crypto_amount"} <= set(plan)
@@ -55,16 +51,6 @@ def test_parse_invoice_payload_round_trip():
     assert parse_invoice_payload(payload) == (777, "standard_3m")
 
 
-@pytest.mark.unit
-def test_parse_invoice_payload_details_with_premium_region():
-    payload = create_invoice_payload(777, "premium_3m", region="AMS")
-    details = parse_invoice_payload_details(payload)
-
-    assert re.match(r"^unlock:777:premium_3m:ams:[0-9a-f]{32}$", payload)
-    assert details.user_id == 777
-    assert details.plan == "premium_3m"
-    assert details.region == "ams"
-    assert parse_invoice_payload(payload) == (777, "premium_3m")
 
 
 @pytest.mark.unit

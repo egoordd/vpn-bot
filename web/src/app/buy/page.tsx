@@ -19,7 +19,6 @@ export default function BuyPage({
   searchParams: { plan?: string };
 }) {
   const plan = TARIFFS[searchParams.plan ?? ""];
-  // Card checkout on the site covers standard plans; premium stays in the bot.
   if (!plan || plan.tier !== "standard") {
     redirect("/#pricing");
   }

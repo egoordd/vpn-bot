@@ -241,45 +241,6 @@ async def test_poll_cryptobot_payments_panel_happy_path(fake_bot, session_pool, 
     assert "sub.example" in text or "Ссылка-подписка" in text
 
 
-@pytest.mark.integration
-async def test_poll_cryptobot_payments_panel_premium_assigns_selected_region(fake_bot, session_pool, monkeypatch):
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.create_user(telegram_id=516)
-        payload = create_invoice_payload(user.id, "premium_1m", region="ams")
-        payment = await repo.create_cryptobot_payment(user.id, 499, "inv-premium", payload, "premium_1m")
-
-    monkeypatch.setattr(
-        tasks,
-        "get_invoices_by_status",
-        AsyncMock(return_value=[{"invoice_id": "inv-premium", "payload": payload}]),
-    )
-    monkeypatch.setattr(tasks, "_remnawave_configured", lambda: True)
-    activate_panel_subscription = AsyncMock(
-        return_value=SimpleNamespace(
-            id=700,
-            subscription_url="https://sub.example/api/sub/premium",
-            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-        )
-    )
-    assign_subscription_to_node = AsyncMock(return_value=SimpleNamespace(region="ams"))
-    monkeypatch.setattr(tasks, "activate_panel_subscription", activate_panel_subscription)
-    monkeypatch.setattr(tasks, "assign_subscription_to_node", assign_subscription_to_node)
-    monkeypatch.setattr(tasks, "generate_qr_png_bytes", AsyncMock(return_value=b"png"))
-
-    await tasks.poll_cryptobot_payments(fake_bot, session_pool)
-
-    async with session_pool() as session:
-        refreshed = await Repository(session).get_payment(payment.id)
-
-    assert refreshed.status == "completed"
-    activate_panel_subscription.assert_awaited_once()
-    assign_subscription_to_node.assert_awaited_once()
-    assign_kwargs = assign_subscription_to_node.await_args.kwargs
-    assert assign_kwargs["subscription_id"] == 700
-    assert assign_kwargs["region"] == "ams"
-    assert assign_kwargs["provision_request"].country_code == "NL"
-    assert "Нидерланды, Амстердам" in fake_bot.send_message.await_args.kwargs["text"]
 
 
 @pytest.mark.integration

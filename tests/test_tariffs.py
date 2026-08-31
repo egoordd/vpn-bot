@@ -1,6 +1,6 @@
 import pytest
 
-from services.tariffs import BYTES_IN_GB, PREMIUM_REGIONS, resolve_premium_region, resolve_tariff
+from services.tariffs import BYTES_IN_GB, resolve_tariff
 
 
 @pytest.mark.unit
@@ -17,26 +17,17 @@ def test_resolve_tariff_rejects_unknown_code():
         resolve_tariff("missing")
 
 
-@pytest.mark.unit
-def test_premium_tariffs_and_regions_are_available():
-    tariff = resolve_tariff("premium_1m")
-
-    assert tariff.tier == "premium"
-    assert tariff.traffic_limit_bytes == 300 * BYTES_IN_GB
-    assert set(PREMIUM_REGIONS) == {"ams", "fra", "waw"}
-    assert resolve_premium_region("AMS").country_code == "NL"
 
 
 @pytest.mark.unit
 def test_country_flag_converts_iso_codes():
-    from services.tariffs import PREMIUM_REGIONS, country_flag
+    from services.tariffs import country_flag
 
     assert country_flag("NL") == "🇳🇱"
     assert country_flag("de") == "🇩🇪"
     assert country_flag("PL") == "🇵🇱"
     assert country_flag("") == "🌍"
     assert country_flag("XXX") == "🌍"
-    assert PREMIUM_REGIONS["ams"].flag == "🇳🇱"
 
 
 @pytest.mark.unit
@@ -48,8 +39,6 @@ def test_paid_tariffs_sell_a_monthly_allowance_not_a_term_pool():
     """
     for code in ("standard_1m", "standard_3m", "standard_6m", "standard_12m"):
         assert resolve_tariff(code).traffic_limit_bytes == 150 * BYTES_IN_GB
-    for code in ("premium_1m", "premium_3m", "premium_6m", "premium_12m"):
-        assert resolve_tariff(code).traffic_limit_bytes == 300 * BYTES_IN_GB
 
 
 @pytest.mark.unit
@@ -58,7 +47,6 @@ def test_monthly_allowance_still_adds_up_to_the_old_term_total():
     assert resolve_tariff("standard_3m").total_traffic_gb == 450
     assert resolve_tariff("standard_6m").total_traffic_gb == 900
     assert resolve_tariff("standard_12m").total_traffic_gb == 1800
-    assert resolve_tariff("premium_12m").total_traffic_gb == 3600
 
 
 @pytest.mark.unit

@@ -206,59 +206,10 @@ async def test_pay_with_balance_refunds_on_panel_failure(session_pool, monkeypat
     assert wallet.KIND_SPEND in kinds
 
 
-@pytest.mark.integration
-async def test_pay_with_balance_premium_without_region_rejected(session_pool):
-    callback = _callback("paybal:premium_1m", telegram_id=961)
-
-    await wallet_handlers.pay_with_balance_handler(callback, session_pool)
-
-    assert callback.answer.await_args.kwargs["show_alert"] is True
-    assert "локаци" in callback.answer.await_args.args[0].lower()
 
 
-@pytest.mark.integration
-async def test_pay_with_balance_premium_unconfigured_region_is_crypto_only(session_pool):
-    # No MARZBAN_REGION_INBOUNDS configured in tests -> ams is not a static node.
-    callback = _callback("paybal:premium_1m:ams", telegram_id=965)
-
-    await wallet_handlers.pay_with_balance_handler(callback, session_pool)
-
-    assert callback.answer.await_args.kwargs["show_alert"] is True
-    assert "крипт" in callback.answer.await_args.args[0].lower()
 
 
-@pytest.mark.integration
-async def test_pay_with_balance_premium_static_region_activates(session_pool, monkeypatch):
-    callback = _callback("paybal:premium_1m:ams", telegram_id=966)
-    async with session_pool() as session:
-        user = await Repository(session).create_user(telegram_id=966, username="prem")
-        await wallet.deposit(session, user.id, 50000)
-
-    from datetime import datetime, timedelta, timezone
-
-    monkeypatch.setattr(
-        wallet_handlers.settings,
-        "MARZBAN_REGION_INBOUNDS",
-        '{"ams": {"vless": ["VLESS Reality AMS"]}}',
-    )
-    activate = AsyncMock(
-        return_value=SimpleNamespace(
-            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-            subscription_url="https://sub.example/sub/prem",
-        )
-    )
-    monkeypatch.setattr(wallet_handlers, "activate_panel_subscription", activate)
-    monkeypatch.setattr(wallet_handlers, "is_panel_configured", lambda: True)
-
-    await wallet_handlers.pay_with_balance_handler(callback, session_pool)
-
-    activate.assert_awaited_once()
-    assert activate.await_args.kwargs["region"] == "ams"
-    callback.message.answer.assert_awaited_once()
-    assert "Амстердам" in callback.message.answer.await_args.args[0]
-    async with session_pool() as session:
-        balance = await Repository(session).get_balance(user.id)
-    assert balance == 50000 - 39900
 
 
 @pytest.mark.integration

@@ -87,9 +87,9 @@ async def test_plans_returns_camelcase_catalogue(api_client):
 
 @pytest.mark.asyncio
 async def test_plans_filters_by_tier(api_client):
-    response = await api_client.get("/plans", params={"tier": "premium"})
+    response = await api_client.get("/plans", params={"tier": "standard"})
     plans = response.json()["plans"]
-    assert plans and all(plan["tier"] == "premium" for plan in plans)
+    assert plans and all(plan["tier"] == "standard" for plan in plans)
 
 
 @pytest.mark.asyncio

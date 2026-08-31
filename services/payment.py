@@ -12,10 +12,6 @@ PAYMENT_PLAN_CODES = (
     "standard_3m",
     "standard_6m",
     "standard_12m",
-    "premium_1m",
-    "premium_3m",
-    "premium_6m",
-    "premium_12m",
 )
 
 
