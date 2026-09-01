@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     CRYPTOBOT_TOKEN: str = ""
     CRYPTOBOT_API_URL: str = "https://pay.crypt.bot/api"
     CRYPTOBOT_POLL_INTERVAL: int = 30
+    # How long a checkout may sit pending before we ask the provider what
+    # really became of it. Long enough that a buyer still filling in card
+    # details is never disturbed.
+    STALE_PAYMENT_HOURS: int = 3
     # Manual RUB/USDT rate used to price wallet top-up invoices.
     # TODO: replace with a rate feed before card payments launch.
     RUB_PER_USDT: str = "90"

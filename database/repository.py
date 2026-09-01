@@ -801,6 +801,29 @@ class Repository:
         )
         return list(result.scalars().all())
 
+    async def list_stale_pending_payments(
+        self,
+        *,
+        older_than: datetime,
+        providers: tuple[str, ...] = ("yookassa", "cryptobot"),
+    ) -> list[Payment]:
+        """Checkouts we still hold as pending that are too old to still be live.
+
+        A buyer who closes the payment page leaves the row pending forever: the
+        provider cancels it on their side and never calls us back. The
+        reconciler asks the provider what really happened to these.
+        """
+        result = await self.session.execute(
+            select(Payment)
+            .where(
+                Payment.provider.in_(providers),
+                Payment.status == "pending",
+                Payment.created_at < older_than,
+            )
+            .order_by(Payment.created_at)
+        )
+        return list(result.scalars().all())
+
     async def set_payment_receipt(self, payment_id: int, receipt_url: str) -> Payment | None:
         payment = await self.get_payment(payment_id)
         if payment is None:

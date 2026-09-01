@@ -982,3 +982,147 @@ async def test_traffic_sync_leaves_a_parked_subscription_alone_while_still_over(
 
     assert refreshed.is_active is False
     assert refreshed.status == "limited"
+
+
+# --- reconcile_stale_payments -------------------------------------------------
+#
+# A checkout the buyer walks away from stays "pending" in our table forever:
+# YooKassa cancels it on their side and never tells us. Twenty such rows had
+# piled up by 1 Sep, so every revenue and funnel number counted abandoned carts
+# as money in flight. These cover the three answers a provider can give.
+
+
+async def _age_payment(session, payment, hours):
+    """Backdate a checkout so the reconciler considers it too old to be live."""
+    from sqlalchemy import update
+
+    from database.models import Payment
+
+    await session.execute(
+        update(Payment)
+        .where(Payment.id == payment.id)
+        .values(created_at=datetime.now(timezone.utc) - timedelta(hours=hours))
+    )
+    await session.commit()
+
+
+async def _stale_yookassa_payment(session_pool, *, telegram_id, external_id, age_hours=6):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=telegram_id)
+        payment = await repo.create_yookassa_payment(
+            user_id=user.id,
+            amount=14900,
+            external_invoice_id=external_id,
+            invoice_payload=create_invoice_payload(user.id, "standard_1m"),
+            plan="standard_1m",
+        )
+        await _age_payment(session, payment, age_hours)
+        return payment.id
+
+
+@pytest.mark.integration
+async def test_reconcile_marks_an_abandoned_checkout_cancelled(session_pool, monkeypatch):
+    payment_id = await _stale_yookassa_payment(session_pool, telegram_id=901, external_id="yk-cancelled")
+    monkeypatch.setattr(
+        tasks.yookassa, "get_payment", AsyncMock(return_value={"status": "canceled", "paid": False})
+    )
+
+    await tasks.reconcile_stale_payments(session_pool)
+
+    async with session_pool() as session:
+        payment = await Repository(session).get_payment(payment_id)
+    assert payment.status == "canceled"
+
+
+@pytest.mark.integration
+async def test_reconcile_leaves_a_checkout_still_open_at_the_provider(session_pool, monkeypatch):
+    payment_id = await _stale_yookassa_payment(session_pool, telegram_id=902, external_id="yk-open")
+    monkeypatch.setattr(
+        tasks.yookassa, "get_payment", AsyncMock(return_value={"status": "pending", "paid": False})
+    )
+
+    await tasks.reconcile_stale_payments(session_pool)
+
+    async with session_pool() as session:
+        payment = await Repository(session).get_payment(payment_id)
+    assert payment.status == "pending"
+
+
+@pytest.mark.integration
+async def test_reconcile_does_not_touch_a_checkout_that_only_just_started(session_pool, monkeypatch):
+    payment_id = await _stale_yookassa_payment(session_pool, telegram_id=903, external_id="yk-fresh", age_hours=0)
+    get_payment = AsyncMock(return_value={"status": "canceled", "paid": False})
+    monkeypatch.setattr(tasks.yookassa, "get_payment", get_payment)
+
+    await tasks.reconcile_stale_payments(session_pool)
+
+    get_payment.assert_not_awaited()
+    async with session_pool() as session:
+        payment = await Repository(session).get_payment(payment_id)
+    assert payment.status == "pending"
+
+
+@pytest.mark.integration
+async def test_reconcile_raises_the_alarm_when_a_pending_payment_was_really_paid(session_pool, monkeypatch):
+    # The buyer's money left their card and our webhook never landed. Never
+    # cancel this row — a human has to deliver what was paid for.
+    payment_id = await _stale_yookassa_payment(session_pool, telegram_id=904, external_id="yk-paid")
+    monkeypatch.setattr(
+        tasks.yookassa,
+        "get_payment",
+        AsyncMock(return_value={"status": "succeeded", "paid": True, "amount": {"value": "149.00"}}),
+    )
+    alert = AsyncMock()
+    monkeypatch.setattr(tasks, "send_alert", alert)
+
+    await tasks.reconcile_stale_payments(session_pool)
+
+    alert.assert_awaited()
+    assert "yk-paid" in alert.await_args.args[0]
+    async with session_pool() as session:
+        payment = await Repository(session).get_payment(payment_id)
+    assert payment.status == "pending"
+
+
+@pytest.mark.integration
+async def test_reconcile_keeps_going_after_one_payment_fails_to_look_up(session_pool, monkeypatch):
+    await _stale_yookassa_payment(session_pool, telegram_id=905, external_id="yk-boom")
+    second_id = await _stale_yookassa_payment(session_pool, telegram_id=906, external_id="yk-after-boom")
+
+    async def flaky(external_id):
+        if external_id == "yk-boom":
+            raise RuntimeError("provider down")
+        return {"status": "canceled", "paid": False}
+
+    monkeypatch.setattr(tasks.yookassa, "get_payment", AsyncMock(side_effect=flaky))
+
+    await tasks.reconcile_stale_payments(session_pool)
+
+    async with session_pool() as session:
+        payment = await Repository(session).get_payment(second_id)
+    assert payment.status == "canceled"
+
+
+@pytest.mark.integration
+async def test_reconcile_marks_an_expired_crypto_invoice_cancelled(session_pool, monkeypatch):
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=907)
+        payment = await repo.create_cryptobot_payment(
+            user_id=user.id,
+            amount=14900,
+            external_invoice_id="62180363",
+            invoice_payload=create_invoice_payload(user.id, "standard_1m"),
+            plan="standard_1m",
+        )
+        await _age_payment(session, payment, 6)
+        payment_id = payment.id
+
+    monkeypatch.setattr(tasks, "get_invoice_by_id", AsyncMock(return_value={"status": "expired"}))
+
+    await tasks.reconcile_stale_payments(session_pool)
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_payment(payment_id)
+    assert refreshed.status == "canceled"

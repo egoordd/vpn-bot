@@ -10,8 +10,9 @@ from bot.banners import EXPIRED_BANNER, send_banner
 from bot.keyboards.main_menu import back_to_menu_keyboard
 from bot.texts import bq, format_msk
 from config import settings
+from database.models import Payment
 from database.repository import Repository
-from services.cryptobot import CryptoBotUnavailableError, get_invoices_by_status
+from services.cryptobot import CryptoBotUnavailableError, get_invoice_by_id, get_invoices_by_status
 from services.panel_gateway import (
     PanelGateway,
     PanelGatewayError,
@@ -20,7 +21,7 @@ from services.panel_gateway import (
     get_panel_gateway,
     is_panel_configured,
 )
-from services import wallet
+from services import wallet, yookassa
 from services.alerts import send_alert
 from services.money import format_rub
 from services.payment import ParsedTopupPayload, parse_invoice_payload_details, parse_topup_payload
@@ -657,6 +658,106 @@ async def check_inbound_drift() -> None:
     )
 
 
+# What each provider calls a checkout the buyer walked away from.
+DEAD_PAYMENT_STATUSES = {"canceled", "cancelled", "expired", "failed"}
+# ...and what it calls one that went through.
+PAID_PAYMENT_STATUSES = {"succeeded", "paid"}
+
+
+def _payment_amount_text(payment: Payment) -> str:
+    """Amounts are stored in the minor unit of whatever the provider charged —
+    kopecks for YooKassa, USDT cents for CryptoBot — so only rouble rows may go
+    through the rouble formatter."""
+    if (payment.currency or "").upper() == "RUB":
+        return format_rub(payment.amount)
+    return f"{payment.amount / 100:.2f} {payment.currency}"
+
+
+async def _stale_payment_verdict(payment: Payment) -> str | None:
+    """Ask the provider what really became of one pending checkout.
+
+    Returns the provider's status string, or None when we could not find out.
+    """
+    external_id = str(payment.external_invoice_id or "")
+    if not external_id:
+        return None
+
+    if payment.provider == "yookassa":
+        remote = await yookassa.get_payment(external_id)
+        return str(remote.get("status") or "")
+
+    if payment.provider == "cryptobot":
+        remote = await get_invoice_by_id(int(external_id))
+        # An invoice CryptoBot no longer knows about is as dead as an expired one.
+        return str(remote.get("status") or "") if remote else "expired"
+
+    return None
+
+
+async def reconcile_stale_payments(session_pool: async_sessionmaker[AsyncSession]) -> None:
+    """Close the books on checkouts that never came back.
+
+    Providers cancel an abandoned checkout on their side and never tell us, so
+    the row sits pending forever and every revenue and funnel number counts it
+    as money in flight. Once a checkout is too old to still be live we ask the
+    provider directly and write down the real answer.
+
+    A pending row the provider reports as PAID is the opposite problem: the
+    buyer's money moved and our webhook never landed. That row is left alone
+    and escalated — delivering it belongs to a human, not to a cleanup job.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.STALE_PAYMENT_HOURS)
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        stale = await repo.list_stale_pending_payments(older_than=cutoff)
+
+        for payment in stale:
+            try:
+                status = await _stale_payment_verdict(payment)
+            except Exception:
+                # One unreachable provider must not stop the rest of the sweep.
+                logger.exception(
+                    "Could not reconcile payment id=%s provider=%s external_id=%s",
+                    payment.id,
+                    payment.provider,
+                    payment.external_invoice_id,
+                )
+                continue
+
+            if status is None:
+                continue
+            normalised = status.strip().lower()
+
+            if normalised in PAID_PAYMENT_STATUSES:
+                logger.error(
+                    "Pending payment id=%s was actually PAID at %s (external_id=%s user_id=%s)",
+                    payment.id,
+                    payment.provider,
+                    payment.external_invoice_id,
+                    payment.user_id,
+                )
+                await send_alert(
+                    "‼️ Оплата прошла, а подписка не выдана.\n\n"
+                    f"Платёж #{payment.id} · пользователь {payment.user_id}\n"
+                    f"{_payment_amount_text(payment)} · {payment.provider}\n"
+                    f"Счёт: {payment.external_invoice_id}\n\n"
+                    "Вебхук не дошёл. Выдайте доступ вручную.",
+                    throttle_key=f"unpaid_delivery:{payment.id}",
+                    cooldown=3600.0,
+                )
+                continue
+
+            if normalised in DEAD_PAYMENT_STATUSES:
+                await repo.update_payment_status(payment.id, "canceled")
+                logger.info(
+                    "Payment id=%s closed as canceled (%s said %s)",
+                    payment.id,
+                    payment.provider,
+                    normalised,
+                )
+
+
 def setup_scheduler(bot: Bot, session_pool: async_sessionmaker[AsyncSession]) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=timezone.utc)
     scheduler.add_job(
@@ -704,6 +805,17 @@ def setup_scheduler(bot: Bot, session_pool: async_sessionmaker[AsyncSession]) ->
         )
     else:
         logger.warning("CRYPTOBOT_TOKEN is empty: payment polling disabled")
+    scheduler.add_job(
+        reconcile_stale_payments,
+        trigger="interval",
+        hours=1,
+        args=[session_pool],
+        id="reconcile_stale_payments",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=datetime.now(timezone.utc),
+    )
     scheduler.add_job(
         check_inbound_drift,
         trigger="interval",
