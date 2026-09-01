@@ -19,7 +19,6 @@ from database.models import (
     PromoRedemption,
     Subscription,
     User,
-    WalletTransaction,
     WireguardKey,
 )
 
@@ -660,26 +659,6 @@ class Repository:
         self.session.add(payment)
         return await self._commit_refresh(payment)
 
-    async def create_cryptobot_payment(
-        self,
-        user_id: int,
-        amount: int,
-        external_invoice_id: str,
-        invoice_payload: str,
-        plan: str,
-    ) -> Payment:
-        payment = Payment(
-            user_id=user_id,
-            amount=amount,
-            currency="USDT",
-            provider="cryptobot",
-            external_invoice_id=str(external_invoice_id),
-            invoice_payload=invoice_payload,
-            status="pending",
-        )
-        self.session.add(payment)
-        return await self._commit_refresh(payment)
-
     async def create_yookassa_payment(
         self,
         user_id: int,
@@ -736,7 +715,7 @@ class Repository:
         return completed
 
     async def complete_payment_by_external_id(
-        self, external_invoice_id: str, provider: str = "cryptobot"
+        self, external_invoice_id: str, provider: str = "yookassa"
     ) -> Payment | None:
         result = await self.session.execute(
             update(Payment)
@@ -762,25 +741,6 @@ class Repository:
             await self.record_funnel_event(payment.user_id, "payment", meta={"provider": payment.provider})
         return payment
 
-    async def claim_pending_cryptobot_payment(self, external_invoice_id: str) -> Payment | None:
-        result = await self.session.execute(
-            update(Payment)
-            .where(
-                Payment.external_invoice_id == str(external_invoice_id),
-                Payment.provider == "cryptobot",
-                Payment.status == "pending",
-            )
-            .values(status="processing")
-            .returning(Payment.id)
-        )
-        payment_id = result.scalar_one_or_none()
-        if payment_id is None:
-            await self.session.rollback()
-            return None
-
-        await self.session.commit()
-        return await self.get_payment(payment_id)
-
     async def update_payment_status(self, payment_id: int, status: str) -> Payment | None:
         payment = await self.get_payment(payment_id)
         if payment is None:
@@ -805,7 +765,7 @@ class Repository:
         self,
         *,
         older_than: datetime,
-        providers: tuple[str, ...] = ("yookassa", "cryptobot"),
+        providers: tuple[str, ...] = ("yookassa",),
     ) -> list[Payment]:
         """Checkouts we still hold as pending that are too old to still be live.
 
@@ -839,118 +799,6 @@ class Repository:
         await self.session.commit()
         return True
 
-    # ---- Wallet ledger -----------------------------------------------------
-
-    async def get_balance(self, user_id: int) -> int | None:
-        result = await self.session.execute(select(User.balance).where(User.id == user_id))
-        return result.scalar_one_or_none()
-
-    async def credit_balance(
-        self,
-        user_id: int,
-        amount: int,
-        kind: str,
-        reference: str | None = None,
-        description: str | None = None,
-    ) -> WalletTransaction | None:
-        if amount <= 0:
-            raise ValueError("credit amount must be positive")
-        result = await self.session.execute(
-            update(User)
-            .where(User.id == user_id)
-            .values(balance=User.balance + amount)
-            .returning(User.balance)
-        )
-        new_balance = result.scalar_one_or_none()
-        if new_balance is None:
-            # No row matched (unknown user); the UPDATE changed nothing, so there
-            # is nothing to roll back. Avoid session.rollback() here because it
-            # would expire the caller's loaded ORM objects.
-            return None
-        transaction = WalletTransaction(
-            user_id=user_id,
-            amount=amount,
-            balance_after=new_balance,
-            kind=kind,
-            reference=reference,
-            description=description,
-        )
-        self.session.add(transaction)
-        return await self._commit_refresh(transaction)
-
-    async def debit_balance(
-        self,
-        user_id: int,
-        amount: int,
-        kind: str,
-        reference: str | None = None,
-        description: str | None = None,
-    ) -> WalletTransaction | None:
-        if amount <= 0:
-            raise ValueError("debit amount must be positive")
-        result = await self.session.execute(
-            update(User)
-            .where(User.id == user_id, User.balance >= amount)
-            .values(balance=User.balance - amount)
-            .returning(User.balance)
-        )
-        new_balance = result.scalar_one_or_none()
-        if new_balance is None:
-            # No row matched (unknown user or insufficient balance); nothing was
-            # changed, so skip rollback to keep the caller's identity map intact.
-            return None
-        transaction = WalletTransaction(
-            user_id=user_id,
-            amount=-amount,
-            balance_after=new_balance,
-            kind=kind,
-            reference=reference,
-            description=description,
-        )
-        self.session.add(transaction)
-        return await self._commit_refresh(transaction)
-
-    async def find_wallet_transaction(
-        self,
-        user_id: int,
-        kind: str,
-        reference: str,
-    ) -> WalletTransaction | None:
-        result = await self.session.execute(
-            select(WalletTransaction).where(
-                WalletTransaction.user_id == user_id,
-                WalletTransaction.kind == kind,
-                WalletTransaction.reference == reference,
-            )
-        )
-        return result.scalars().first()
-
-    async def list_wallet_transactions(
-        self,
-        user_id: int,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> list[WalletTransaction]:
-        result = await self.session.execute(
-            select(WalletTransaction)
-            .where(WalletTransaction.user_id == user_id)
-            .order_by(WalletTransaction.id.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-        return list(result.scalars().all())
-
-    async def sum_wallet_amount(self, user_id: int, kind: str | None = None) -> int:
-        query = select(func.coalesce(func.sum(WalletTransaction.amount), 0)).where(
-            WalletTransaction.user_id == user_id
-        )
-        if kind is not None:
-            query = query.where(WalletTransaction.kind == kind)
-        result = await self.session.execute(query)
-        return int(result.scalar_one())
-
-    # ---- Admin aggregates --------------------------------------------------
-
     async def count_users(self) -> int:
         result = await self.session.execute(select(func.count()).select_from(User))
         return int(result.scalar_one())
@@ -968,18 +816,6 @@ class Repository:
             .group_by(Subscription.tier)
         )
         return {str(tier): int(count) for tier, count in result.all()}
-
-    async def sum_all_user_balances(self) -> int:
-        result = await self.session.execute(select(func.coalesce(func.sum(User.balance), 0)))
-        return int(result.scalar_one())
-
-    async def sum_all_wallet_by_kind(self, kind: str) -> int:
-        result = await self.session.execute(
-            select(func.coalesce(func.sum(WalletTransaction.amount), 0)).where(
-                WalletTransaction.kind == kind
-            )
-        )
-        return int(result.scalar_one())
 
     async def count_subscriptions_total(self) -> int:
         result = await self.session.execute(select(func.count()).select_from(Subscription))

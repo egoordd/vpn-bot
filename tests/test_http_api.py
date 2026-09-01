@@ -1,11 +1,13 @@
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from database.repository import Repository
-from services import wallet
+from services import billing_api as billing_api_mod
 from services.http_api import create_app
-from services.promo import PROMO_BALANCE_BONUS, PROMO_PERCENT_DISCOUNT
+from services.promo import PROMO_PERCENT_DISCOUNT, PROMO_SUBSCRIPTION_GRANT
 
 
 @pytest_asyncio.fixture
@@ -104,8 +106,6 @@ async def test_account_unknown_user_404(api_client):
 @pytest.mark.asyncio
 async def test_account_overview_camelcase(api_client, session_pool):
     user = await _user(session_pool)
-    async with session_pool() as session:
-        await wallet.deposit(session, user.id, 14900, reference="topup-web")
 
     response = await api_client.get(f"/account/{user.id}")
 
@@ -113,11 +113,8 @@ async def test_account_overview_camelcase(api_client, session_pool):
     body = response.json()
     assert body["userId"] == user.id
     assert body["telegramId"] == user.telegram_id
-    assert body["wallet"]["balanceKopecks"] == 14900
-    assert body["wallet"]["entries"][0]["amountKopecks"] == 14900
     assert body["subscription"]["exists"] is False
-    assert body["referral"]["rewardPercent"] == 20
-    assert "balanceDisplay" in body
+    assert body["referral"]["referralsCount"] == 0
 
 
 @pytest.mark.asyncio
@@ -158,7 +155,7 @@ async def test_promo_preview_wrong_type_400(api_client, session_pool):
     user = await _user(session_pool)
     async with session_pool() as session:
         await Repository(session).create_promo_code(
-            code="BONUS", kind=PROMO_BALANCE_BONUS, value=5000
+            code="BONUS", kind=PROMO_SUBSCRIPTION_GRANT, value=30
         )
 
     response = await api_client.post(
@@ -199,7 +196,6 @@ async def test_admin_stats_returns_aggregates(api_client, session_pool):
     data = response.json()
     assert data["users"]["total"] >= 1
     assert "activeByTier" in data["subscriptions"]
-    assert "balancesKopecks" in data["money"] and "depositsKopecks" in data["money"]
     assert isinstance(data["recent"], list)
 
 
@@ -270,7 +266,6 @@ async def test_yookassa_webhook_provisions_and_delivers(api_client, session_pool
         subscription_url = "https://sub.example/sub/abc"
 
     monkeypatch.setattr(api_mod, "activate_panel_subscription", AsyncMock(return_value=_Sub()))
-    monkeypatch.setattr(api_mod, "reward_referrer_for_payment", AsyncMock())
     deliver = AsyncMock(return_value=True)
     monkeypatch.setattr(api_mod.tribute, "deliver_subscription", deliver)
 
@@ -328,7 +323,6 @@ async def test_yookassa_webhook_issues_moynalog_receipt(api_client, session_pool
         subscription_url = "https://sub.example/sub/abc"
 
     monkeypatch.setattr(api_mod, "activate_panel_subscription", AsyncMock(return_value=_Sub()))
-    monkeypatch.setattr(api_mod, "reward_referrer_for_payment", AsyncMock())
     monkeypatch.setattr(api_mod.tribute, "deliver_subscription", AsyncMock(return_value=True))
     monkeypatch.setattr(api_mod.moynalog, "is_configured", lambda: True)
     issue = AsyncMock(return_value="https://lknpd.nalog.ru/api/v1/receipt/x/rcpt/print")
@@ -372,7 +366,6 @@ async def test_yookassa_webhook_emails_receipt_to_email_buyer(api_client, sessio
         subscription_url = "https://sub.example/sub/abc"
 
     monkeypatch.setattr(api_mod, "activate_panel_subscription", AsyncMock(return_value=_Sub()))
-    monkeypatch.setattr(api_mod, "reward_referrer_for_payment", AsyncMock())
     dm_sub = AsyncMock(return_value=True)
     monkeypatch.setattr(api_mod.tribute, "deliver_subscription", dm_sub)
     monkeypatch.setattr(api_mod.moynalog, "is_configured", lambda: True)
@@ -651,7 +644,6 @@ async def test_yookassa_webhook_skips_dm_for_web_email_buyer(api_client, session
         subscription_url = "https://sub.example/sub/web"
 
     monkeypatch.setattr(api_mod, "activate_panel_subscription", AsyncMock(return_value=_Sub()))
-    monkeypatch.setattr(api_mod, "reward_referrer_for_payment", AsyncMock())
     deliver = AsyncMock(return_value=True)
     monkeypatch.setattr(api_mod.tribute, "deliver_subscription", deliver)
 
@@ -1112,17 +1104,18 @@ async def test_web_trial_activate_guards(api_client, session_pool, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_web_promo_redeem_credits_the_wallet(api_client, session_pool):
+async def test_web_promo_redeem_hands_over_the_subscription(api_client, session_pool, monkeypatch):
     """The site must be able to redeem, not merely preview a discount.
 
-    Every code we have ever sold grants a subscription or credits the wallet;
-    the site only knew how to preview a percentage discount, so it answered
-    "промокод не найден" to codes that were perfectly valid.
+    Every code we have ever sold grants a subscription; the site only knew how
+    to preview a percentage discount, so it answered "промокод не найден" to
+    codes that were perfectly valid.
     """
+    monkeypatch.setattr(billing_api_mod, "activate_access", AsyncMock())
     async with session_pool() as session:
         repo = Repository(session)
-        user = await repo.create_user(telegram_id=9101)
-        await repo.create_promo_code(code="SITEBONUS", kind=PROMO_BALANCE_BONUS, value=5000)
+        await repo.create_user(telegram_id=9101)
+        await repo.create_promo_code(code="SITEBONUS", kind=PROMO_SUBSCRIPTION_GRANT, value=30)
 
     response = await api_client.post(
         "/web/promo/redeem", json={"telegramId": 9101, "code": "SITEBONUS"}
@@ -1130,21 +1123,17 @@ async def test_web_promo_redeem_credits_the_wallet(api_client, session_pool):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["creditedKopecks"] == 5000
-    assert body["balanceKopecks"] == 5000
-    assert body["grantedDays"] is None
-
-    async with session_pool() as session:
-        assert await wallet.get_balance(session, user.id) == 5000
+    assert body["grantedDays"] == 30
 
 
 @pytest.mark.asyncio
-async def test_web_promo_redeem_reports_each_refusal_distinctly(api_client, session_pool):
+async def test_web_promo_redeem_reports_each_refusal_distinctly(api_client, session_pool, monkeypatch):
     """One reason per case: the card cannot say "не найден" to a spent code."""
+    monkeypatch.setattr(billing_api_mod, "activate_access", AsyncMock())
     async with session_pool() as session:
         repo = Repository(session)
         await repo.create_user(telegram_id=9102)
-        await repo.create_promo_code(code="ONCEONLY", kind=PROMO_BALANCE_BONUS, value=1000)
+        await repo.create_promo_code(code="ONCEONLY", kind=PROMO_SUBSCRIPTION_GRANT, value=30)
 
     first = await api_client.post("/web/promo/redeem", json={"telegramId": 9102, "code": "ONCEONLY"})
     assert first.status_code == 200

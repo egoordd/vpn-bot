@@ -14,13 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from config import settings
 from database.repository import Repository
-from services import billing_api, moynalog, promo, tribute, wallet, yookassa
+from services import billing_api, moynalog, promo, tribute, yookassa
 from services.billing_api import AccountOverview, BillingPlan, BillingRegion, SubscriptionSnapshot
 from services.payment import parse_invoice_payload_details
-from services.referral import normalize_source_slug, reward_referrer_for_payment, ReferralStats
+from services.referral import normalize_source_slug, ReferralStats
 from services.subscription import activate_panel_subscription, to_gateway_subscription_url
 from services.tariffs import resolve_tariff
-from services.wallet import UnknownWalletUserError, WalletEntry, WalletSnapshot
 
 # HTTP transport over services/billing_api.py (Phase 3, item 32/33).
 # The Next.js site is the only intended consumer; responses use the camelCase
@@ -171,30 +170,10 @@ def _subscription_payload(sub: SubscriptionSnapshot) -> dict[str, Any]:
     }
 
 
-def _wallet_entry_payload(entry: WalletEntry) -> dict[str, Any]:
-    return {
-        "id": entry.id,
-        "amountKopecks": entry.amount_kopecks,
-        "balanceAfterKopecks": entry.balance_after_kopecks,
-        "kind": entry.kind,
-        "description": entry.description,
-        "createdAt": _iso(entry.created_at),
-    }
-
-
-def _wallet_payload(snapshot: WalletSnapshot) -> dict[str, Any]:
-    return {
-        "balanceKopecks": snapshot.balance_kopecks,
-        "entries": [_wallet_entry_payload(entry) for entry in snapshot.entries],
-    }
-
-
 def _referral_payload(stats: ReferralStats) -> dict[str, Any]:
     return {
         "refCode": stats.ref_code,
-        "rewardPercent": stats.reward_percent,
         "referralsCount": stats.referrals_count,
-        "totalEarnedKopecks": stats.total_earned_kopecks,
     }
 
 
@@ -203,8 +182,6 @@ def _account_payload(account: AccountOverview) -> dict[str, Any]:
         "userId": account.user_id,
         "telegramId": account.telegram_id,
         "subscription": _subscription_payload(account.subscription),
-        "wallet": _wallet_payload(account.wallet),
-        "balanceDisplay": account.balance_display,
         "referral": _referral_payload(account.referral),
         "email": account.email,
     }
@@ -308,7 +285,7 @@ def create_app() -> FastAPI:
     async def account(user_id: int, session: SessionDep) -> dict[str, Any]:
         try:
             overview = await billing_api.get_account_overview(session, user_id)
-        except (ValueError, UnknownWalletUserError):
+        except ValueError:
             raise HTTPException(status_code=404, detail="user_not_found")
         return _account_payload(overview)
 
@@ -330,10 +307,9 @@ def create_app() -> FastAPI:
         """Redeem a promo for a site visitor, exactly as the bot redeems it.
 
         The site used to only *preview a discount*, which no code we sell has
-        ever been: every live code grants a subscription or credits the wallet,
-        so the cabinet answered "промокод не найден" to perfectly valid codes.
-        Redemption is the operation people actually want, and routing it
-        through billing_api keeps the site from having to know the kinds.
+        ever been: every live code grants a subscription, so the cabinet
+        answered "промокод не найден" to perfectly valid codes. Redemption is
+        the operation people actually want.
         """
         repo = Repository(session)
         user = await repo.get_user_by_telegram_id(body.telegram_id)
@@ -343,13 +319,10 @@ def create_app() -> FastAPI:
             result = await billing_api.redeem_promo(session, user_id=user.id, code=body.code)
         except promo.PromoError as exc:
             raise _promo_http_error(exc)
-        balance = await wallet.get_balance(session, user.id)
         return {
             "code": result.code,
             "kind": result.kind,
-            "creditedKopecks": result.credited_kopecks,
             "grantedDays": result.granted_days,
-            "balanceKopecks": balance,
         }
 
     @application.get("/web/account/by-telegram/{telegram_id}")
@@ -360,7 +333,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="user_not_found")
         try:
             overview = await billing_api.get_account_overview(session, user.id)
-        except (ValueError, UnknownWalletUserError):
+        except ValueError:
             raise HTTPException(status_code=404, detail="user_not_found")
         payload = _account_payload(overview)
         # The site shows the multi-protocol gateway link, not the raw panel URL.
@@ -647,10 +620,6 @@ def create_app() -> FastAPI:
                 "activeTotal": sum(active_by_tier.values()),
                 "total": await repo.count_subscriptions_total(),
             },
-            "money": {
-                "balancesKopecks": await repo.sum_all_user_balances(),
-                "depositsKopecks": await repo.sum_all_wallet_by_kind(wallet.KIND_DEPOSIT),
-            },
             "recent": recent,
             "generatedAt": _iso(now),
         }
@@ -788,16 +757,6 @@ def create_app() -> FastAPI:
             )
         except Exception as exc:  # noqa: BLE001 - surface as 500 so YooKassa retries
             raise HTTPException(status_code=500, detail="provisioning failed") from exc
-
-        try:
-            await reward_referrer_for_payment(
-                session,
-                paid_user_id=completed.user_id,
-                plan_code=details.plan,
-                payment_reference=f"yookassa:{payment_id}",
-            )
-        except Exception:
-            log.exception("Referral reward failed for YooKassa payment %s", payment_id)
 
         # Web email-only buyers have a synthetic negative telegram_id — there is
         # no Telegram chat to DM; they get the link on the site's success page.

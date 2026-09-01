@@ -3,9 +3,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from database.repository import Repository
-from services import promo, wallet
+from services import promo
 from services.promo import (
-    PROMO_BALANCE_BONUS,
     PROMO_FIXED_DISCOUNT,
     PROMO_PERCENT_DISCOUNT,
     PromoExhaustedError,
@@ -17,7 +16,6 @@ from services.promo import (
     PromoUserLimitError,
     apply_discount,
     preview_discount,
-    redeem_balance_promo,
 )
 
 
@@ -27,66 +25,6 @@ async def _user(db_session, telegram_id: int):
 
 async def _promo(db_session, **kwargs):
     return await Repository(db_session).create_promo_code(**kwargs)
-
-
-@pytest.mark.asyncio
-async def test_redeem_balance_promo_credits_wallet(db_session):
-    user = await _user(db_session, 8001)
-    await _promo(db_session, code="WELCOME", kind=PROMO_BALANCE_BONUS, value=5000, max_uses=10)
-
-    result = await redeem_balance_promo(db_session, user_id=user.id, code="WELCOME")
-
-    assert result.credited_kopecks == 5000
-    assert result.wallet_entry is not None
-    assert result.wallet_entry.kind == wallet.KIND_PROMO_BONUS
-    assert await wallet.get_balance(db_session, user.id) == 5000
-    promo = await Repository(db_session).get_promo_code("WELCOME")
-    assert promo.used_count == 1
-
-
-@pytest.mark.asyncio
-async def test_redeem_balance_promo_enforces_per_user_limit(db_session):
-    user = await _user(db_session, 8002)
-    await _promo(db_session, code="ONCE", kind=PROMO_BALANCE_BONUS, value=1000, per_user_limit=1)
-
-    await redeem_balance_promo(db_session, user_id=user.id, code="ONCE")
-    with pytest.raises(PromoUserLimitError):
-        await redeem_balance_promo(db_session, user_id=user.id, code="ONCE")
-    assert await wallet.get_balance(db_session, user.id) == 1000
-
-
-@pytest.mark.asyncio
-async def test_redeem_balance_promo_exhausts_global_uses(db_session):
-    first = await _user(db_session, 8003)
-    second = await _user(db_session, 8004)
-    await _promo(db_session, code="LIMITED", kind=PROMO_BALANCE_BONUS, value=1000, max_uses=1)
-
-    await redeem_balance_promo(db_session, user_id=first.id, code="LIMITED")
-    with pytest.raises(PromoExhaustedError):
-        await redeem_balance_promo(db_session, user_id=second.id, code="LIMITED")
-
-
-@pytest.mark.asyncio
-async def test_redeem_balance_promo_rejects_inactive_expired_and_wrong_type(db_session):
-    user = await _user(db_session, 8005)
-    await _promo(db_session, code="OFF", kind=PROMO_BALANCE_BONUS, value=1000, is_active=False)
-    await _promo(
-        db_session,
-        code="OLD",
-        kind=PROMO_BALANCE_BONUS,
-        value=1000,
-        expires_at=datetime.now(timezone.utc) - timedelta(days=1),
-    )
-    await _promo(db_session, code="SALE", kind=PROMO_PERCENT_DISCOUNT, value=20)
-
-    with pytest.raises(PromoInactiveError):
-        await redeem_balance_promo(db_session, user_id=user.id, code="OFF")
-    with pytest.raises(PromoExpiredError):
-        await redeem_balance_promo(db_session, user_id=user.id, code="OLD")
-    with pytest.raises(PromoTypeError):
-        await redeem_balance_promo(db_session, user_id=user.id, code="SALE")
-    with pytest.raises(PromoNotFoundError):
-        await redeem_balance_promo(db_session, user_id=user.id, code="GHOST")
 
 
 @pytest.mark.asyncio
@@ -125,16 +63,6 @@ async def test_preview_discount_enforces_min_amount(db_session):
     with pytest.raises(PromoMinAmountError):
         await preview_discount(db_session, user_id=user.id, code="BIG", amount_kopecks=14900)
 
-
-@pytest.mark.asyncio
-async def test_preview_discount_rejects_balance_promo_type(db_session):
-    user = await _user(db_session, 8009)
-    await _promo(db_session, code="BONUS", kind=PROMO_BALANCE_BONUS, value=1000)
-
-    with pytest.raises(PromoTypeError):
-        await preview_discount(db_session, user_id=user.id, code="BONUS", amount_kopecks=14900)
-
-
 @pytest.mark.asyncio
 async def test_preview_discount_unknown_code_raises(db_session):
     user = await _user(db_session, 8011)
@@ -163,29 +91,30 @@ async def test_promo_lookup_is_case_insensitive(db_session):
     # Users type codes from phone keyboards in any case — "test1000" must
     # find TEST1000 (live complaint 2026-07-16: «промокоды не работают»).
     user = await _user(db_session, 8077)
-    await _promo(db_session, code="SUMMER25", kind=PROMO_BALANCE_BONUS, value=2500)
+    await _promo(db_session, code="SUMMER25", kind=promo.PROMO_SUBSCRIPTION_GRANT, value=30)
 
-    result = await redeem_balance_promo(db_session, user_id=user.id, code="  summer25 ")
+    result = await promo.redeem_subscription_promo(db_session, user_id=user.id, code="  summer25 ")
 
-    assert result.credited_kopecks == 2500
+    assert result.granted_days == 30
     assert result.code == "SUMMER25"
     # per-user limit still counts across case variants
     with pytest.raises(PromoUserLimitError):
-        await redeem_balance_promo(db_session, user_id=user.id, code="Summer25")
+        await promo.redeem_subscription_promo(db_session, user_id=user.id, code="Summer25")
 
 
 @pytest.mark.asyncio
 async def test_promo_codes_are_stored_uppercase(db_session):
     repo = Repository(db_session)
-    created = await repo.create_promo_code(code=" bonus10 ", kind=PROMO_BALANCE_BONUS, value=1000)
+    created = await repo.create_promo_code(
+        code=" bonus10 ", kind=promo.PROMO_SUBSCRIPTION_GRANT, value=30
+    )
     assert created.code == "BONUS10"
     assert (await repo.get_promo_code("bonus10")).code == "BONUS10"
 
 
 @pytest.mark.integration
 async def test_subscription_promo_hands_over_access_not_money(session_pool):
-    """A grant is worth days, not kopecks: crediting a wallet would leave the
-    user holding money and still no VPN."""
+    """A grant is worth days, not money."""
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=920001)
@@ -200,7 +129,6 @@ async def test_subscription_promo_hands_over_access_not_money(session_pool):
         assert result.granted_days == 30
         assert result.plan == "standard_1m"
         assert result.credited_kopecks == 0
-        assert result.wallet_entry is None
 
 
 @pytest.mark.integration
@@ -235,15 +163,15 @@ async def test_subscription_promo_runs_out_after_its_uses(session_pool):
 
 
 @pytest.mark.integration
-async def test_balance_promo_still_refuses_the_subscription_path(session_pool):
-    """The two kinds must not be interchangeable — a balance code redeemed as a
+async def test_discount_promo_still_refuses_the_subscription_path(session_pool):
+    """The kinds must not be interchangeable — a discount code redeemed as a
     grant would hand out free access nobody authorised."""
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=920003)
         await repo.create_promo_code(
-            code="CASHONLY", kind=promo.PROMO_BALANCE_BONUS, value=50000, max_uses=1
+            code="TENOFF", kind=promo.PROMO_PERCENT_DISCOUNT, value=10, max_uses=1
         )
         await session.commit()
         with pytest.raises(promo.PromoTypeError):
-            await promo.redeem_subscription_promo(session, user_id=user.id, code="CASHONLY")
+            await promo.redeem_subscription_promo(session, user_id=user.id, code="TENOFF")

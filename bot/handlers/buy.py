@@ -17,38 +17,13 @@ from bot.navigation import show_screen
 from bot.texts import bq
 from config import settings
 from database.repository import Repository
-from services.billing_api import (
-    build_payment_intent,
-    crypto_minor_units,
-    register_cryptobot_payment,
-    register_yookassa_payment,
-)
-from services.cryptobot import CryptoBotError, create_invoice
-from services.cryptobot import is_configured as is_cryptobot_configured
-from services.money import format_rub
+from services.billing_api import build_payment_intent, register_yookassa_payment
 from services.payment import PLANS, normalize_payment_plan_code
 from services.tariffs import resolve_tariff
 from services import yookassa
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-def _crypto_minor_units(amount: str) -> int:
-    return crypto_minor_units(amount)
-
-
-def _payment_keyboard(
-    pay_url: str, amount: str, web_url: str | None = None
-) -> InlineKeyboardMarkup:
-    """Telegram link plus the plain web one, because either can be the broken
-    path. Opened in a browser, t.me/CryptoBot asks to log in, wants the
-    two-factor password, then loses the invoice it was carrying and closes."""
-    rows = [[InlineKeyboardButton(text=f"🔓 Оплатить — {amount} USDT", url=pay_url)]]
-    if web_url:
-        rows.append([InlineKeyboardButton(text="🌐 Открыть в браузере", url=web_url)])
-    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
 
 async def _edit_current_message(callback: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup) -> None:
     await show_screen(callback, text, reply_markup)
@@ -71,12 +46,8 @@ async def _send_callback_message(
 def _checkout_keyboard(
     *,
     plan: str,
-    balance_ok: bool,
-    crypto_ok: bool,
-    price_kopecks: int,
     yookassa_ok: bool = False,
     tier: str = "standard",
-    balance_kopecks: int = 0,
 ) -> InlineKeyboardMarkup:
     suffix = ""
     rows: list[list[InlineKeyboardButton]] = []
@@ -91,28 +62,6 @@ def _checkout_keyboard(
                 )
             ]
         )
-    if balance_ok:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=f"💰 Оплатить с баланса — {price_kopecks // 100}₽",
-                    callback_data=f"paybal:{plan}{suffix}",
-                )
-            ]
-        )
-    if crypto_ok:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="🔓 Оплатить криптовалютой",
-                    callback_data=f"paycrypto:{plan}{suffix}",
-                )
-            ]
-        )
-    # Topup nudge only when the wallet already has money but not enough for
-    # this plan; a zero balance shows no balance UI at all (user's request).
-    if not balance_ok and balance_kopecks > 0:
-        rows.append([InlineKeyboardButton(text="➕ Пополнить баланс", callback_data="topup_menu")])
     # One step back = this tier's plan list, not the tier-select screen.
     back_callback = f"buy_tier:{tier}"
     rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
@@ -126,18 +75,14 @@ async def _show_checkout(
     plan: str,
 ) -> None:
     tariff = resolve_tariff(plan)
-    price_kopecks = tariff.price_rub * 100
 
     async with session_pool() as session:
         repo = Repository(session)
-        user = await repo.get_or_create_user(
+        await repo.get_or_create_user(
             telegram_id=callback.from_user.id,
             username=callback.from_user.username,
         )
-        balance = await repo.get_balance(user.id) or 0
 
-    balance_ok = balance >= price_kopecks
-    crypto_ok = is_cryptobot_configured()
     # YooKassa card path.
     # assignment which the redirect webhook does not perform).
     yookassa_ok = yookassa.is_configured() and tariff.tier == "standard"
@@ -146,101 +91,22 @@ async def _show_checkout(
         f"💎 Тариф: {tariff.title}",
         f"💵 Стоимость: {tariff.price_rub}₽",
     ]
-    # A zero balance is noise on the payment screen — show the wallet only
-    # when there is actually money on it.
-    if balance > 0:
-        card_lines.append(f"💳 Ваш баланс: {format_rub(balance)}")
 
     sections = ["💳 <b>Оплата тарифа</b>\n\n" + bq(*card_lines)]
-    if yookassa_ok or balance_ok or crypto_ok:
-        sections.append("Выберите способ оплаты:")
-        if yookassa_ok:
-            sections.append(
-                "💳 <i>Картой (рекомендуем):</i> нажмите «Оплатить картой» — откроется "
-                "защищённая страница оплаты. После оплаты подписка придёт сюда автоматически."
-            )
-    elif balance > 0:
-        need = price_kopecks - balance
-        sections.append(f"💰 На балансе не хватает {format_rub(need)}. Пополните баланс и оплатите в один тап.")
+    if yookassa_ok:
+        sections.append(
+            "Нажмите «Оплатить картой» — откроется защищённая страница оплаты. "
+            "После оплаты подписка придёт сюда автоматически."
+        )
     else:
-        sections.append("⚠️ Способы оплаты временно недоступны. Попробуйте позже.")
+        sections.append("⚠️ Оплата временно недоступна. Попробуйте позже.")
 
     await _edit_current_message(
         callback,
         "\n\n".join(sections),
-        _checkout_keyboard(
-            plan=plan,
-            balance_ok=balance_ok,
-            crypto_ok=crypto_ok,
-            price_kopecks=price_kopecks,
-            yookassa_ok=yookassa_ok,
-            tier=tariff.tier,
-            balance_kopecks=balance,
-        ),
+        _checkout_keyboard(plan=plan, yookassa_ok=yookassa_ok, tier=tariff.tier),
     )
     await callback.answer()
-
-
-async def _create_payment_invoice(
-    callback: CallbackQuery,
-    bot: Bot,
-    session_pool: async_sessionmaker[AsyncSession],
-    *,
-    plan: str,
-) -> None:
-    async with session_pool() as session:
-        intent = await build_payment_intent(
-            session,
-            telegram_id=callback.from_user.id,
-            username=callback.from_user.username,
-            plan=plan,
-        )
-
-    try:
-        invoice = await create_invoice(
-            amount=intent.amount,
-            payload=intent.payload,
-            description=intent.description,
-            asset=intent.asset,
-        )
-    except CryptoBotError:
-        logger.exception("Failed to create CryptoBot invoice for user_id=%s plan=%s", intent.user_id, plan)
-        await _send_callback_message(callback, bot, "Не удалось создать счёт. Попробуйте позже.")
-        return
-
-    external_invoice_id = invoice.get("invoice_id")
-    pay_url = invoice.get("bot_invoice_url") or invoice.get("pay_url") or invoice.get("mini_app_invoice_url")
-    web_url = invoice.get("web_app_invoice_url")
-    if external_invoice_id is None or not pay_url:
-        logger.error("CryptoBot invoice has no invoice_id or payment URL: %s", invoice)
-        await _send_callback_message(callback, bot, "CryptoBot вернул некорректный счёт. Напишите в поддержку.")
-        return
-
-    async with session_pool() as session:
-        await register_cryptobot_payment(
-            session,
-            intent=intent,
-            external_invoice_id=str(external_invoice_id),
-        )
-
-    card_lines = [
-        f"💎 Тариф: {intent.plan.title}",
-        f"💵 Стоимость: {intent.plan.price_rub}₽ ({intent.amount} USDT)",
-    ]
-    tail = (
-        ""
-        if False
-        else "Ссылка-подписка придёт автоматически в течение минуты после оплаты."
-    )
-    text = (
-        "💳 <b>Оплата тарифа</b>\n\n"
-        + bq(*card_lines)
-        + "\n\nНажмите кнопку ниже, выберите валюту (USDT/TON/BTC) и оплатите.\n"
-        + tail
-    )
-
-    keyboard = _payment_keyboard(str(pay_url), intent.amount, web_url)
-    await _send_callback_message(callback, bot, text, keyboard)
 
 
 def _yookassa_pay_keyboard(
@@ -445,28 +311,6 @@ async def buy_plan_handler(
 
     await _show_checkout(callback, session_pool, plan=plan)
 
-
-
-@router.callback_query(F.data.startswith("paycrypto:"))
-async def pay_crypto_handler(
-    callback: CallbackQuery,
-    bot: Bot,
-    session_pool: async_sessionmaker[AsyncSession],
-) -> None:
-    parts = callback.data.split(":", maxsplit=2) if callback.data else []
-    raw_plan = parts[1] if len(parts) >= 2 else ""
-    try:
-        plan = normalize_payment_plan_code(raw_plan)
-    except ValueError:
-        await callback.answer("Тариф не найден", show_alert=True)
-        return
-
-    if not is_cryptobot_configured():
-        await callback.answer("Оплата криптовалютой сейчас недоступна.", show_alert=True)
-        return
-
-    await callback.answer()
-    await _create_payment_invoice(callback, bot, session_pool, plan=plan)
 
 
 @router.callback_query(F.data.startswith("payyk:"))

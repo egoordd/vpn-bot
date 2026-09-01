@@ -7,16 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import PromoCode
 from database.repository import Repository
-from services import wallet
 from services.money import percent_of
 from services.tariffs import TARIFFS
 
 # Promo kinds and the meaning of PromoCode.value for each:
-#   balance_bonus   -> value is kopecks credited to the wallet on redemption
 #   percent_discount-> value is a percentage off a checkout amount
 #   fixed_discount  -> value is kopecks off a checkout amount
 #   subscription_grant -> value is days of access handed over directly
-PROMO_BALANCE_BONUS = "balance_bonus"
 PROMO_SUBSCRIPTION_GRANT = "subscription_grant"
 PROMO_PERCENT_DISCOUNT = "percent_discount"
 PROMO_FIXED_DISCOUNT = "fixed_discount"
@@ -74,7 +71,6 @@ class PromoRedemptionResult:
     code: str
     kind: str
     credited_kopecks: int
-    wallet_entry: wallet.WalletEntry | None = None
     # Set for subscription_grant: the plan the caller must now activate, and how
     # long it runs. The promo layer deliberately stops at claiming the code —
     # provisioning a panel account is the billing layer's job, and doing it here
@@ -117,42 +113,6 @@ def compute_discount(promo: PromoCode, amount_kopecks: int) -> int:
     else:  # pragma: no cover - guarded by callers
         raise PromoTypeError(promo.code)
     return min(max(discount, 0), amount_kopecks)
-
-
-async def redeem_balance_promo(
-    session: AsyncSession,
-    *,
-    user_id: int,
-    code: str,
-) -> PromoRedemptionResult:
-    repo = Repository(session)
-    promo = await repo.get_promo_code(code.strip())
-    if promo is None:
-        raise PromoNotFoundError(code)
-    if promo.kind != PROMO_BALANCE_BONUS:
-        raise PromoTypeError(promo.code)
-
-    _check_live(promo)
-    await _check_user_limit(repo, promo, user_id)
-
-    if await repo.claim_promo_use(promo.code) is None:
-        raise PromoExhaustedError(promo.code)
-
-    await repo.create_promo_redemption(promo.code, user_id, applied_amount=promo.value)
-    entry = await wallet.deposit(
-        session,
-        user_id,
-        promo.value,
-        kind=wallet.KIND_PROMO_BONUS,
-        reference=f"promo:{promo.code}",
-        description=f"Promo bonus {promo.code}",
-    )
-    return PromoRedemptionResult(
-        code=promo.code,
-        kind=promo.kind,
-        credited_kopecks=promo.value,
-        wallet_entry=entry,
-    )
 
 
 def plan_for_days(days: int) -> str:

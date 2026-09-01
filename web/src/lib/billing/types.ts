@@ -17,41 +17,15 @@ export interface SubscriptionSnapshot {
   expiresAt: string | null; // ISO 8601
 }
 
-export type WalletEntryKind =
-  | "deposit"
-  | "spend"
-  | "referral_reward"
-  | "promo_bonus"
-  | "refund"
-  | "adjustment";
-
-export interface WalletEntry {
-  id: number;
-  amountKopecks: number;
-  balanceAfterKopecks: number;
-  kind: WalletEntryKind;
-  description: string | null;
-  createdAt: string; // ISO 8601
-}
-
-export interface WalletSnapshot {
-  balanceKopecks: number;
-  entries: WalletEntry[];
-}
-
 export interface ReferralStats {
   refCode: string | null;
-  rewardPercent: number;
   referralsCount: number;
-  totalEarnedKopecks: number;
 }
 
 export interface AccountOverview {
   userId: number;
   telegramId: number;
   subscription: SubscriptionSnapshot;
-  wallet: WalletSnapshot;
-  balanceDisplay: string;
   referral: ReferralStats;
   email?: string | null;
 }
@@ -96,9 +70,7 @@ export interface WebOrderStatus {
 export interface PromoRedemption {
   code: string;
   kind: string;
-  creditedKopecks: number;
   grantedDays: number | null;
-  balanceKopecks: number;
 }
 
 /** Why a promo could not be redeemed — one reason per case, never a lump. */

@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  *
  * This route used to preview a *discount* against a hardcoded user id of 1 —
  * a real account, so per-user limits were checked against the wrong person —
- * and every code we actually sell grants a subscription or credits the wallet
+ * and every code we actually sell grants a subscription
  * rather than discounting a checkout. The result was that valid codes came
  * back as "промокод не найден". Redemption needs a real identity, so the
  * session decides who is calling; a client-supplied id would be an IDOR.

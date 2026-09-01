@@ -91,7 +91,7 @@ async def test_complete_payment_by_external_id_records_payment_event(session_poo
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=1005)
-        await repo.create_cryptobot_payment(
+        await repo.create_yookassa_payment(
             user_id=user.id,
             amount=14900,
             external_invoice_id="funnel-inv-9",

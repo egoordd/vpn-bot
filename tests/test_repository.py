@@ -131,12 +131,12 @@ async def test_payment_repository_methods(db_session):
     repo = Repository(db_session)
     user = await repo.create_user(telegram_id=400)
     basic = await repo.create_payment(user.id, amount=100, invoice_payload="payload-basic")
-    payment = await repo.create_cryptobot_payment(
+    payment = await repo.create_yookassa_payment(
         user_id=user.id,
-        amount=199,
+        amount=14900,
         external_invoice_id="invoice-1",
-        invoice_payload="payload-crypto",
-        plan="1m",
+        invoice_payload="payload-card",
+        plan="standard_1m",
     )
     basic_id = basic.id
     user_id = user.id
@@ -146,11 +146,6 @@ async def test_payment_repository_methods(db_session):
     assert await repo.get_payment_by_payload("payload-basic") == basic
     assert await repo.get_payment_by_external_id("invoice-1") == payment
     assert [item.id for item in await repo.list_payments_by_user(user.id)] == [payment.id, basic.id]
-
-    claimed = await repo.claim_pending_cryptobot_payment("invoice-1")
-    assert claimed.id == payment.id
-    assert claimed.status == "processing"
-    assert await repo.claim_pending_cryptobot_payment("invoice-1") is None
 
     completed = await repo.complete_payment_by_external_id("invoice-1")
     assert completed.id == payment.id

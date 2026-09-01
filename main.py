@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from services.alerts import send_alert
 
-from bot.handlers import admin, buy, connect_device, help, instructions, review, start, subscription, support, wallet
+from bot.handlers import admin, buy, connect_device, help, instructions, promo, review, start, subscription, support
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
 from bot.middlewares.update_timing import SlowUpdateLoggingMiddleware
 from config import settings
@@ -76,7 +76,7 @@ async def main() -> None:
     dispatcher.include_router(admin.router)
     dispatcher.include_router(help.router)
     dispatcher.include_router(buy.router)
-    dispatcher.include_router(wallet.router)
+    dispatcher.include_router(promo.router)
     dispatcher.include_router(subscription.router)
     dispatcher.include_router(connect_device.router)
     dispatcher.include_router(instructions.router)
@@ -104,8 +104,7 @@ async def main() -> None:
             [
                 BotCommand(command="start", description="Главное меню"),
                 BotCommand(command="help", description="Помощь и поддержка"),
-                BotCommand(command="wallet", description="Кошелёк"),
-                BotCommand(command="invite", description="Пригласить друга"),
+                BotCommand(command="promo", description="Ввести промокод"),
             ]
         )
         site = (settings.WEB_BASE_URL or "https://unlockvpn.site").rstrip("/")

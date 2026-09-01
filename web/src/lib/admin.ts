@@ -9,7 +9,6 @@ export interface AdminStats {
     activeTotal: number;
     total: number;
   };
-  money: { balancesKopecks: number; depositsKopecks: number };
   recent: AdminRecentSubscription[];
   generatedAt: string;
 }

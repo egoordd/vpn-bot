@@ -5,15 +5,14 @@ import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import Payment, User
 from database.repository import Repository
-from services import promo, referral, wallet
+from services import promo, referral
 from services.money import format_rub
-from services.payment import PLANS, create_invoice_payload, normalize_payment_plan_code
+from services.payment import create_invoice_payload, normalize_payment_plan_code
 from services.subscription import activate_panel_subscription, get_subscription_info
 from services.tariffs import TARIFFS, Tariff, resolve_tariff
 
@@ -65,9 +64,6 @@ class PaymentIntent:
     plan: BillingPlan
     region: BillingRegion | None
     payload: str
-    amount: str
-    amount_minor: int
-    asset: str
     description: str
 
 
@@ -104,10 +100,6 @@ def _snapshot_from_info(info: dict[str, object]) -> SubscriptionSnapshot:
         started_at=info.get("started_at") if isinstance(info.get("started_at"), datetime) else None,
         expires_at=info.get("expires_at") if isinstance(info.get("expires_at"), datetime) else None,
     )
-
-
-def crypto_minor_units(amount: str) -> int:
-    return int((Decimal(amount) * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def list_billing_plans(*, tier: str | None = None, include_trial: bool = False) -> list[BillingPlan]:
@@ -157,7 +149,6 @@ async def build_payment_intent(
     username: str | None,
     plan: str,
     region: str | None = None,
-    asset: str = "USDT",
 ) -> PaymentIntent:
     tariff = resolve_tariff(normalize_payment_plan_code(plan))
     billing_plan = _plan_from_tariff(tariff)
@@ -177,7 +168,6 @@ async def build_payment_intent(
         plan=billing_plan.code,
         region=billing_region.code if billing_region else None,
     )
-    amount = str(PLANS[billing_plan.code]["crypto_amount"])
     description = billing_plan.description
     if billing_region is not None:
         description = f"{description}: {billing_region.title}"
@@ -188,9 +178,6 @@ async def build_payment_intent(
         plan=billing_plan,
         region=billing_region,
         payload=payload,
-        amount=amount,
-        amount_minor=crypto_minor_units(amount),
-        asset=asset,
         description=description,
     )
 
@@ -354,22 +341,6 @@ async def authenticate_web_account(session: AsyncSession, *, email: str, passwor
     return user.telegram_id
 
 
-async def register_cryptobot_payment(
-    session: AsyncSession,
-    *,
-    intent: PaymentIntent,
-    external_invoice_id: str,
-) -> Payment:
-    repo = Repository(session)
-    return await repo.create_cryptobot_payment(
-        user_id=intent.user_id,
-        amount=intent.amount_minor,
-        external_invoice_id=external_invoice_id,
-        invoice_payload=intent.payload,
-        plan=intent.plan.code,
-    )
-
-
 async def register_yookassa_payment(
     session: AsyncSession,
     *,
@@ -392,7 +363,7 @@ async def register_yookassa_payment(
 #
 # These thin wrappers and the composite ``AccountOverview`` give both the
 # Telegram bot and the future Next.js cabinet a single import surface for
-# wallet, referral and promo operations. Transport (HTTP handlers for the
+# referral and promo operations. Transport (HTTP handlers for the
 # site) is layered on top of these functions, not the underlying services.
 # ---------------------------------------------------------------------------
 
@@ -402,55 +373,25 @@ class AccountOverview:
     user_id: int
     telegram_id: int
     subscription: SubscriptionSnapshot
-    wallet: wallet.WalletSnapshot
-    balance_display: str
     referral: referral.ReferralStats
     email: str | None = None
 
 
-async def get_account_overview(
-    session: AsyncSession,
-    user_id: int,
-    *,
-    wallet_history_limit: int = 10,
-) -> AccountOverview:
+async def get_account_overview(session: AsyncSession, user_id: int) -> AccountOverview:
     repo = Repository(session)
     user = await repo.get_user(user_id)
     if user is None:
         raise ValueError(f"Unknown user_id: {user_id}")
 
     subscription = await get_subscription_snapshot(session, user_id)
-    wallet_snapshot = await wallet.get_wallet_snapshot(
-        session, user_id, history_limit=wallet_history_limit
-    )
     referral_stats = await referral.get_referral_stats(session, user_id)
     return AccountOverview(
         user_id=user_id,
         telegram_id=user.telegram_id,
         subscription=subscription,
-        wallet=wallet_snapshot,
-        balance_display=format_rub(wallet_snapshot.balance_kopecks),
         referral=referral_stats,
         email=user.email,
     )
-
-
-async def get_wallet(
-    session: AsyncSession,
-    user_id: int,
-    *,
-    history_limit: int = 20,
-) -> wallet.WalletSnapshot:
-    return await wallet.get_wallet_snapshot(session, user_id, history_limit=history_limit)
-
-
-async def redeem_balance_promo(
-    session: AsyncSession,
-    *,
-    user_id: int,
-    code: str,
-) -> promo.PromoRedemptionResult:
-    return await promo.redeem_balance_promo(session, user_id=user_id, code=code)
 
 
 async def redeem_promo(
@@ -461,24 +402,20 @@ async def redeem_promo(
     panel_client: object | None = None,
     panel_gateway: object | None = None,
 ) -> promo.PromoRedemptionResult:
-    """Redeem a code of any kind, doing whatever that kind is worth.
+    """Redeem a subscription-grant code, provisioning the access it promises.
 
-    One entry point so the bot does not have to know which kinds exist: a
-    balance bonus credits the wallet, a subscription grant provisions access
-    down the same path a paid order takes, so the user ends up with a working
-    config rather than a promise of one."""
-    existing = await Repository(session).get_promo_code(code.strip())
-    if existing is not None and existing.kind == promo.PROMO_SUBSCRIPTION_GRANT:
-        result = await promo.redeem_subscription_promo(session, user_id=user_id, code=code)
-        await activate_access(
-            session,
-            user_id,
-            result.plan,
-            panel_client=panel_client,
-            panel_gateway=panel_gateway,
-        )
-        return result
-    return await promo.redeem_balance_promo(session, user_id=user_id, code=code)
+    A grant goes down the same path a paid order takes, so the user ends up with
+    a working config rather than a promise of one. Discount codes are a separate
+    entry point (they apply at checkout, not on redemption)."""
+    result = await promo.redeem_subscription_promo(session, user_id=user_id, code=code)
+    await activate_access(
+        session,
+        user_id,
+        result.plan,
+        panel_client=panel_client,
+        panel_gateway=panel_gateway,
+    )
+    return result
 
 
 async def preview_checkout_discount(
@@ -504,18 +441,3 @@ async def attach_referral_code(
     ref_code: str,
 ) -> User:
     return await referral.attach_referrer(session, user_id=user_id, ref_code=ref_code)
-
-
-async def reward_referral_for_payment(
-    session: AsyncSession,
-    *,
-    paid_user_id: int,
-    plan_code: str,
-    payment_reference: str,
-) -> wallet.WalletEntry | None:
-    return await referral.reward_referrer_for_payment(
-        session,
-        paid_user_id=paid_user_id,
-        plan_code=plan_code,
-        payment_reference=payment_reference,
-    )

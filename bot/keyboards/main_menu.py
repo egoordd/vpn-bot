@@ -8,8 +8,8 @@ DURATION_EMOJI = {30: "🚀", 90: "💎", 180: "👑", 365: "🏆"}
 
 
 def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = False) -> InlineKeyboardMarkup:
-    """Single compact main menu shown after /start. Wallet, invite and help live
-    in the quick-access command menu (/wallet, /invite, /help)."""
+    """Single compact main menu shown after /start. Promo entry and help live
+    in the quick-access command menu (/promo, /help)."""
     rows: list[list[InlineKeyboardButton]] = []
     if trial_available:
         rows.append(
@@ -97,43 +97,6 @@ def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
-        ]
-    )
-
-
-def wallet_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Пополнить", callback_data="topup_menu")],
-            [InlineKeyboardButton(text="🎟 Промокод", callback_data="promo_enter")],
-            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
-        ]
-    )
-
-
-def topup_keyboard(presets_kopecks: tuple[int, ...]) -> InlineKeyboardMarkup:
-    preset_rows = [
-        [
-            InlineKeyboardButton(
-                text=f"➕ {kopecks // 100}₽",
-                callback_data=f"topup:{kopecks}",
-            )
-        ]
-        for kopecks in presets_kopecks
-    ]
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            *preset_rows,
-            [InlineKeyboardButton(text="✏️ Своя сумма", callback_data="topup_custom")],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="wallet")],
-        ]
-    )
-
-
-def back_to_wallet_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ К кошельку", callback_data="wallet")],
         ]
     )
 

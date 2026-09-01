@@ -34,6 +34,9 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     # PBKDF2 hash for site email/password login (null = no web account set).
     web_password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Retired with the wallet. The column and its ledger are kept because they
+    # are the only record of the balances people were holding when it was
+    # withdrawn; nothing reads or writes them any more.
     balance: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     lang: Mapped[str] = mapped_column(String(10), default="ru", server_default="ru", nullable=False)
     referrer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -230,6 +233,9 @@ class Payment(Base):
 
 class WalletTransaction(Base):
     """Append-only ledger of balance changes (kopecks, RUB minor units).
+
+    RETIRED: the wallet was withdrawn — nothing writes here any more. The table
+    is kept as the historical record of what each account was holding.
 
     Rows are never mutated after creation: every credit/debit appends a new
     entry carrying the signed ``amount`` and the resulting ``balance_after``.

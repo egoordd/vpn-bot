@@ -12,7 +12,6 @@ from bot.texts import bq, format_msk
 from config import settings
 from database.models import Payment
 from database.repository import Repository
-from services.cryptobot import CryptoBotUnavailableError, get_invoice_by_id, get_invoices_by_status
 from services.panel_gateway import (
     PanelGateway,
     PanelGatewayError,
@@ -21,12 +20,11 @@ from services.panel_gateway import (
     get_panel_gateway,
     is_panel_configured,
 )
-from services import wallet, yookassa
+from services import yookassa
 from services.alerts import send_alert
 from services.money import format_rub
-from services.payment import ParsedTopupPayload, parse_invoice_payload_details, parse_topup_payload
+from services.payment import parse_invoice_payload_details
 from services.qrcode import generate_qr_png_bytes
-from services.referral import reward_referrer_for_payment
 from services.subscription import (
     activate_panel_subscription,
     activate_subscription,
@@ -341,242 +339,6 @@ async def _send_subscription_bundle(
     )
 
 
-async def _credit_topup_payment(
-    *,
-    bot: Bot,
-    session: AsyncSession,
-    repo: Repository,
-    external_invoice_id: str,
-    payment_user_id: int,
-    topup: ParsedTopupPayload,
-) -> None:
-    if topup.user_id != payment_user_id:
-        logger.error(
-            "Top-up payment user mismatch external_invoice_id=%s payload_user_id=%s payment_user_id=%s",
-            external_invoice_id,
-            topup.user_id,
-            payment_user_id,
-        )
-        return
-
-    claimed = await repo.claim_pending_cryptobot_payment(external_invoice_id)
-    if claimed is None:
-        return
-
-    try:
-        entry = await wallet.deposit(
-            session,
-            topup.user_id,
-            topup.amount_kopecks,
-            kind=wallet.KIND_DEPOSIT,
-            reference=f"cryptobot:{external_invoice_id}",
-            description="Пополнение баланса через CryptoBot",
-        )
-    except Exception:
-        logger.exception(
-            "Failed to credit top-up external_invoice_id=%s user_id=%s",
-            external_invoice_id,
-            topup.user_id,
-        )
-        try:
-            await session.rollback()
-            await repo.update_payment_status(claimed.id, "pending")
-        except Exception:
-            logger.exception(
-                "Failed to release top-up payment for retry external_invoice_id=%s",
-                external_invoice_id,
-            )
-        return
-
-    await repo.complete_payment_by_external_id(external_invoice_id)
-
-    user = await repo.get_user(topup.user_id)
-    if user is None:
-        return
-    try:
-        await bot.send_message(
-            chat_id=user.telegram_id,
-            text=(
-                f"💰 Баланс пополнен на {format_rub(topup.amount_kopecks)}.\n"
-                f"Текущий баланс: {format_rub(entry.balance_after_kopecks)}"
-            ),
-            reply_markup=back_to_menu_keyboard(),
-        )
-    except Exception:
-        logger.exception(
-            "Failed to notify user about top-up user_id=%s external_invoice_id=%s",
-            topup.user_id,
-            external_invoice_id,
-        )
-
-
-async def poll_cryptobot_payments(
-    bot: Bot,
-    session_pool: async_sessionmaker[AsyncSession],
-) -> None:
-    try:
-        invoices = await get_invoices_by_status("paid", count=100)
-    except CryptoBotUnavailableError as exc:
-        # CryptoBot API had a transient hiccup (5xx/HTML). Next tick retries;
-        # no traceback — this fires up to every 30s during their outages.
-        logger.warning("CryptoBot temporarily unavailable, will retry: %s", exc)
-        return
-    except Exception:
-        logger.exception("CryptoBot polling failed")
-        return
-
-    for invoice in invoices:
-        external_invoice_id = invoice.get("invoice_id")
-        if external_invoice_id is None:
-            logger.warning("Skipping paid CryptoBot invoice without invoice_id: %s", invoice)
-            continue
-
-        async with session_pool() as session:
-            repo = Repository(session)
-            payment = await repo.get_payment_by_external_id(str(external_invoice_id))
-            if payment is None:
-                continue
-            if payment.status != "pending":
-                continue
-
-            payload = str(invoice.get("payload") or payment.invoice_payload or "")
-
-            try:
-                topup = parse_topup_payload(payload)
-            except ValueError:
-                logger.exception(
-                    "Invalid top-up payload for external_invoice_id=%s payload=%s",
-                    external_invoice_id,
-                    payload,
-                )
-                continue
-            if topup is not None:
-                await _credit_topup_payment(
-                    bot=bot,
-                    session=session,
-                    repo=repo,
-                    external_invoice_id=str(external_invoice_id),
-                    payment_user_id=payment.user_id,
-                    topup=topup,
-                )
-                continue
-
-            try:
-                payload_details = parse_invoice_payload_details(payload)
-                payload_user_id, plan = payload_details.user_id, payload_details.plan
-            except ValueError:
-                logger.exception(
-                    "Invalid CryptoBot invoice payload for external_invoice_id=%s payload=%s",
-                    external_invoice_id,
-                    payload,
-                )
-                continue
-
-            if payload_user_id != payment.user_id:
-                logger.error(
-                    "CryptoBot payment user mismatch external_invoice_id=%s payload_user_id=%s payment_user_id=%s",
-                    external_invoice_id,
-                    payload_user_id,
-                    payment.user_id,
-                )
-                continue
-
-            claimed_payment = await repo.claim_pending_cryptobot_payment(str(external_invoice_id))
-            if claimed_payment is None:
-                continue
-            claimed_payment_id = claimed_payment.id
-            claimed_user_id = claimed_payment.user_id
-
-            try:
-                user = await repo.get_user(claimed_user_id)
-                if user is None:
-                    raise RuntimeError(f"CryptoBot payment has no user user_id={claimed_user_id}")
-
-                access_kind = "subscription"
-                subscription_url = ""
-                config_text = ""
-
-                if _remnawave_configured():
-                    subscription = await activate_panel_subscription(
-                        session=session,
-                        user_id=claimed_user_id,
-                        plan=plan,
-                    )
-                    if not subscription.subscription_url:
-                        raise RuntimeError("Panel subscription has no subscription_url")
-                    subscription_url = to_gateway_subscription_url(subscription.subscription_url)
-                else:
-                    access_kind = "wireguard"
-                    subscription = await activate_subscription(
-                        session=session,
-                        user_id=claimed_user_id,
-                        plan=plan,
-                    )
-                    _, config_text = await ensure_user_peer(session=session, user_id=claimed_user_id)
-            except Exception:
-                logger.exception(
-                    "Failed to provision CryptoBot payment external_invoice_id=%s user_id=%s",
-                    external_invoice_id,
-                    claimed_user_id,
-                )
-                try:
-                    await session.rollback()
-                    await repo.update_payment_status(claimed_payment_id, "pending")
-                except Exception:
-                    logger.exception(
-                        "Failed to release CryptoBot payment for retry external_invoice_id=%s user_id=%s",
-                        external_invoice_id,
-                        claimed_user_id,
-                    )
-                continue
-
-            completed_payment = await repo.complete_payment_by_external_id(str(external_invoice_id))
-            if completed_payment is None:
-                logger.warning(
-                    "Provisioned CryptoBot payment was not completed external_invoice_id=%s user_id=%s",
-                    external_invoice_id,
-                    claimed_user_id,
-                )
-                continue
-
-            try:
-                await reward_referrer_for_payment(
-                    session,
-                    paid_user_id=claimed_user_id,
-                    plan_code=plan,
-                    payment_reference=f"cryptobot:{external_invoice_id}",
-                )
-            except Exception:
-                # Referral reward is best-effort; never block access delivery.
-                logger.exception(
-                    "Failed to credit referral reward external_invoice_id=%s user_id=%s",
-                    external_invoice_id,
-                    claimed_user_id,
-                )
-
-            try:
-                if access_kind == "subscription":
-                    await _send_subscription_bundle(
-                        bot=bot,
-                        telegram_id=user.telegram_id,
-                        subscription_url=subscription_url,
-                        expires_at=subscription.expires_at,
-                    )
-                else:
-                    await _send_access_bundle(
-                        bot=bot,
-                        telegram_id=user.telegram_id,
-                        config_text=config_text,
-                        expires_at=subscription.expires_at,
-                    )
-            except Exception:
-                logger.exception(
-                    "Failed to deliver CryptoBot access bundle external_invoice_id=%s user_id=%s",
-                    external_invoice_id,
-                    claimed_user_id,
-                )
-
-
 async def check_inbound_drift() -> None:
     """Warn when the panel serves inbounds that new accounts never receive.
 
@@ -666,8 +428,8 @@ PAID_PAYMENT_STATUSES = {"succeeded", "paid"}
 
 def _payment_amount_text(payment: Payment) -> str:
     """Amounts are stored in the minor unit of whatever the provider charged —
-    kopecks for YooKassa, USDT cents for CryptoBot — so only rouble rows may go
-    through the rouble formatter."""
+    kopecks for YooKassa, and older CryptoBot rows hold USDT cents — so only
+    rouble rows may go through the rouble formatter."""
     if (payment.currency or "").upper() == "RUB":
         return format_rub(payment.amount)
     return f"{payment.amount / 100:.2f} {payment.currency}"
@@ -685,11 +447,6 @@ async def _stale_payment_verdict(payment: Payment) -> str | None:
     if payment.provider == "yookassa":
         remote = await yookassa.get_payment(external_id)
         return str(remote.get("status") or "")
-
-    if payment.provider == "cryptobot":
-        remote = await get_invoice_by_id(int(external_id))
-        # An invoice CryptoBot no longer knows about is as dead as an expired one.
-        return str(remote.get("status") or "") if remote else "expired"
 
     return None
 
@@ -791,20 +548,6 @@ def setup_scheduler(bot: Bot, session_pool: async_sessionmaker[AsyncSession]) ->
         coalesce=True,
         next_run_time=datetime.now(timezone.utc),
     )
-    if settings.CRYPTOBOT_TOKEN.strip():
-        scheduler.add_job(
-            poll_cryptobot_payments,
-            trigger="interval",
-            seconds=settings.CRYPTOBOT_POLL_INTERVAL,
-            args=[bot, session_pool],
-            id="poll_cryptobot_payments",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            next_run_time=datetime.now(timezone.utc),
-        )
-    else:
-        logger.warning("CRYPTOBOT_TOKEN is empty: payment polling disabled")
     scheduler.add_job(
         reconcile_stale_payments,
         trigger="interval",

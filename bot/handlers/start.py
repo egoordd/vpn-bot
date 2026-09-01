@@ -12,7 +12,6 @@ from bot.navigation import show_screen
 from bot.texts import aware as _aware, bq, format_gb as _format_gb, format_msk as _format_msk, trial_days
 from database.models import Subscription, User
 from database.repository import Repository
-from services.money import format_rub
 from services.referral import (
     ReferralError,
     attach_referrer,
@@ -35,7 +34,6 @@ def _profile_block(user: User, display_name: str | None) -> str:
     return "👤 <b>Профиль:</b>\n" + bq(
         f"📝 Имя: {name}",
         f"🆔 ID: <code>{user.telegram_id}</code>",
-        f"💰 Баланс: {format_rub(user.balance)}",
     )
 
 

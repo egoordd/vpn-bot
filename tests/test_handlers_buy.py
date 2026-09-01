@@ -8,108 +8,8 @@ from database.repository import Repository
 
 
 @pytest.mark.integration
-async def test_buy_plan_standard_shows_checkout_with_balance_option(session_pool, fake_bot, monkeypatch):
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
-    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        data="buy:standard_1m",
-        from_user=SimpleNamespace(id=910, username="buyer"),
-        message=message,
-        answer=AsyncMock(),
-    )
-    async with session_pool() as session:
-        user = await Repository(session).get_or_create_user(telegram_id=910, username="buyer")
-        from services import wallet
-
-        await wallet.deposit(session, user.id, 100000)
-
-    await buy.buy_plan_handler(callback, fake_bot, session_pool)
-
-    message.edit_text.assert_awaited_once()
-    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    assert keyboard.inline_keyboard[0][0].callback_data == "paybal:standard_1m"
-    callback.answer.assert_awaited_once()
-
-
-@pytest.mark.integration
-async def test_buy_plan_zero_balance_hides_all_balance_ui(session_pool, fake_bot, monkeypatch):
-    # Zero balance: no «Оплатить с баланса», no topup nudge, no balance line.
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
-    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        data="buy:standard_1m",
-        from_user=SimpleNamespace(id=917, username="poor"),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await buy.buy_plan_handler(callback, fake_bot, session_pool)
-
-    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
-    assert "topup_menu" not in callbacks
-    assert not any(cb.startswith("paybal:") for cb in callbacks)
-    text = message.edit_text.await_args.args[0]
-    assert "Ваш баланс" not in text
-
-
-@pytest.mark.integration
-async def test_buy_plan_partial_balance_offers_topup_not_paybal(session_pool, fake_bot, monkeypatch):
-    # Money on the wallet but not enough for the plan → topup nudge, no paybal.
-    from services import wallet as wallet_service
-
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
-    async with session_pool() as session:
-        user = await Repository(session).create_user(telegram_id=918, username="partial")
-        await wallet_service.deposit(session, user.id, 5000, description="Пополнение")
-
-    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        data="buy:standard_1m",
-        from_user=SimpleNamespace(id=918, username="partial"),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await buy.buy_plan_handler(callback, fake_bot, session_pool)
-
-    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
-    assert "topup_menu" in callbacks
-    assert not any(cb.startswith("paybal:") for cb in callbacks)
-    text = message.edit_text.await_args.args[0]
-    assert "Ваш баланс" in text
-
-
-@pytest.mark.integration
-async def test_buy_plan_full_balance_shows_paybal(session_pool, fake_bot, monkeypatch):
-    from services import wallet as wallet_service
-
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
-    async with session_pool() as session:
-        user = await Repository(session).create_user(telegram_id=919, username="rich")
-        await wallet_service.deposit(session, user.id, 100_000, description="Пополнение")
-
-    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
-    callback = SimpleNamespace(
-        data="buy:standard_1m",
-        from_user=SimpleNamespace(id=919, username="rich"),
-        message=message,
-        answer=AsyncMock(),
-    )
-
-    await buy.buy_plan_handler(callback, fake_bot, session_pool)
-
-    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
-    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
-    assert any(cb.startswith("paybal:") for cb in callbacks)
-    assert "topup_menu" not in callbacks
-
-
-@pytest.mark.integration
 async def test_buy_plan_checkout_back_goes_to_tier_plans(session_pool, fake_bot, monkeypatch):
     # «Назад» from checkout = one step back (this tier's plan list), not buy_menu.
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
     message = SimpleNamespace(photo=None, edit_text=AsyncMock())
     callback = SimpleNamespace(
         data="buy:standard_1m",
@@ -128,8 +28,7 @@ async def test_buy_plan_checkout_back_goes_to_tier_plans(session_pool, fake_bot,
 
 @pytest.mark.integration
 async def test_buy_plan_standard_shows_card_first_when_yookassa_configured(session_pool, fake_bot, monkeypatch):
-    # Card (YooKassa) must be the FIRST button; crypto off, balance zero.
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: False)
+    # Card (YooKassa) is the only rail left, and must be the first button.
     monkeypatch.setattr(buy.yookassa, "is_configured", lambda: True)
     message = SimpleNamespace(photo=None, edit_text=AsyncMock())
     callback = SimpleNamespace(
@@ -288,36 +187,6 @@ async def test_yookassa_email_message_rejects_bad_email(session_pool, monkeypatc
     message.answer.assert_awaited()
     state.clear.assert_not_awaited()
 
-
-@pytest.mark.integration
-async def test_pay_crypto_handler_creates_invoice_and_payment(session_pool, fake_bot, monkeypatch):
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: True)
-    async def create_invoice(**kwargs):
-        assert callback.answer.await_count == 1
-        return {"invoice_id": "ext-1", "pay_url": "https://pay.example"}
-
-    create_invoice = AsyncMock(side_effect=create_invoice)
-    monkeypatch.setattr(buy, "create_invoice", create_invoice)
-    callback = SimpleNamespace(
-        data="paycrypto:standard_1m",
-        from_user=SimpleNamespace(id=910, username="buyer"),
-        message=SimpleNamespace(answer=AsyncMock()),
-        answer=AsyncMock(),
-    )
-
-    await buy.pay_crypto_handler(callback, fake_bot, session_pool)
-
-    create_invoice.assert_awaited_once()
-    callback.message.answer.assert_awaited_once()
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.get_user_by_telegram_id(910)
-        payment = await repo.get_payment_by_external_id("ext-1")
-    assert payment is not None
-    assert payment.user_id == user.id
-    assert payment.amount == 199
-
-
 @pytest.mark.integration
 async def test_buy_plan_handler_invalid_plan_alerts(session_pool, fake_bot):
     callback = SimpleNamespace(
@@ -331,34 +200,6 @@ async def test_buy_plan_handler_invalid_plan_alerts(session_pool, fake_bot):
 
     callback.answer.assert_awaited_once()
     assert callback.answer.await_args.kwargs["show_alert"] is True
-
-
-
-
-@pytest.mark.integration
-async def test_pay_crypto_handler_uses_bot_when_no_message(session_pool, fake_bot, monkeypatch):
-    monkeypatch.setattr(buy, "is_cryptobot_configured", lambda: True)
-    callback = SimpleNamespace(
-        data="paycrypto:standard_3m",
-        from_user=SimpleNamespace(id=912, username="buyer"),
-        message=None,
-        answer=AsyncMock(),
-    )
-    monkeypatch.setattr(
-        buy,
-        "create_invoice",
-        AsyncMock(return_value={"invoice_id": "ext-3", "bot_invoice_url": "https://pay.example/3"}),
-    )
-
-    await buy.pay_crypto_handler(callback, fake_bot, session_pool)
-
-    fake_bot.send_message.assert_awaited_once()
-
-
-@pytest.mark.unit
-def test_crypto_minor_units_rounds_half_up():
-    assert buy._crypto_minor_units("1.995") == 200
-    assert buy._crypto_minor_units("1.994") == 199
 
 
 @pytest.mark.integration

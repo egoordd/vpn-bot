@@ -47,17 +47,10 @@ class Settings(BaseSettings):
     # Must be passphraseless so the bot (under launchd, no ssh-agent) can use it.
     AWG_SSH_KEY: str = ""
 
-    CRYPTOBOT_TOKEN: str = ""
-    CRYPTOBOT_API_URL: str = "https://pay.crypt.bot/api"
-    CRYPTOBOT_POLL_INTERVAL: int = 30
     # How long a checkout may sit pending before we ask the provider what
     # really became of it. Long enough that a buyer still filling in card
     # details is never disturbed.
     STALE_PAYMENT_HOURS: int = 3
-    # Manual RUB/USDT rate used to price wallet top-up invoices.
-    # TODO: replace with a rate feed before card payments launch.
-    RUB_PER_USDT: str = "90"
-
     # YooKassa card payments (API + webhook). Charged in RUB.
     # SHOP_ID + SECRET_KEY come from the YooKassa merchant panel (Настройки → Ключи API).
     YOOKASSA_SHOP_ID: str = ""
@@ -324,15 +317,6 @@ class Settings(BaseSettings):
     @property
     def autoscale_premium_regions_list(self) -> list[str]:
         return [item.strip().lower() for item in self.AUTOSCALE_PREMIUM_REGIONS.split(",") if item.strip()]
-
-    @property
-    def rub_per_usdt(self) -> "Decimal":
-        from decimal import Decimal
-
-        value = Decimal(self.RUB_PER_USDT)
-        if value <= 0:
-            raise ValueError("RUB_PER_USDT must be positive")
-        return value
 
 
 @lru_cache

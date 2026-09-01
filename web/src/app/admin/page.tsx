@@ -12,10 +12,6 @@ const TIER_LABELS: Record<string, string> = {
   vip: "VIP",
 };
 
-function rub(kopecks: number): string {
-  return `${Math.round(kopecks / 100).toLocaleString("ru-RU")} ₽`;
-}
-
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
@@ -54,7 +50,6 @@ function Dashboard({ stats }: { stats: AdminStats }) {
         <Stat label="Пользователей" value={stats.users.total} sub={`+${stats.users.new7d} за неделю`} />
         <Stat label="Активных подписок" value={stats.subscriptions.activeTotal} sub={`всего оформлено: ${stats.subscriptions.total}`} />
         <Stat label="Новых за 24ч" value={stats.users.new24h} />
-        <Stat label="Пополнений" value={rub(stats.money.depositsKopecks)} sub={`на балансах: ${rub(stats.money.balancesKopecks)}`} />
       </section>
 
       <section className="admin__block">

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 
-import { formatRub } from "@/lib/money";
 import type { PromoFailure, PromoRedemption } from "@/lib/billing/types";
 import "./promo-card.css";
 
@@ -76,21 +75,15 @@ export function PromoCard() {
       </form>
 
       <div className="promo__result" aria-live="polite">
-        {state.status === "ok" && state.result.grantedDays !== null && (
+        {state.status === "ok" && (
           <p className="promo__ok">
             Промокод применён: подписка на <strong>{state.result.grantedDays} дней</strong> уже
             активна. Ссылка для подключения — на этой странице.
           </p>
         )}
-        {state.status === "ok" && state.result.grantedDays === null && (
-          <p className="promo__ok">
-            Промокод применён: <strong>+{formatRub(state.result.creditedKopecks)}</strong> на баланс.
-            Теперь на счету {formatRub(state.result.balanceKopecks)}.
-          </p>
-        )}
         {state.status === "error" && <p className="promo__err">{state.message}</p>}
         {state.status === "idle" && (
-          <p className="promo__hint">Промокод зачислит бонус или откроет подписку сразу.</p>
+          <p className="promo__hint">Промокод откроет подписку сразу.</p>
         )}
       </div>
     </article>

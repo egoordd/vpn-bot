@@ -63,7 +63,7 @@ export function CabinetLogin({ telegramLoginHref, note }: CabinetLoginProps) {
     <div className="card cab__login">
       <h2>Вход в кабинет</h2>
       <p className="cab__login-lead">
-        Здесь ваши подписки, ссылка для подключения и баланс.
+        Здесь ваши подписки и ссылка для подключения.
       </p>
       {note && <p className="cab__login-note">{note}</p>}
 
