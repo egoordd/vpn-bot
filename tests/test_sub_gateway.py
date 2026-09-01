@@ -7,7 +7,7 @@ import pytest
 from services import sub_gateway
 from services.sub_gateway import combine_links, happ_redirect_page
 
-US_HOST = "144.172.101.217.sslip.io"
+US_HOST = "172.86.119.133.sslip.io"
 NL_HOST = "107.189.22.160.sslip.io"
 
 
@@ -140,7 +140,7 @@ def test_fetch_upstream_falls_back_to_marzban_on_empty_remnawave(monkeypatch):
         calls.append(url)
         if "panel.example" in url:
             return None  # token not on Remnawave yet (mid-migration)
-        return ("vless://uuid@144.172.101.217.sslip.io:443?security=reality#US", None)
+        return ("vless://uuid@172.86.119.133.sslip.io:443?security=reality#US", None)
 
     monkeypatch.setattr(sub_gateway, "REMNAWAVE_SUB_BASE", "https://panel.example/api/sub")
     monkeypatch.setattr(sub_gateway, "MARZBAN_BASE", "https://mz.example:8443")
@@ -161,7 +161,7 @@ def test_fetch_upstream_uses_marzban_when_remnawave_unset(monkeypatch):
 
     def fake_get(url: str):
         calls.append(url)
-        return ("vless://uuid@144.172.101.217.sslip.io:443#US", None)
+        return ("vless://uuid@172.86.119.133.sslip.io:443#US", None)
 
     monkeypatch.setattr(sub_gateway, "REMNAWAVE_SUB_BASE", "")
     monkeypatch.setattr(sub_gateway, "MARZBAN_BASE", "https://mz.example:8443")
@@ -420,7 +420,7 @@ def test_build_auto_json_none_for_unknown_token(monkeypatch):
 def test_reorder_by_proximity_poland_first_us_last():
     # Marzban order is US, NL, PL; RU-audience order must be PL, NL, US,
     # with each location's protocols kept grouped.
-    US, NL, PL = "144.172.101.217.sslip.io", "107.189.22.160.sslip.io", "78.17.154.225.sslip.io"
+    US, NL, PL = "172.86.119.133.sslip.io", "107.189.22.160.sslip.io", "78.17.154.225.sslip.io"
     links = [
         f"vless://u@{US}:443#US",
         f"hysteria2://p@{US}:443#US-Hy2",
@@ -436,7 +436,7 @@ def test_reorder_by_proximity_poland_first_us_last():
 
 
 def test_reorder_by_proximity_unknown_host_before_us():
-    US = "144.172.101.217.sslip.io"
+    US = "172.86.119.133.sslip.io"
     links = [f"vless://u@{US}:443#US", "vless://u@other.example:443#X"]
     out = sub_gateway.reorder_by_proximity(links)
     assert sub_gateway._uri_host(out[0]) == "other.example"  # unknown ahead of US
@@ -842,10 +842,6 @@ def test_the_replacement_us_node_sorts_as_far_away_as_the_old_one():
     Пока его не было в таблице, он получал значение по умолчанию и всплывал в
     середину списка — впереди Германии, до которой из России вчетверо ближе.
     """
-    assert (
-        sub_gateway.NODE_PRIORITY["172.86.119.133.sslip.io"]
-        == sub_gateway.NODE_PRIORITY["144.172.101.217.sslip.io"]
-    )
     assert sub_gateway.NODE_PRIORITY["172.86.119.133.sslip.io"] > sub_gateway.NODE_PRIORITY[
         "166.0.28.132.sslip.io"
     ]

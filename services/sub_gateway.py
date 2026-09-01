@@ -17,7 +17,7 @@ so both panels can be served through one subscription host during the cutover.
 
 Env:
   REMNAWAVE_SUB_BASE  e.g. https://panel.23.95.3.18.sslip.io/api/sub (tried first)
-  MARZBAN_BASE   e.g. https://144.172.101.217.sslip.io:8443 (fallback)
+  MARZBAN_BASE   e.g. https://panel.23.95.3.18.sslip.io (fallback)
   US_HY2_PASS    Hysteria2 password on the US node
   NL_HY2_PASS    Hysteria2 password on the NL node
   LISTEN_PORT    default 8090 (bind 127.0.0.1; nginx proxies a public path)
@@ -45,7 +45,7 @@ try:
 except ImportError:  # pragma: no cover - standalone deploy path
     from xray_json import build_json_subscription
 
-MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://144.172.101.217.sslip.io:8443").rstrip("/")
+MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://panel.23.95.3.18.sslip.io").rstrip("/")
 # When set, the gateway serves Remnawave subscriptions (tried before Marzban).
 REMNAWAVE_SUB_BASE = os.environ.get("REMNAWAVE_SUB_BASE", "").rstrip("/")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8090"))
@@ -159,9 +159,9 @@ def _client_headers() -> dict[str, str]:
 
 # vless host -> location + its Hysteria2 endpoint
 NODES = {
-    "144.172.101.217.sslip.io": {
+    "172.86.119.133.sslip.io": {
         "flag": "🇺🇸", "name": "США",
-        "hy2_host": "144.172.101.217.sslip.io", "hy2_port": 443,
+        "hy2_host": "172.86.119.133.sslip.io", "hy2_port": 443,
         "hy2_pass": os.environ.get("US_HY2_PASS", ""),
     },
     "107.189.22.160.sslip.io": {
@@ -252,7 +252,10 @@ CASCADE_COUNTRIES = (
     # the same seconds fine — that rotation is what users experienced as
     # "worked, then stopped". It answers TCP and TLS from both continents, so
     # nothing short of real traffic from Russia catches it.
-    (2093, "🇺🇸 США ✅ РУ сервисы", "144.172.101.217.sslip.io"),
+    # Выход переехал 2026-08-31 на новую машину; здесь стоит адрес, по которому
+    # health-пробер решает, показывать ли каскад, поэтому он должен совпадать с
+    # тем, куда релей на самом деле форвардит.
+    (2093, "🇺🇸 США ✅ РУ сервисы", "172.86.119.133.sslip.io"),
 )
 
 # The gateway calls our own Marzban panel (same host in prod), so TLS
@@ -645,9 +648,6 @@ NODE_PRIORITY = {
     "166.0.28.132.sslip.io": 2,     # 🇩🇪 Германия (Франкфурт)
     "107.189.22.160.sslip.io": 3,   # 🇳🇱 Нидерланды
     "172.86.119.133.sslip.io": 4,   # 🇺🇸 США (дальше всего)
-    # Прежняя американская машина: держим до вывода из выдачи, иначе её ссылки
-    # у ещё не обновившихся клиентов уехали бы в середину списка.
-    "144.172.101.217.sslip.io": 4,  # 🇺🇸 США (старый сервер)
 }
 _DEFAULT_PRIORITY = 2  # unknown hosts sit mid-list, ahead of the far NL/US nodes
 
