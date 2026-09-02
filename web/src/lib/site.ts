@@ -11,6 +11,11 @@ export const SITE = {
   supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@unlockvpn.site",
 } as const;
 
+/** Кампания, по ссылке которой пришёл посетитель. Ставится /go/<кампания>,
+ *  читается при регистрации и оплате — иначе покупатель с сайта остаётся без
+ *  канала, а это большая часть выручки. */
+export const SOURCE_COOKIE = "unlock_src";
+
 export function botLink(payload?: string): string {
   const base = `https://t.me/${SITE.botUsername}`;
   return payload ? `${base}?start=${payload}` : base;

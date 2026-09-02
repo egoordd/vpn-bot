@@ -54,6 +54,21 @@ _CHECKOUT_ID_LIMIT = 5
 _CHECKOUT_ID_WINDOW = 3600  # 1 h
 
 
+async def _tag_source(session: AsyncSession, user_id: int, raw: str | None) -> None:
+    """Записать канал привлечения при первом касании.
+
+    Ставится только если ещё не заполнен: человек может вернуться по другой
+    ссылке, но привёл его первый канал, и отчёт должен показывать именно его.
+    """
+    slug = normalize_source_slug(raw)
+    if not slug:
+        return
+    try:
+        await Repository(session).set_user_source_if_unset(user_id, slug)
+    except Exception:  # noqa: BLE001 - телеметрия не должна ломать покупку
+        logging.getLogger("funnel").exception("Could not tag source for user_id=%s", user_id)
+
+
 def _client_ip(request: Request) -> str:
     # Next forwards the browser IP as x-client-ip; fall back to the socket peer.
     forwarded = request.headers.get("x-client-ip") or request.headers.get("x-forwarded-for", "")
@@ -87,6 +102,7 @@ class WebCheckoutRequest(BaseModel):
     # A customer whose subscription lapsed cannot open Telegram in Russia, so
     # the link already in their VPN app is how they say which account is theirs.
     subscription: str | None = Field(default=None, max_length=512)
+    source: str | None = Field(default=None, max_length=64)
 
 
 class WebPromoRedeemRequest(BaseModel):
@@ -108,6 +124,10 @@ class WebAuthRequest(BaseModel):
 
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=1, max_length=200)
+    # Кампания, по ссылке которой человек пришёл на сайт (кука unlock_src,
+    # её ставит /go/<кампания>). Нормализуется так же, как src_-деплинк бота,
+    # чтобы одна кампания не расщепилась на две строки в отчёте.
+    source: str | None = Field(default=None, max_length=64)
 
 
 class ReceiptCompleteRequest(BaseModel):
@@ -369,6 +389,9 @@ def create_app() -> FastAPI:
         except billing_api.WebAuthError as exc:
             status = 409 if exc.code == "already_registered" else 400
             raise HTTPException(status_code=status, detail=exc.code)
+        user = await Repository(session).get_user_by_telegram_id(telegram_id)
+        if user is not None:
+            await _tag_source(session, user.id, body.source)
         return {"ok": True, "telegramId": telegram_id}
 
     @application.post("/web/auth/login")
@@ -431,6 +454,10 @@ def create_app() -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+        # Покупка с сайта — единственное место, где виден канал для тех, кто
+        # никогда не открывал бота, а это большая часть выручки.
+        await _tag_source(session, intent.user_id, body.source)
 
         web_base = get_settings().WEB_BASE_URL.strip().rstrip("/")
         try:

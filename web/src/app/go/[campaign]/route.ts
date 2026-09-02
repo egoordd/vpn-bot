@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { recordLinkClick } from "@/lib/billing/client";
-import { SITE, botLink } from "@/lib/site";
+import { SITE, SOURCE_COOKIE, botLink } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
@@ -10,9 +10,6 @@ export const dynamic = "force-dynamic";
 const SLUG_RE = /[^a-z0-9_-]+/g;
 const SLUG_MAX = 32;
 
-/** Cookie that carries the campaign through a site visit, so a purchase made
- *  on the site (not via the bot) is still attributed to the channel. */
-const SOURCE_COOKIE = "unlock_src";
 const SOURCE_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 function normalizeSlug(raw: string): string | null {

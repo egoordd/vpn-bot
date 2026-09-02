@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
 import { CheckoutError, createWebCheckout } from "@/lib/billing/client";
+import { SOURCE_COOKIE } from "@/lib/site";
 import { USER_SESSION_COOKIE, verifyUserSession } from "@/lib/web-session";
 
 export const dynamic = "force-dynamic";
@@ -44,9 +45,12 @@ export async function POST(request: Request) {
   }
 
   const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
+  // Канал, по ссылке которого пришёл покупатель. Читаем на сервере, а не в
+  // браузере: форма не должна знать про атрибуцию, чтобы её нельзя было забыть.
+  const source = cookies().get(SOURCE_COOKIE)?.value || undefined;
 
   try {
-    const result = await createWebCheckout({ plan, telegramId, email, subscription, clientIp });
+    const result = await createWebCheckout({ plan, telegramId, email, subscription, source, clientIp });
     return NextResponse.json(result);
   } catch (error: unknown) {
     if (error instanceof CheckoutError) {

@@ -1170,3 +1170,54 @@ async def test_the_ip_checkout_cap_survives_a_carrier_sized_burst(api_client, se
     # Личность по-прежнему ограничена жёстко: там адрес соответствует человеку.
     assert api_mod._CHECKOUT_ID_LIMIT <= 5
     assert api_mod._CHECKOUT_IP_LIMIT > api_mod._CHECKOUT_ID_LIMIT
+# --- attribution for site buyers ---------------------------------------------
+#
+# /go/<кампания> ставит куку unlock_src и уводит на сайт, но её никто не читал:
+# метка доезжала только для тех, кто пришёл в бота по src_-ссылке. Сайт при
+# этом даёт большую часть выручки, так что по источникам была видна меньшая
+# половина картины.
+
+@pytest.mark.asyncio
+async def test_site_registration_records_where_the_visitor_came_from(api_client, session_pool):
+    response = await api_client.post(
+        "/web/auth/register",
+        json={"email": "src-buyer@example.com", "password": "correct horse 9", "source": "Instagram"},
+    )
+
+    assert response.status_code == 200
+    telegram_id = response.json()["telegramId"]
+    async with session_pool() as session:
+        user = await Repository(session).get_user_by_telegram_id(telegram_id)
+    # normalised the same way the bot's src_ deep-link normalises it, so one
+    # campaign never splits into two rows
+    assert user.source == "instagram"
+
+@pytest.mark.asyncio
+async def test_site_registration_without_a_campaign_is_unattributed(api_client, session_pool):
+    response = await api_client.post(
+        "/web/auth/register",
+        json={"email": "no-src@example.com", "password": "correct horse 9"},
+    )
+
+    assert response.status_code == 200
+    async with session_pool() as session:
+        user = await Repository(session).get_user_by_telegram_id(response.json()["telegramId"])
+    assert user.source is None
+
+@pytest.mark.asyncio
+async def test_a_later_campaign_does_not_overwrite_where_someone_first_came_from(api_client, session_pool):
+    first = await api_client.post(
+        "/web/auth/register",
+        json={"email": "loyal@example.com", "password": "correct horse 9", "source": "telegram-ads"},
+    )
+    telegram_id = first.json()["telegramId"]
+
+    # same person returns через другую ссылку и логинится
+    await api_client.post(
+        "/web/auth/login",
+        json={"email": "loyal@example.com", "password": "correct horse 9", "source": "youtube"},
+    )
+
+    async with session_pool() as session:
+        user = await Repository(session).get_user_by_telegram_id(telegram_id)
+    assert user.source == "telegram-ads"

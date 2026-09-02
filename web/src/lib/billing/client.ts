@@ -117,6 +117,8 @@ export async function createWebCheckout(input: {
   email?: string;
   /** The buyer's existing subscription link, when they are topping that up. */
   subscription?: string;
+  /** Кампания из куки unlock_src — канал, который привёл покупателя. */
+  source?: string;
   clientIp?: string;
 }): Promise<CheckoutResult> {
   if (!API_URL) return mockCheckout();
@@ -158,7 +160,7 @@ export class WebAuthError extends Error {
 }
 
 /** Register/login return the account's telegram_id (negative for email accounts). */
-async function authCall(path: string, email: string, password: string): Promise<number> {
+async function authCall(path: string, email: string, password: string, source?: string): Promise<number> {
   if (!API_URL) {
     // Mock mode: pretend a deterministic email account exists.
     return -1;
@@ -169,7 +171,7 @@ async function authCall(path: string, email: string, password: string): Promise<
       "content-type": "application/json",
       ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
     },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, ...(source ? { source } : {}) }),
     cache: "no-store",
   });
   if (!res.ok) {
@@ -186,8 +188,8 @@ async function authCall(path: string, email: string, password: string): Promise<
   return body.telegramId;
 }
 
-export async function registerWebAccount(email: string, password: string): Promise<number> {
-  return authCall("/web/auth/register", email, password);
+export async function registerWebAccount(email: string, password: string, source?: string): Promise<number> {
+  return authCall("/web/auth/register", email, password, source);
 }
 
 export async function loginWebAccount(email: string, password: string): Promise<number> {
