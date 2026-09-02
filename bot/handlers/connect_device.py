@@ -6,7 +6,6 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
-    BufferedInputFile,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -22,9 +21,8 @@ from database.models import Subscription
 from database.repository import Repository
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services import mailer
-from services.qrcode import generate_qr_png_bytes
+from services.alerts import send_alert
 from services.subscription import connect_page_url, to_gateway_subscription_url, to_happ_import_url
-from services.wireguard import WireGuardError, rotate_user_key
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -234,26 +232,26 @@ async def connect_device_handler(
         await _send_subscription_screen(callback, subscription, url)
         return
 
-    async with session_pool() as session:
-        try:
-            _, config_text = await rotate_user_key(session=session, user_id=user_id)
-        except WireGuardError:
-            logger.exception("Could not provide WireGuard key for user_id=%s", user_id)
-            await _send_processing_error(callback, "Не удалось подготовить ключ. Напишите в поддержку.")
-            return
-
-    qr_bytes = await generate_qr_png_bytes(config_text)
-    filename = f"wireguard_{callback.from_user.id}.conf"
-    if callback.message:
-        await callback.message.answer_document(
-            BufferedInputFile(config_text.encode("utf-8"), filename=filename),
-            caption="Ваш WireGuard-конфиг.",
-        )
-        await callback.message.answer_photo(
-            BufferedInputFile(qr_bytes, filename="wireguard_qr.png"),
-            caption="QR-код для импорта в WireGuard.",
-            reply_markup=back_to_menu_keyboard(),
-        )
+    # Reaching here means the middleware saw an active subscription but the
+    # panel gave us no link for it. This used to fall back to WireGuard, which
+    # has not existed for a long time: no wg binary on the box, nothing on
+    # 51820, no peers, WG_SERVER_ENDPOINT pointing at 127.0.0.1. The user was
+    # handed a file captioned «Ваш WireGuard-конфиг» that could never connect —
+    # worse than being told plainly that it failed. It is also a paid customer
+    # left without access, so the owner hears about it.
+    logger.error("Active subscription resolved to no link for user_id=%s", user_id)
+    await send_alert(
+        "‼️ Подписка есть, а ссылки нет.\n\n"
+        f"Пользователь {callback.from_user.id} (user_id={user_id}) нажал «Подключить», "
+        "но панель не отдала ссылку ни для одной активной подписки.",
+        throttle_key=f"no_link:{user_id}",
+        cooldown=3600.0,
+    )
+    await _send_processing_error(
+        callback,
+        "Не удалось получить ссылку-подписку. Мы уже разбираемся — напишите в поддержку, "
+        "и мы вернём доступ.",
+    )
 
 
 @router.callback_query(F.data.startswith("connect_loc:"), flags={"subscription_required": True})

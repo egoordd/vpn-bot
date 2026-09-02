@@ -257,6 +257,18 @@ async def renew_menu_handler(callback: CallbackQuery, session_pool: async_sessio
         await callback.answer()
         return
 
+    # One subscription means the picker offers exactly one button, which asks
+    # the user nothing — go straight to the durations. It used to be worth a
+    # screen when Premium and Standard could both be active at once.
+    if len(subscriptions) == 1:
+        await _edit_current_message(
+            callback,
+            "🔄 <b>Продление</b>\n\nВыберите срок — он добавится к текущему:",
+            renew_durations_keyboard(subscriptions[0].tier, back_callback="main_menu"),
+        )
+        await callback.answer()
+        return
+
     text = "🔄 <b>Продление</b>\n\nВыберите подписку, которую хотите продлить:"
     await _edit_current_message(callback, text, renew_menu_keyboard(subscriptions))
     await callback.answer()
@@ -278,8 +290,9 @@ async def renew_sub_handler(callback: CallbackQuery, session_pool: async_session
             return
         tier = subscription.tier
 
+    # Reached from the picker, so «Назад» belongs there.
     text = "🔄 <b>Продление</b>\n\nВыберите срок — он добавится к текущему:"
-    await _edit_current_message(callback, text, renew_durations_keyboard(tier))
+    await _edit_current_message(callback, text, renew_durations_keyboard(tier, back_callback="renew_menu"))
     await callback.answer()
 
 

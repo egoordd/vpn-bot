@@ -234,18 +234,6 @@ async def activate_trial_handler(callback: CallbackQuery, session_pool: async_se
     await callback.answer("Пробный период активирован! 🎉")
 
 
-@router.callback_query(F.data == "profile")
-async def profile_handler(callback: CallbackQuery, session_pool: async_sessionmaker[AsyncSession]) -> None:
-    text, keyboard, _ = await _menu_state(
-        session_pool=session_pool,
-        telegram_id=callback.from_user.id,
-        username=callback.from_user.username,
-        display_name=getattr(callback.from_user, "full_name", None),
-    )
-    await show_screen(callback, text, keyboard)
-    await callback.answer()
-
-
 @router.callback_query(F.data == "my_subs")
 async def my_subs_handler(callback: CallbackQuery, session_pool: async_sessionmaker[AsyncSession]) -> None:
     async with session_pool() as session:

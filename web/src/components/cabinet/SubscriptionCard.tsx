@@ -2,7 +2,6 @@ import { Button } from "@/components/ui/Button";
 import { TrialButton } from "./TrialButton";
 import { Pill } from "@/components/ui/Pill";
 import { formatDate, formatGb, daysLeft, trafficPercent } from "@/lib/format";
-import { botLink } from "@/lib/site";
 import type { SubscriptionSnapshot } from "@/lib/billing/types";
 import "./subscription-card.css";
 import { TRIAL_DAYS_LABEL } from "@/lib/tariffs";
@@ -64,9 +63,13 @@ export function SubscriptionCard({ sub }: { sub: SubscriptionSnapshot }) {
         </div>
       </div>
 
+      {/* Both buttons used to open the bot: «Продлить» with a `buy_<plan>`
+          start payload the bot has never parsed, and «Сменить тариф» with none
+          at all. So they landed on the same main menu, and neither did what it
+          said. The site has its own checkout — send them there instead. */}
       <div className="sub__actions">
-        <Button href={botLink(`buy_${sub.plan}`)}>Продлить</Button>
-        <Button href={botLink()} variant="ghost">
+        <Button href={sub.plan ? `/buy?plan=${sub.plan}` : "/#pricing"}>Продлить</Button>
+        <Button href="/#pricing" variant="ghost">
           Сменить тариф
         </Button>
       </div>

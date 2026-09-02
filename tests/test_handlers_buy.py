@@ -271,6 +271,128 @@ async def test_renew_menu_lists_active_subscriptions(session_pool):
 
 
 @pytest.mark.integration
+async def test_renew_goes_straight_to_durations_for_a_single_subscription(session_pool):
+    """One tier means the «какую продлить» screen offers exactly one thing, and
+    a screen with one option is a tap that answers nothing."""
+    from datetime import datetime, timedelta, timezone
+
+    from database.repository import Repository
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=972, username="onesub")
+        await repo.create_subscription(
+            user_id=user.id, plan="standard_1m", tier="standard",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=10), is_active=True,
+        )
+
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data="renew_menu",
+        from_user=SimpleNamespace(id=972, username="onesub"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.renew_menu_handler(callback, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    assert any(cb.startswith("buy:standard_") for cb in callbacks), "должны быть сроки, а не выбор подписки"
+    assert not any(cb.startswith("renew_sub:") for cb in callbacks)
+    # «Назад» must leave, not loop back into a screen that forwards here again.
+    assert "main_menu" in callbacks
+    assert "renew_menu" not in callbacks
+
+
+@pytest.mark.integration
+async def test_renew_still_asks_which_one_when_there_are_several(session_pool):
+    from datetime import datetime, timedelta, timezone
+
+    from database.repository import Repository
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=973, username="twosubs")
+        for days in (10, 40):
+            await repo.create_subscription(
+                user_id=user.id, plan="standard_1m", tier="standard",
+                started_at=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=days), is_active=True,
+            )
+
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data="renew_menu",
+        from_user=SimpleNamespace(id=973, username="twosubs"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.renew_menu_handler(callback, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    buttons = [b for row in keyboard.inline_keyboard for b in row]
+    assert sum(b.callback_data.startswith("renew_sub:") for b in buttons) == 2
+    # ...and they must be told apart by something real, not by a tier that no
+    # longer has an alternative.
+    labels = [b.text for b in buttons if b.callback_data.startswith("renew_sub:")]
+    assert len(set(labels)) == 2, f"кнопки неразличимы: {labels}"
+    assert not any("Обычный" in t for t in labels)
+
+
+@pytest.mark.integration
+async def test_renew_sub_opens_the_duration_list(session_pool):
+    """Pressing «Продлить» on a subscription must reach the duration options.
+
+    The Premium removal dropped the region argument at the call site but left it
+    required on the keyboard, so every renewal raised TypeError — the renewal
+    path had no test to catch it, and renewals are revenue.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from database.repository import Repository
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=971, username="renewsub")
+        sub = await repo.create_subscription(
+            user_id=user.id, plan="standard_1m", tier="standard",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=10), is_active=True,
+        )
+        sub_id = sub.id
+
+    message = SimpleNamespace(photo=None, edit_text=AsyncMock())
+    callback = SimpleNamespace(
+        data=f"renew_sub:{sub_id}",
+        from_user=SimpleNamespace(id=971, username="renewsub"),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await buy.renew_sub_handler(callback, session_pool)
+
+    keyboard = message.edit_text.await_args.kwargs["reply_markup"]
+    callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    assert any(cb.startswith("buy:standard_") for cb in callbacks)
+    assert "renew_menu" in callbacks  # «Назад» stays reachable
+
+
+@pytest.mark.unit
+def test_renew_durations_offer_only_callbacks_something_handles():
+    """A button nobody handles is a dead end for whoever presses it."""
+    from bot.keyboards.main_menu import renew_durations_keyboard
+
+    keyboard = renew_durations_keyboard("standard")
+    callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+
+    assert callbacks, "renewal must offer at least one duration"
+    assert not any(cb.startswith("buy_region:") for cb in callbacks)
+
+
+@pytest.mark.integration
 async def test_yookassa_pay_keyboard_email_edit_button():
     kb = buy._yookassa_pay_keyboard(
         "https://pay.example", 149, plan="standard_1m", email_editable=True

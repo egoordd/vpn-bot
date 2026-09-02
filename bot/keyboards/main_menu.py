@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from bot.texts import trial_days
+from bot.texts import format_msk, trial_days
 from services.payment import PLANS
 
 
@@ -50,34 +50,53 @@ def tier_plans_keyboard(tier: str) -> InlineKeyboardMarkup:
 
 
 def renew_menu_keyboard(subscriptions) -> InlineKeyboardMarkup:
-    """Pick which active subscription to renew."""
+    """Pick which active subscription to renew.
+
+    Only reached when there is more than one — with a single subscription the
+    caller goes straight to the durations. Labelled by expiry, because tier
+    stopped telling them apart when Premium went: two subscriptions both read
+    «Продлить Обычный» and the buttons were indistinguishable.
+    """
     rows = []
     for sub in subscriptions:
-        label = "💎 Premium" if sub.tier == "premium" else "🌐 Обычный"
-        rows.append([InlineKeyboardButton(text=f"🔄 Продлить {label}", callback_data=f"renew_sub:{sub.id}")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"🔄 До {format_msk(sub.expires_at)}",
+                    callback_data=f"renew_sub:{sub.id}",
+                )
+            ]
+        )
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def renew_durations_keyboard(tier: str, region: str | None) -> InlineKeyboardMarkup:
-    """Duration options for renewing a specific tier; premium keeps its region."""
+def renew_durations_keyboard(tier: str, *, back_callback: str = "main_menu") -> InlineKeyboardMarkup:
+    """Duration options for renewing a subscription of this tier.
+
+    Took a `region` too while Premium existed, and pinned it into a
+    `buy_region:` callback. Premium went, the call site dropped the argument,
+    and the parameter stayed required — so every «Продлить» raised TypeError.
+    Nothing has handled `buy_region:` since either.
+
+    ``back_callback`` exists because this screen is now reached two ways. When
+    it was entered directly (the usual case: one subscription), «Назад» must
+    leave for the menu — pointing it at the picker would bounce the user
+    straight back here.
+    """
     rows = []
     for code, plan in PLANS.items():
         if not code.startswith(tier):
             continue
-        if tier == "premium" and region:
-            callback = f"buy_region:{code}:{region}"
-        else:
-            callback = f"buy:{code}"
         rows.append(
             [
                 InlineKeyboardButton(
                     text=f"{DURATION_EMOJI.get(int(plan['days']), '⏱')} {plan['label']} — {plan['rub_amount']}₽",
-                    callback_data=callback,
+                    callback_data=f"buy:{code}",
                 )
             ]
         )
-    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="renew_menu")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
