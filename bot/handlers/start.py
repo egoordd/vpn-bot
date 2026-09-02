@@ -23,6 +23,7 @@ from services.subscription import (
     connect_page_url,
     to_gateway_subscription_url,
 )
+from services.payment import normalize_payment_plan_code
 from services.tariffs import resolve_tariff
 
 router = Router()
@@ -172,6 +173,28 @@ async def _record_start_event(
         logger.exception("Failed to record start funnel event for telegram_id=%s", message.from_user.id)
 
 
+_START_BUY_PREFIX = "buy_"
+
+
+def _plan_from_start_payload(payload: str | None) -> str | None:
+    """Тариф из deep-link `/start buy_<план>`, если такой тариф существует.
+
+    Реклама и кабинет ведут в бота ссылкой на конкретный тариф; без этого
+    человек попадал в главное меню и должен был искать тариф заново.
+    Несуществующий или устаревший код молча игнорируется — тогда открывается
+    обычное меню, а не ошибка.
+    """
+    if not payload or not payload.startswith(_START_BUY_PREFIX):
+        return None
+    raw = payload[len(_START_BUY_PREFIX):].strip()
+    try:
+        plan = normalize_payment_plan_code(raw)
+        resolve_tariff(plan)
+    except (KeyError, ValueError):
+        return None
+    return plan
+
+
 @router.message(CommandStart())
 async def start_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
     # Determine first-touch BEFORE the helpers below create the user record.
@@ -179,6 +202,21 @@ async def start_handler(message: Message, session_pool: async_sessionmaker[Async
         is_new_user = await Repository(session).get_user_by_telegram_id(message.from_user.id) is None
     await _attach_referrer_from_start(session_pool, message)
     await _record_start_event(session_pool, message)
+
+    parts = (getattr(message, "text", None) or "").split(maxsplit=1)
+    plan = _plan_from_start_payload(parts[1] if len(parts) > 1 else None)
+    if plan is not None:
+        from bot.handlers.buy import build_checkout_view
+
+        async with session_pool() as session:
+            await Repository(session).get_or_create_user(
+                telegram_id=message.from_user.id,
+                username=message.from_user.username,
+            )
+        text, keyboard = build_checkout_view(plan)
+        await message.answer(text, reply_markup=keyboard)
+        return
+
     text, keyboard, _ = await _menu_state(
         session_pool=session_pool,
         telegram_id=message.from_user.id,

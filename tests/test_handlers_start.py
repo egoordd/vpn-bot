@@ -248,3 +248,61 @@ async def test_my_subs_handler_lists_cards(session_pool):
     assert keyboard.inline_keyboard[0][0].callback_data == "connect_device"
 
 
+
+
+# --- /start buy_<план> --------------------------------------------------------
+#
+# Вся реклама теперь ведёт в бота. Ссылка на конкретный тариф должна открывать
+# его оплату, а не главное меню: раньше кабинет слал `?start=buy_standard_1m`,
+# бот такой payload не разбирал, и человек с кнопки «Продлить» попадал в меню.
+
+
+@pytest.mark.integration
+async def test_start_with_a_plan_opens_that_plan_checkout(session_pool, monkeypatch):
+    from bot.handlers import buy
+
+    monkeypatch.setattr(buy.yookassa, "is_configured", lambda: True)
+    answered: list[tuple] = []
+
+    async def answer(text, **kwargs):
+        answered.append((text, kwargs.get("reply_markup")))
+
+    message = SimpleNamespace(
+        text="/start buy_standard_3m",
+        chat=SimpleNamespace(id=4101),
+        from_user=SimpleNamespace(id=4101, username="deep", full_name="Deep"),
+        bot=SimpleNamespace(send_photo=AsyncMock(), send_message=AsyncMock()),
+        answer=answer,
+    )
+
+    await start.start_handler(message, session_pool)
+
+    text, keyboard = answered[-1]
+    assert "Оплата тарифа" in text
+    assert "3 месяца" in text
+    callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row if b.callback_data]
+    assert "payyk:standard_3m" in callbacks
+
+
+@pytest.mark.integration
+async def test_start_with_an_unknown_plan_falls_back_to_the_menu(session_pool):
+    """A stale or mistyped link must still land somewhere usable."""
+    sent: list = []
+
+    async def answer(text, **kwargs):
+        sent.append(text)
+
+    message = SimpleNamespace(
+        text="/start buy_nosuchplan",
+        chat=SimpleNamespace(id=4102),
+        from_user=SimpleNamespace(id=4102, username="stale", full_name="Stale"),
+        bot=SimpleNamespace(send_photo=AsyncMock(), send_message=AsyncMock()),
+        answer=answer,
+    )
+
+    await start.start_handler(message, session_pool)
+
+    assert message.bot.send_photo.await_count or message.bot.send_message.await_count or sent, (
+        "человек не должен остаться без ответа"
+    )
+    assert not any("Оплата тарифа" in t for t in sent)

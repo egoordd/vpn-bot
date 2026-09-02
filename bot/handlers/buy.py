@@ -68,30 +68,20 @@ def _checkout_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def _show_checkout(
-    callback: CallbackQuery,
-    session_pool: async_sessionmaker[AsyncSession],
-    *,
-    plan: str,
-) -> None:
+def build_checkout_view(plan: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Текст и клавиатура экрана оплаты одного тарифа.
+
+    Отдельно от хэндлера, потому что на этот экран ведут два пути: кнопка в
+    боте и deep-link `/start buy_<план>` из рекламы и кабинета. Раньше второго
+    пути не было, и ссылка на конкретный тариф высаживала человека в главное меню.
+    """
     tariff = resolve_tariff(plan)
-
-    async with session_pool() as session:
-        repo = Repository(session)
-        await repo.get_or_create_user(
-            telegram_id=callback.from_user.id,
-            username=callback.from_user.username,
-        )
-
-    # YooKassa card path.
-    # assignment which the redirect webhook does not perform).
     yookassa_ok = yookassa.is_configured() and tariff.tier == "standard"
 
     card_lines = [
         f"💎 Тариф: {tariff.title}",
         f"💵 Стоимость: {tariff.price_rub}₽",
     ]
-
     sections = ["💳 <b>Оплата тарифа</b>\n\n" + bq(*card_lines)]
     if yookassa_ok:
         sections.append(
@@ -101,11 +91,26 @@ async def _show_checkout(
     else:
         sections.append("⚠️ Оплата временно недоступна. Попробуйте позже.")
 
-    await _edit_current_message(
-        callback,
-        "\n\n".join(sections),
-        _checkout_keyboard(plan=plan, yookassa_ok=yookassa_ok, tier=tariff.tier),
+    return "\n\n".join(sections), _checkout_keyboard(
+        plan=plan, yookassa_ok=yookassa_ok, tier=tariff.tier
     )
+
+
+async def _show_checkout(
+    callback: CallbackQuery,
+    session_pool: async_sessionmaker[AsyncSession],
+    *,
+    plan: str,
+) -> None:
+    async with session_pool() as session:
+        repo = Repository(session)
+        await repo.get_or_create_user(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+        )
+
+    text, keyboard = build_checkout_view(plan)
+    await _edit_current_message(callback, text, keyboard)
     await callback.answer()
 
 
