@@ -24,6 +24,7 @@ export interface VpnLocation {
 export const LOCATIONS: readonly VpnLocation[] = [
   { id: "us", flag: "🇺🇸", name: "США", status: "live", note: "стабильно и быстро", col: 12, row: 6 },
   { id: "nl", flag: "🇳🇱", name: "Нидерланды", status: "live", note: "стабильно и быстро", col: 22, row: 4 },
+  { id: "lt", flag: "🇱🇹", name: "Литва", status: "live", note: "быстрая, без рекламы в YouTube", col: 25, row: 4 },
   { id: "pl", flag: "🇵🇱", name: "Польша", status: "live", note: "стабильно и быстро", col: 24, row: 5, labelBelow: true },
   { id: "de", flag: "🇩🇪", name: "Германия", status: "live", note: "самый быстрый", col: 22, row: 6, labelBelow: true },
   { id: "uk", flag: "🇬🇧", name: "Англия", status: "soon", col: 20, row: 4 },
