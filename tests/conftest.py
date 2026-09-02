@@ -82,3 +82,24 @@ def fake_bot():
 @pytest.fixture
 def telegram_user():
     return SimpleNamespace(id=1001, username="alice")
+
+
+# --- никакой тест не регистрирует настоящий доход в «Мой налог» ---------------
+#
+# Ключи ФНС лежат в .env на машине владельца, а джоба чеков живёт там же, так
+# что во время прогона тестов moynalog.is_configured() возвращает True. Любой
+# путь, где вебхук доходит до выписки чека и не замокан, регистрировал реальный
+# доход: за 31 августа — 2 сентября так набежало 54 чека на 8 046 ₽.
+#
+# Адрес ФНС подменяется на заведомо мёртвый, а ключи — на пустые. Тест, которому
+# нужен работающий клиент, поднимает своё окружение сам (см. mn_settings) и
+# перехватывает HTTP через aioresponses.
+@pytest.fixture(autouse=True)
+def _never_call_the_tax_service(monkeypatch):
+    from services import moynalog
+
+    blank = type(moynalog.settings.MOYNALOG_PASSWORD)("")
+    monkeypatch.setattr(moynalog.settings, "MOYNALOG_API_URL", "http://127.0.0.1:9/api/v1")
+    monkeypatch.setattr(moynalog.settings, "MOYNALOG_INN", "")
+    monkeypatch.setattr(moynalog.settings, "MOYNALOG_PASSWORD", blank)
+    monkeypatch.setattr(moynalog.settings, "MOYNALOG_REFRESH_TOKEN", blank)

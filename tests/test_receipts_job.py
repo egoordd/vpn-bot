@@ -208,3 +208,74 @@ def test_a_silent_network_still_points_at_the_exit_country():
     text = receipts_job.describe(TimeoutError(), "107.189.22.160")
 
     assert "Внешний адрес" in text
+
+
+# --- потерянный ответ ФНС -----------------------------------------------------
+#
+# ФНС регистрирует доход и только потом отвечает. Если ответ не дошёл — таймаут,
+# заснувший ноутбук, обрыв — доход уже есть, а мы о нём не знаем: следующий
+# прогон выписывает второй чек на ту же оплату. Так 3 сентября родился лишний
+# чек на 149 ₽, и так же копились предыдущие.
+#
+# Поэтому оплата помечается в реестре ДО обращения к ФНС, и после сбоя мы
+# сначала спрашиваем ФНС, не зарегистрирован ли доход уже.
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_a_lost_response_does_not_produce_a_second_receipt(monkeypatch):
+    attempts = []
+
+    async def create(amount, name=None):
+        attempts.append(amount)
+        raise TimeoutError("ответ ФНС не дошёл")
+
+    async def find(amount, name=None, since=None):
+        # ФНС подтверждает: доход по этой оплате уже зарегистрирован
+        return "https://lknpd.nalog.ru/api/v1/receipt/220454839571/already/print"
+
+    monkeypatch.setattr(receipts_job.moynalog, "create_income", create)
+    monkeypatch.setattr(receipts_job.moynalog, "find_recent_income", find)
+    session = _FakeSession(
+        {"items": [{"paymentId": 501, "amountKopecks": 14900, "serviceName": "Подписка"}]}
+    )
+
+    with pytest.raises(TimeoutError):
+        await receipts_job.run(session)
+
+    # второй прогон: доход ищется, а не создаётся заново
+    done = await receipts_job.run(session)
+
+    assert done == 1
+    assert len(attempts) == 1, "второй чек по той же оплате выписываться не должен"
+    assert receipts_job.load_ledger()["501"].endswith("/already/print")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_after_a_lost_response_with_nothing_at_the_tax_service_it_retries(monkeypatch):
+    """Если ФНС дохода не подтверждает, значит его и не было — выписываем."""
+    created = []
+
+    async def create(amount, name=None):
+        created.append(amount)
+        if len(created) == 1:
+            raise TimeoutError("ответ не дошёл")
+        return "https://lknpd.nalog.ru/api/v1/receipt/220454839571/fresh/print"
+
+    async def find(amount, name=None, since=None):
+        return None
+
+    monkeypatch.setattr(receipts_job.moynalog, "create_income", create)
+    monkeypatch.setattr(receipts_job.moynalog, "find_recent_income", find)
+    session = _FakeSession(
+        {"items": [{"paymentId": 502, "amountKopecks": 14900, "serviceName": "Подписка"}]}
+    )
+
+    with pytest.raises(TimeoutError):
+        await receipts_job.run(session)
+    done = await receipts_job.run(session)
+
+    assert done == 1
+    assert len(created) == 2
+    assert receipts_job.load_ledger()["502"].endswith("/fresh/print")

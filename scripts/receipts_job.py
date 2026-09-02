@@ -12,6 +12,12 @@ A local ledger (tmp/receipts_ledger.json) records every income the moment
 ФНС confirms it, BEFORE the POST back. If the POST fails, the next run
 replays the stored URL instead of registering a duplicate income.
 
+A payment is marked IN_FLIGHT in that ledger *before* ФНС is asked, because
+ФНС registers the income and only then answers: a lost answer — timeout,
+sleeping laptop, dropped link — leaves real income we have no record of, and
+the next run would register it a second time. After such a failure we ask ФНС
+whether the income is already there before creating another one.
+
 Needs in .env: MOYNALOG_INN + MOYNALOG_PASSWORD (or refresh token),
 BILLING_API_TOKEN; optional BILLING_API_URL (defaults to the bot VPS).
 """
@@ -59,8 +65,13 @@ def _auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+# Marks a payment we are about to hand to ФНС. Survives a crash, so the next
+# run knows an income may exist even though no URL came back.
+IN_FLIGHT = "in-flight"
+
+
 def load_ledger(path: Path | None = None) -> dict[str, str]:
-    """payment_id (str) -> чек URL already registered with ФНС."""
+    """payment_id (str) -> чек URL already registered with ФНС (or IN_FLIGHT)."""
     try:
         data = json.loads((path or LEDGER_PATH).read_text())
     except (FileNotFoundError, json.JSONDecodeError):
@@ -95,13 +106,29 @@ async def run(session: aiohttp.ClientSession) -> int:
         name = str(item.get("serviceName") or settings.MOYNALOG_SERVICE_NAME)
 
         url = ledger.get(payment_id)
-        if url:
+        if url == IN_FLIGHT:
+            # A previous run asked ФНС and never learned the answer. The income
+            # may well exist — look before creating a second one.
+            url = await moynalog.find_recent_income(amount, name=name)
+            if url:
+                logger.warning(
+                    "payment %s: income was registered despite the earlier failure, adopting чек %s",
+                    payment_id,
+                    url,
+                )
+            else:
+                logger.info("payment %s: earlier attempt left nothing at ФНС, registering", payment_id)
+
+        if url and url != IN_FLIGHT:
             logger.info("payment %s: income already registered earlier, replaying чек URL", payment_id)
         else:
+            ledger[payment_id] = IN_FLIGHT
+            save_ledger(ledger)  # ФНС answers after it commits — mark before asking
             url = await moynalog.create_income(amount, name=name)
-            ledger[payment_id] = url
-            save_ledger(ledger)  # persist BEFORE the POST so a crash can't duplicate income
             logger.info("payment %s: income %s₽ registered, чек %s", payment_id, amount / 100, url)
+
+        ledger[payment_id] = url
+        save_ledger(ledger)  # persist BEFORE the POST so a crash can't duplicate income
 
         async with session.post(
             f"{_api_base()}/web/receipts/{payment_id}/complete",

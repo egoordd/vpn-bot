@@ -263,6 +263,61 @@ async def create_income(amount_kopecks: int, name: str | None = None) -> str:
     return receipt_url(str(receipt_uuid))
 
 
+async def find_recent_income(
+    amount_kopecks: int, name: str | None = None, since: datetime | None = None
+) -> str | None:
+    """URL чека уже зарегистрированного дохода на эту сумму, если он есть.
+
+    ФНС записывает доход и только потом отвечает. Когда ответ теряется —
+    таймаут, заснувший ноутбук, обрыв связи — доход уже существует, а мы
+    считаем, что выписки не было, и следующий заход регистрирует его второй
+    раз. Поэтому после сбоя сначала спрашиваем, не сделали ли мы это уже.
+
+    Сравнение по сумме, названию услуги и окну времени: своих чеков на одну
+    сумму в одну минуту у нас не бывает, а чужие сюда не попадают — выборка
+    идёт по нашему же ИНН.
+    """
+    if not is_configured():
+        return None
+    started = since or (datetime.now(_MSK) - timedelta(hours=6))
+    amount = _rub(amount_kopecks)
+    service_name = (name or settings.MOYNALOG_SERVICE_NAME).strip()[:256]
+    params = {
+        "from": started.astimezone(_MSK).isoformat(timespec="seconds"),
+        "to": datetime.now(_MSK).isoformat(timespec="seconds"),
+        "offset": "0",
+        "limit": "50",
+        "sortBy": "operation_time:desc",
+    }
+    url = f"{settings.MOYNALOG_API_URL.rstrip('/')}/incomes"
+    proxy = settings.MOYNALOG_PROXY.strip() or None
+    try:
+        async with make_session(20) as session:
+            token = await _ensure_token(session)
+            async with session.get(
+                url, params=params, headers={"Authorization": f"Bearer {token}"}, proxy=proxy
+            ) as response:
+                if response.status >= 400:
+                    return None
+                payload = await response.json()
+    except Exception:  # noqa: BLE001 - поиск не должен ломать выписку
+        logger.warning("Could not look up existing income", exc_info=True)
+        return None
+
+    items = payload.get("content") or payload.get("items") or []
+    for item in items:
+        if item.get("cancellationInfo"):
+            continue
+        if float(item.get("totalAmount") or 0) != amount:
+            continue
+        if str(item.get("name") or "") != service_name:
+            continue
+        receipt_uuid = item.get("approvedReceiptUuid")
+        if receipt_uuid:
+            return receipt_url(str(receipt_uuid))
+    return None
+
+
 async def issue_receipt(amount_kopecks: int, name: str | None = None) -> str | None:
     """Best-effort wrapper: returns the чек URL or None (logged) on any failure."""
     if not is_configured():
