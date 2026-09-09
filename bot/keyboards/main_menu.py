@@ -1,6 +1,7 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.texts import format_msk, trial_days
+from config import settings
 from services.payment import PLANS
 
 
@@ -31,6 +32,8 @@ def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = F
             ]
         )
     help_row = [InlineKeyboardButton(text="❓ Помощь", callback_data="help")]
+    if settings.news_channel_url:
+        help_row.append(InlineKeyboardButton(text="📣 Новости", url=settings.news_channel_url))
     if has_subscription:
         help_row.append(InlineKeyboardButton(text="💬 Отзыв", callback_data="leave_review"))
     rows.append(help_row)
@@ -122,9 +125,14 @@ def back_to_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 def help_keyboard(support_contact: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="💬 Поддержка", url=f"https://t.me/{support_contact.lstrip('@')}")],
-            [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
-        ]
-    )
+    rows = [
+        [InlineKeyboardButton(text="💬 Поддержка", url=f"https://t.me/{support_contact.lstrip('@')}")],
+    ]
+    # Someone reading the help screen is already stuck; the channel is where the
+    # working address is posted when a domain stops opening.
+    if settings.news_channel_url:
+        rows.append(
+            [InlineKeyboardButton(text="📣 Новости и статус", url=settings.news_channel_url)]
+        )
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
