@@ -160,7 +160,9 @@ export class WebAuthError extends Error {
 }
 
 /** Register/login return the account's telegram_id (negative for email accounts). */
-async function authCall(path: string, email: string, password: string, source?: string): Promise<number> {
+async function authCall(
+  path: string, email: string, password: string, source?: string, clientIp?: string,
+): Promise<number> {
   if (!API_URL) {
     // Mock mode: pretend a deterministic email account exists.
     return -1;
@@ -170,9 +172,11 @@ async function authCall(path: string, email: string, password: string, source?: 
     headers: {
       "content-type": "application/json",
       ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+      ...(clientIp ? { "x-client-ip": clientIp } : {}),
     },
     body: JSON.stringify({ email, password, ...(source ? { source } : {}) }),
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
     let code = `auth_failed_${res.status}`;
@@ -188,12 +192,70 @@ async function authCall(path: string, email: string, password: string, source?: 
   return body.telegramId;
 }
 
-export async function registerWebAccount(email: string, password: string, source?: string): Promise<number> {
-  return authCall("/web/auth/register", email, password, source);
+/** Join a website account into the Telegram account of the same person. */
+export async function attachTelegramToWebAccount(
+  webTelegramId: number, telegramId: number, username?: string,
+): Promise<number> {
+  if (!API_URL) return telegramId;
+  const res = await fetch(`${API_URL}/web/account/attach-telegram`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+    },
+    body: JSON.stringify({ webTelegramId, telegramId, ...(username ? { username } : {}) }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  // A failed merge must not cost the person their login: fall back to the
+  // Telegram account they just proved they hold.
+  if (!res.ok) return telegramId;
+  const body = (await res.json()) as { telegramId: number };
+  return body.telegramId;
 }
 
-export async function loginWebAccount(email: string, password: string): Promise<number> {
-  return authCall("/web/auth/login", email, password);
+/** Verified recovery: one use of a subscription link sets a password on its account. */
+export async function recoverWebAccount(
+  subscriptionLink: string, password: string, email?: string, clientIp?: string,
+): Promise<number> {
+  if (!API_URL) return -1;
+  const res = await fetch(`${API_URL}/web/auth/recover`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+      ...(clientIp ? { "x-client-ip": clientIp } : {}),
+    },
+    body: JSON.stringify({
+      subscriptionLink,
+      password,
+      ...(email ? { email } : {}),
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    let code = `auth_failed_${res.status}`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (typeof body.detail === "string" && body.detail) code = body.detail;
+    } catch {
+      // keep status-based code
+    }
+    throw new WebAuthError(code);
+  }
+  const body = (await res.json()) as { telegramId: number };
+  return body.telegramId;
+}
+
+export async function registerWebAccount(
+  email: string, password: string, source?: string, clientIp?: string,
+): Promise<number> {
+  return authCall("/web/auth/register", email, password, source, clientIp);
+}
+
+export async function loginWebAccount(email: string, password: string, clientIp?: string): Promise<number> {
+  return authCall("/web/auth/login", email, password, undefined, clientIp);
 }
 
 export async function updateAccountEmail(telegramId: number, email: string): Promise<boolean> {

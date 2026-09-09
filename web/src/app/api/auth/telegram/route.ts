@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
+import { attachTelegramToWebAccount } from "@/lib/billing/client";
 import { verifyTelegramLoginWidget } from "@/lib/telegram-auth";
 import {
   USER_SESSION_COOKIE,
@@ -25,12 +26,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
   }
 
-  const session = createUserSession(telegramId);
+  // Signed into a website account already? Then this person is holding both
+  // proofs at once — the cabinet session and a verified Telegram login — and
+  // that is what lets the two accounts become one. Without this the login
+  // merely swapped the session and the purchase stayed behind, which is how a
+  // buyer ended up staring at an empty cabinet.
+  const current = verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const username = typeof payload.username === "string" ? payload.username : undefined;
+  const finalId =
+    current !== null && current < 0
+      ? await attachTelegramToWebAccount(current, telegramId, username)
+      : telegramId;
+
+  const session = createUserSession(finalId);
   if (!session) {
     return NextResponse.json({ error: "auth_not_configured" }, { status: 503 });
   }
 
-  const response = NextResponse.json({ ok: true, telegramId });
+  const response = NextResponse.json({ ok: true, telegramId: finalId });
   response.cookies.set(USER_SESSION_COOKIE, session, {
     httpOnly: true,
     secure: true,
