@@ -16,6 +16,13 @@ def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = F
             [InlineKeyboardButton(text=f"🎁 Активировать пробный период — {trial_days()}", callback_data="activate_trial")]
         )
     rows.append([InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_menu")])
+    if not has_subscription:
+        # Shown only to an empty account, which is exactly what a website buyer
+        # sees when their purchase landed on a separate email-only user. Anyone
+        # with a subscription never meets this button.
+        rows.append(
+            [InlineKeyboardButton(text="🔗 Уже купил на сайте", callback_data="link_subscription")]
+        )
     if has_subscription:
         rows.append(
             [
@@ -53,9 +60,8 @@ def renew_menu_keyboard(subscriptions) -> InlineKeyboardMarkup:
     """Pick which active subscription to renew.
 
     Only reached when there is more than one — with a single subscription the
-    caller goes straight to the durations. Labelled by expiry, because tier
-    stopped telling them apart when Premium went: two subscriptions both read
-    «Продлить Обычный» and the buttons were indistinguishable.
+    caller goes straight to the durations. Labelled by expiry so two historical
+    active rows are never indistinguishable.
     """
     rows = []
     for sub in subscriptions:
@@ -73,11 +79,6 @@ def renew_menu_keyboard(subscriptions) -> InlineKeyboardMarkup:
 
 def renew_durations_keyboard(tier: str, *, back_callback: str = "main_menu") -> InlineKeyboardMarkup:
     """Duration options for renewing a subscription of this tier.
-
-    Took a `region` too while Premium existed, and pinned it into a
-    `buy_region:` callback. Premium went, the call site dropped the argument,
-    and the parameter stayed required — so every «Продлить» raised TypeError.
-    Nothing has handled `buy_region:` since either.
 
     ``back_callback`` exists because this screen is now reached two ways. When
     it was entered directly (the usual case: one subscription), «Назад» must

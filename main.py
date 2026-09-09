@@ -12,14 +12,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from services.alerts import send_alert
 
-from bot.handlers import admin, buy, connect_device, help, promo, review, start
+from bot.handlers import admin, buy, connect_device, help, link, promo, review, start
 from bot.middlewares.subscription_check import SubscriptionCheckMiddleware
 from bot.middlewares.update_timing import SlowUpdateLoggingMiddleware
 from config import settings
 from database.models import Base
 from scheduler.tasks import setup_scheduler
 from services.subscription import sync_default_plans
-from services.wireguard import resync_all_peers
 
 
 logging.basicConfig(
@@ -45,13 +44,6 @@ async def main() -> None:
     await init_db(engine)
     async with session_pool() as session:
         await sync_default_plans(session)
-
-    try:
-        async with session_pool() as session:
-            resynced_count = await resync_all_peers(session)
-        logger.info("Re-synced %s WireGuard peers", resynced_count)
-    except Exception as exc:
-        logger.warning("Failed to re-sync WireGuard peers on startup: %s", exc)
 
     bot_session = AiohttpSession(proxy=settings.BOT_PROXY) if settings.BOT_PROXY else None
     if bot_session is not None:
@@ -79,6 +71,7 @@ async def main() -> None:
     dispatcher.include_router(promo.router)
     dispatcher.include_router(connect_device.router)
     dispatcher.include_router(review.router)
+    dispatcher.include_router(link.router)
 
     @dispatcher.errors()
     async def on_update_error(event: ErrorEvent) -> bool:
@@ -102,6 +95,7 @@ async def main() -> None:
                 BotCommand(command="start", description="Главное меню"),
                 BotCommand(command="help", description="Помощь и поддержка"),
                 BotCommand(command="promo", description="Ввести промокод"),
+                BotCommand(command="link", description="Привязать подписку с сайта"),
             ]
         )
         site = (settings.WEB_BASE_URL or "https://unlockvpn.site").rstrip("/")
@@ -119,7 +113,7 @@ async def main() -> None:
                 "UnLock VPN — быстрый доступ к сайтам и приложениям, "
                 "которые перестали открываться.\n\n"
                 "• Ютуб без тормозов, Инстаграм, ТикТок и другие сервисы\n"
-                "• Работает на телефоне и компьютере, до 5 устройств\n"
+                "• Работает на телефоне и компьютере, до 3 устройств\n"
                 "• Российские сайты и банки продолжают работать как обычно\n"
                 "• Подключение занимает около минуты\n\n"
                 f"Сайт и личный кабинет: {site}\n"

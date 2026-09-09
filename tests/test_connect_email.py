@@ -5,13 +5,23 @@ screen that hands out the link is unreachable exactly when it is needed —
 «чтобы подключить впн надо включить другой», as one of them put it. Mail leaves
 the link somewhere that survives losing the tunnel.
 """
+import base64
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
 
 import pytest
 
 from bot.handlers import connect_device
 from database.repository import Repository
+
+
+def _recovery_link(panel_username: str) -> str:
+    """Subscription link shaped like the panel's: base64(<name>,<issued>) + signature."""
+    head = base64.urlsafe_b64encode(f"{panel_username},1700000000".encode()).decode().rstrip("=")
+    return f"https://sub.unlockvpn.site/sub/{head}Zm9vYmFy"
+
 
 
 class _State:
@@ -116,23 +126,47 @@ async def test_no_subscription_means_no_mail(session_pool, monkeypatch):
 
 
 @pytest.mark.integration
-async def test_mailing_the_link_also_opens_the_site_cabinet(session_pool):
-    """The two halves have to meet: the bot saves the address on the Telegram
-    account, and registering on the site with that same address claims THAT
-    account rather than creating a second one. Otherwise we would be telling a
-    customer to go to a cabinet that shows an empty account — which is exactly
-    how the last support ticket started."""
+async def test_the_cabinet_is_reached_by_proving_ownership_not_by_knowing_the_email(session_pool):
+    """The two halves have to meet, but not by trusting an address.
+
+    The goal this test was written for stands: a customer told to open the
+    cabinet must land on their real account, not an empty one. What changed is
+    the proof. Registering with an address that already belongs to an account
+    must be refused — an address is public, so accepting one would hand over
+    the account, and the past purchases on it, to whoever guesses it.
+
+    The subscription link is the proof the customer actually holds. One use of
+    it sets a password on that same account, which is what
+    ``set_web_password_by_subscription`` exists for.
+    """
     from services import billing_api
 
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=900904)
         await repo.update_user(user.id, email="vladimir@mail.ru")
+        now = datetime.now(timezone.utc)
+        await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_1m",
+            started_at=now,
+            expires_at=now + timedelta(days=30),
+            panel_username="tg_900904",
+            sub_token="tg_900904",
+            subscription_url=_recovery_link("tg_900904"),
+        )
         await session.commit()
         telegram_id = user.telegram_id
 
-        claimed = await billing_api.register_web_account(
-            session, email="vladimir@mail.ru", password="correct horse battery"
+        with pytest.raises(billing_api.WebAuthError, match="already_registered"):
+            await billing_api.register_web_account(
+                session, email="vladimir@mail.ru", password="correct horse battery"
+            )
+
+        claimed = await billing_api.set_web_password_by_subscription(
+            session,
+            subscription_link=_recovery_link("tg_900904"),
+            password="correct horse battery",
         )
         assert claimed == telegram_id, "the cabinet must land on his real account"
 

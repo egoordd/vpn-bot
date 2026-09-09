@@ -9,13 +9,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, AsyncIterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from config import settings
 from database.repository import Repository
 from services import billing_api, moynalog, promo, tribute, yookassa
-from services.billing_api import AccountOverview, BillingPlan, BillingRegion, SubscriptionSnapshot
+from services.billing_api import AccountOverview, BillingPlan, SubscriptionSnapshot
 from services.payment import parse_invoice_payload_details
 from services.referral import normalize_source_slug, ReferralStats
 from services.subscription import activate_panel_subscription, to_gateway_subscription_url
@@ -93,16 +93,34 @@ async def _rate_limit_ok(redis: Any, bucket: str, key: str, limit: int, window: 
         return True
 
 
+# Site session IDs are either real positive Telegram IDs or negative synthetic
+# email-account IDs. Keep them exactly representable in the browser and never
+# accept zero/bools/coerced strings as an account identity. Authentication is
+# enforced by the internal API bearer and the site's signed session, not by ID.
+_MAX_WEB_ACCOUNT_ID = (1 << 53) - 1
+
+
+def _nonzero_web_account_id(value: int | None) -> int | None:
+    if value == 0:
+        raise ValueError("account ID must not be zero")
+    return value
+
+
 class WebCheckoutRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     plan: str = Field(min_length=1, max_length=64)
-    telegram_id: int | None = Field(default=None, alias="telegramId", gt=0)
+    telegram_id: int | None = Field(
+        default=None, alias="telegramId", strict=True,
+        ge=-_MAX_WEB_ACCOUNT_ID, le=_MAX_WEB_ACCOUNT_ID,
+    )
     email: str | None = Field(default=None, max_length=320)
     # A customer whose subscription lapsed cannot open Telegram in Russia, so
     # the link already in their VPN app is how they say which account is theirs.
     subscription: str | None = Field(default=None, max_length=512)
     source: str | None = Field(default=None, max_length=64)
+
+    _validate_account_id = field_validator("telegram_id")(_nonzero_web_account_id)
 
 
 class WebPromoRedeemRequest(BaseModel):
@@ -115,8 +133,39 @@ class WebPromoRedeemRequest(BaseModel):
 class WebEmailUpdateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    telegram_id: int = Field(alias="telegramId", gt=0)
+    # Keep the existing Telegram-only receipt-email flow. For web accounts this
+    # field is also the login identifier; a verified email-change flow is
+    # required before allowing negative IDs here. Checkout supports both signs.
+    telegram_id: int = Field(
+        alias="telegramId", strict=True, gt=0, le=_MAX_WEB_ACCOUNT_ID,
+    )
     email: str = Field(min_length=3, max_length=320)
+
+    _validate_account_id = field_validator("telegram_id")(_nonzero_web_account_id)
+
+
+class WebRecoverRequest(BaseModel):
+    """Verified recovery for a buyer who has a subscription but no password."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    subscription: str = Field(min_length=8, max_length=512, alias="subscriptionLink")
+    password: str = Field(min_length=1, max_length=200)
+    email: str | None = Field(default=None, max_length=320)
+
+
+class WebAttachTelegramRequest(BaseModel):
+    """Join a website account into the Telegram account of the same person.
+
+    Both ids come from the caller's own verification — the session cookie and a
+    signed Telegram login payload — never from anything the browser typed.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    web_telegram_id: int = Field(alias="webTelegramId")
+    telegram_id: int = Field(alias="telegramId")
+    username: str | None = Field(default=None, max_length=64)
 
 
 class WebAuthRequest(BaseModel):
@@ -393,6 +442,50 @@ def create_app() -> FastAPI:
         if user is not None:
             await _tag_source(session, user.id, body.source)
         return {"ok": True, "telegramId": telegram_id}
+
+    @application.post("/web/auth/recover")
+    async def web_auth_recover(
+        body: WebRecoverRequest, request: Request, session: SessionDep
+    ) -> dict[str, Any]:
+        """Turn one use of a subscription link into a password on that account.
+
+        Rate limited like the other auth routes: the link carries a signed
+        credential, but the endpoint still must not become an oracle for probing
+        which links exist.
+        """
+        redis = getattr(request.app.state, "redis", None)
+        if not await _rate_limit_ok(
+            redis, "auth:ip", _client_ip(request), _AUTH_IP_LIMIT, _AUTH_IP_WINDOW
+        ):
+            raise HTTPException(status_code=429, detail="rate_limited")
+        email = (body.email or "").strip().lower() or None
+        if email and not _WEB_EMAIL_RE.match(email):
+            raise HTTPException(status_code=400, detail="invalid_email")
+        try:
+            telegram_id = await billing_api.set_web_password_by_subscription(
+                session,
+                subscription_link=body.subscription,
+                password=body.password,
+                email=email,
+            )
+        except billing_api.WebAuthError as exc:
+            status = 409 if exc.code in {"password_already_set", "email_taken"} else 400
+            raise HTTPException(status_code=status, detail=exc.code)
+        return {"ok": True, "telegramId": telegram_id}
+
+    @application.post("/web/account/attach-telegram")
+    async def web_account_attach_telegram(
+        body: WebAttachTelegramRequest, session: SessionDep
+    ) -> dict[str, Any]:
+        from services.account_link import attach_telegram_to_web_account
+
+        surviving = await attach_telegram_to_web_account(
+            session,
+            web_telegram_id=body.web_telegram_id,
+            telegram_id=body.telegram_id,
+            username=body.username,
+        )
+        return {"ok": True, "telegramId": surviving}
 
     @application.post("/web/auth/login")
     async def web_auth_login(body: WebAuthRequest, request: Request, session: SessionDep) -> dict[str, Any]:

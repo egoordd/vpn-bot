@@ -31,15 +31,6 @@ class BillingPlan:
 
 
 @dataclass(frozen=True)
-class BillingRegion:
-    code: str
-    title: str
-    city: str
-    country_code: str
-    is_on_demand: bool
-
-
-@dataclass(frozen=True)
 class SubscriptionSnapshot:
     exists: bool
     is_active: bool
@@ -62,7 +53,6 @@ class PaymentIntent:
     user_id: int
     telegram_id: int
     plan: BillingPlan
-    region: BillingRegion | None
     payload: str
     description: str
 
@@ -129,14 +119,12 @@ async def activate_access(
     user_id: int,
     plan: str,
     *,
-    panel_client: object | None = None,
     panel_gateway: object | None = None,
 ) -> SubscriptionSnapshot:
     await activate_panel_subscription(
         session,
         user_id,
         plan,
-        panel_client=panel_client,
         panel_gateway=panel_gateway,
     )
     return await get_subscription_snapshot(session, user_id)
@@ -148,67 +136,66 @@ async def build_payment_intent(
     telegram_id: int,
     username: str | None,
     plan: str,
-    region: str | None = None,
 ) -> PaymentIntent:
     tariff = resolve_tariff(normalize_payment_plan_code(plan))
     billing_plan = _plan_from_tariff(tariff)
-    billing_region: BillingRegion | None = None
-
-    if tariff.tier == "premium":
-        if region is None:
-            raise ValueError("Premium plan requires region")
-        billing_region = _region_from_option(resolve_premium_region(region))
-    elif region is not None:
-        raise ValueError("Region is only supported for premium plans")
 
     repo = Repository(session)
     user = await repo.get_or_create_user(telegram_id=telegram_id, username=username)
     payload = create_invoice_payload(
         user_id=user.id,
         plan=billing_plan.code,
-        region=billing_region.code if billing_region else None,
     )
-    description = billing_plan.description
-    if billing_region is not None:
-        description = f"{description}: {billing_region.title}"
 
     return PaymentIntent(
         user_id=user.id,
         telegram_id=user.telegram_id,
         plan=billing_plan,
-        region=billing_region,
         payload=payload,
-        description=description,
+        description=billing_plan.description,
     )
 
 
-def subscription_token(link: str) -> str | None:
-    """The panel identity inside a subscription link, or None if it is not one.
-
-    Accepts the whole link or just its token. The token is base64 of
-    `<panel-username>,<issued-at>`, so decoding it yields the account without a
-    round trip to the panel, and it keeps working after the subscription host
-    changes — only the token travels.
-    """
+def _subscription_credential(link: str | None) -> str | None:
+    """Extract the entire opaque credential, without treating it as verified."""
     raw = (link or "").strip().split("?", 1)[0].split("#", 1)[0]
     if not raw or len(raw) > 512:
         return None
-    # The last segment is usually the token, but a flavour link ends in /auto or
-    # /hy2, so the segment before it has to be tried too.
-    segments = [part for part in raw.rstrip("/").split("/") if part][-2:]
-    for segment in reversed(segments):
-        name = _decode_panel_username(segment)
-        if name is not None:
-            return name
-    return None
+    segments = [part for part in raw.rstrip("/").split("/") if part]
+    if not segments:
+        return None
+    if segments[-1] in {"auto", "hy2", "split"}:
+        segments.pop()
+    if not segments:
+        return None
+    credential = segments[-1]
+    # ASCII-only also keeps compare_digest safe for untrusted input. Preserve
+    # legacy base64 padding as well as the panel's URL-safe signed format.
+    if not re.fullmatch(r"[A-Za-z0-9_+=-]{8,256}", credential):
+        return None
+    if _decode_panel_username(credential) is None:
+        return None
+    return credential
+
+
+def subscription_token(link: str | None) -> str | None:
+    """Unverified panel-username lookup hint, never proof of account ownership.
+
+    Host aliases and known subscription flavors may differ. Authorization must
+    compare the entire credential with the latest trusted stored subscription
+    URL; decoding the public username alone does not authenticate a customer.
+    """
+    credential = _subscription_credential(link)
+    return _decode_panel_username(credential) if credential is not None else None
 
 
 def _decode_panel_username(token: str) -> str | None:
-    """Panel username out of a subscription token.
+    """Unverified panel username out of a subscription token.
 
     The token is base64 of `<panel-username>,<issued-at>` with a signature
     appended raw, so it does not decode as a whole. The longest decodable
-    prefix is what carries the name.
+    prefix is what carries the name. This does not check the signature and must
+    only be used as a lookup hint before full credential verification.
     """
     if not token or len(token) > 256:
         return None
@@ -237,38 +224,54 @@ async def build_web_payment_intent(
 ) -> PaymentIntent:
     """Payment intent for a website checkout.
 
-    Telegram-authenticated buyers share their bot account. Email-only buyers
+    Authenticated buyers share their existing Telegram or website account; the
+    caller must derive telegram_id from a verified session, never public input.
+    New email-only buyers
     get a local account under a synthetic NEGATIVE telegram_id — real Telegram
     ids are positive, so the sign marks "no Telegram chat behind this user"
     and delivery code must not DM it.
 
-    A buyer can also identify themselves with their own subscription link, and
-    that path matters more than it looks: when a subscription lapses the VPN
-    stops, and without it Telegram does not open in Russia, so the bot they
-    bought from is unreachable exactly when they want to pay. The link is
-    already in their app. Paying with it tops up the account they already have
-    instead of quietly starting a second one.
+    A buyer can renew using the full credential in their subscription link.
+    The decoded username is not authentication. An email address on its own
+    must never select an existing account or change its owner details.
     """
     clean_email = (email or "").strip().lower() or None
+    linked_credential = _subscription_credential(subscription_link)
     linked_token = subscription_token(subscription_link)
+    if subscription_link and linked_credential is None:
+        raise ValueError("invalid_subscription")
     if telegram_id is None and clean_email is None and linked_token is None:
         raise ValueError("telegram_id or email is required")
 
     repo = Repository(session)
-    if telegram_id is None and linked_token is not None:
+    if linked_token is not None:
         subscription = await repo.get_subscription_by_token(linked_token)
         if subscription is None:
+            raise ValueError("unknown_subscription")
+        stored_credential = _subscription_credential(subscription.subscription_url)
+        if (
+            stored_credential is None
+            or linked_credential is None
+            or not secrets.compare_digest(linked_credential, stored_credential)
+        ):
             raise ValueError("unknown_subscription")
         owner = await repo.get_user(subscription.user_id)
         if owner is None:
             raise ValueError("unknown_subscription")
+        if telegram_id is not None and telegram_id != owner.telegram_id:
+            raise ValueError("subscription_account_mismatch")
         telegram_id = owner.telegram_id
-        username = username or owner.username
+        # Possession of a subscription link permits renewal, not rewriting the
+        # owner's profile. Shared family links must not reassign that account.
+        username = owner.username
+    created_guest = False
     if telegram_id is None:
         user = await repo.get_user_by_email(clean_email)
-        if user is None:
-            user = await repo.create_user(telegram_id=-(secrets.randbits(52) + 1))
+        if user is not None:
+            raise ValueError("authentication_required")
+        user = await repo.create_user(telegram_id=-(secrets.randbits(52) + 1))
         telegram_id = user.telegram_id
+        created_guest = True
     else:
         existing = await repo.get_user_by_telegram_id(telegram_id)
         if existing is not None and username is None:
@@ -279,7 +282,9 @@ async def build_web_payment_intent(
     intent = await build_payment_intent(
         session, telegram_id=telegram_id, username=username, plan=plan
     )
-    if clean_email is not None:
+    # Checkout contact is not an account-email change operation. Existing
+    # accounts use the authenticated profile flow to update their email.
+    if created_guest and clean_email is not None:
         await repo.update_user(intent.user_id, email=clean_email)
     return intent
 
@@ -299,10 +304,11 @@ async def _email_account_telegram_id() -> int:
 
 
 async def register_web_account(session: AsyncSession, *, email: str, password: str) -> int:
-    """Create (or claim) a site account for email+password. Returns its telegram_id.
+    """Create a new site account for email+password. Returns its telegram_id.
 
-    If the email already bought as a guest (no password yet) the existing account
-    is claimed, so past purchases show up immediately. Raises WebAuthError.
+    An existing passwordless guest account requires verified recovery; knowing
+    its email is not sufficient to attach a password or claim past purchases.
+    Raises WebAuthError without modifying an existing account.
     """
     from services import webauth
 
@@ -314,16 +320,72 @@ async def register_web_account(session: AsyncSession, *, email: str, password: s
 
     repo = Repository(session)
     existing = await repo.get_user_by_email(clean_email)
-    if existing is not None and existing.web_password_hash:
+    if existing is not None:
         raise WebAuthError("already_registered")
 
     password_hash = webauth.hash_password(password)
-    if existing is not None:
-        await repo.update_user(existing.id, web_password_hash=password_hash)
-        return existing.telegram_id
-
     user = await repo.create_user(telegram_id=await _email_account_telegram_id())
     await repo.update_user(user.id, email=clean_email, web_password_hash=password_hash)
+    return user.telegram_id
+
+
+async def set_web_password_by_subscription(
+    session: AsyncSession, *, subscription_link: str, password: str, email: str | None = None
+) -> int:
+    """Verified recovery: prove ownership with the link, then set a password.
+
+    This is the "verified recovery" ``register_web_account`` refuses to do on an
+    email alone. Half of our website buyers checked out as guests and hold an
+    account with no password at all: they cannot sign in, and registering with
+    their own address is rejected — correctly, since an address is public and
+    accepting one would hand the account to whoever guesses it.
+
+    The subscription link is different. It carries a credential the panel signed,
+    the renewal path already treats it as proof, and the customer holds it in
+    their app. One use of it buys a durable password; the link never becomes a
+    standing key to the cabinet, which also shows the owner's email address.
+
+    An account that already has a password is left untouched — otherwise a
+    forwarded link (people send them to their children) would be a takeover.
+    """
+    from services import webauth
+
+    if not webauth.is_password_acceptable(password or ""):
+        raise WebAuthError("weak_password")
+
+    credential = _subscription_credential(subscription_link)
+    token = subscription_token(subscription_link)
+    if credential is None or token is None:
+        raise WebAuthError("invalid_subscription")
+
+    repo = Repository(session)
+    subscription = await repo.get_subscription_by_token(token)
+    if subscription is None:
+        raise WebAuthError("invalid_subscription")
+    stored = _subscription_credential(subscription.subscription_url)
+    # A wrong credential and an unknown subscription answer the same on purpose:
+    # telling them apart would confirm which links exist.
+    if stored is None or not secrets.compare_digest(credential, stored):
+        raise WebAuthError("invalid_subscription")
+
+    user = await repo.get_user(subscription.user_id)
+    if user is None:
+        raise WebAuthError("invalid_subscription")
+    if user.web_password_hash:
+        raise WebAuthError("password_already_set")
+
+    clean_email = (email or "").strip().lower() or None
+    if clean_email and clean_email != (user.email or "").strip().lower():
+        # A second account already holding that address would collide on login.
+        other = await repo.get_user_by_email(clean_email)
+        if other is not None and other.id != user.id:
+            raise WebAuthError("email_taken")
+
+    fields = {"web_password_hash": webauth.hash_password(password)}
+    if clean_email and not user.email:
+        fields["email"] = clean_email
+    await repo.update_user(user.id, **fields)
+    await session.commit()
     return user.telegram_id
 
 
@@ -399,7 +461,6 @@ async def redeem_promo(
     *,
     user_id: int,
     code: str,
-    panel_client: object | None = None,
     panel_gateway: object | None = None,
 ) -> promo.PromoRedemptionResult:
     """Redeem a subscription-grant code, provisioning the access it promises.
@@ -412,7 +473,6 @@ async def redeem_promo(
         session,
         user_id,
         result.plan,
-        panel_client=panel_client,
         panel_gateway=panel_gateway,
     )
     return result
