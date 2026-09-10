@@ -6,6 +6,20 @@ const nextConfig = {
   // during build here (no eslintrc committed yet); wire eslint-config-next and
   // flip this off when the lint config lands.
   eslint: { ignoreDuringBuilds: true },
+  async rewrites() {
+    // Subscriptions ride the site's Cloudflare front. Russian mobile networks
+    // freeze a direct TLS connection to the gateway box right after the
+    // handshake — the phone acks ~5 KB and every later segment is retransmitted
+    // forever — while Cloudflare's addresses pass. Vercel fetches from the
+    // gateway server-side, where nothing is filtered, and the token in the path
+    // is the only credential, same as on the gateway itself.
+    return {
+      beforeFiles: [
+        { source: "/sub/:path*", destination: "https://23.95.3.18.sslip.io/sub/:path*" },
+        { source: "/happ/:path*", destination: "https://23.95.3.18.sslip.io/happ/:path*" },
+      ],
+    };
+  },
   async headers() {
     // Content-Security-Policy: 'unsafe-inline' is required for the inline theme
     // script + Next's inline styles; everything else is locked to same-origin.
