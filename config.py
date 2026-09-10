@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     PANEL_PROVIDER: str = "remnawave"
 
     BILLING_API_TOKEN: SecretStr = SecretStr("")
+    # Nodes that front the website for networks that cut Cloudflare, comma-separated.
+    # Visitors behind them share the node's address, so the API budgets their
+    # sign-in attempts per account instead of per address.
+    SITE_RELAY_IPS: str = ""
 
     REMNAWAVE_API_URL: str = ""
     REMNAWAVE_API_TOKEN: SecretStr = SecretStr("")

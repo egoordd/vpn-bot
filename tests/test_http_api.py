@@ -1221,3 +1221,98 @@ async def test_a_later_campaign_does_not_overwrite_where_someone_first_came_from
     async with session_pool() as session:
         user = await Repository(session).get_user_by_telegram_id(telegram_id)
     assert user.source == "telegram-ads"
+
+
+RELAY_IP = "78.17.154.225"
+
+
+@pytest.fixture
+def site_relay(monkeypatch):
+    """The site is fronted by a node: every Russian visitor arrives from it."""
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(api_mod, "_site_relay_ips", lambda: frozenset({RELAY_IP}))
+
+
+@pytest.mark.asyncio
+async def test_visitors_behind_the_relay_do_not_lock_each_other_out(api_client, site_relay):
+    """Eleven people logging in through one relay is an ordinary evening."""
+    api_client._transport.app.state.redis = _FakeRedis()
+    statuses = []
+    for i in range(api_mod_auth_ip_limit() + 1):
+        resp = await api_client.post(
+            "/web/auth/login",
+            json={"email": f"visitor{i}@mail.ru", "password": "whatever1"},
+            headers={"x-client-ip": RELAY_IP},
+        )
+        statuses.append(resp.status_code)
+
+    assert 429 not in statuses
+
+
+@pytest.mark.asyncio
+async def test_behind_the_relay_one_account_still_cannot_be_brute_forced(api_client, site_relay):
+    api_client._transport.app.state.redis = _FakeRedis()
+    last = None
+    for _ in range(api_mod_auth_ip_limit() + 1):
+        last = await api_client.post(
+            "/web/auth/login",
+            json={"email": "target@mail.ru", "password": "guess-it-1"},
+            headers={"x-client-ip": RELAY_IP},
+        )
+
+    assert last.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_the_relay_as_a_whole_is_still_capped(api_client, site_relay, monkeypatch):
+    from services import http_api as api_mod
+
+    monkeypatch.setattr(api_mod, "_RELAY_AUTH_LIMIT", 3)
+    api_client._transport.app.state.redis = _FakeRedis()
+    last = None
+    for i in range(4):
+        last = await api_client.post(
+            "/web/auth/login",
+            json={"email": f"spray{i}@mail.ru", "password": "whatever1"},
+            headers={"x-client-ip": RELAY_IP},
+        )
+
+    assert last.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_checkout_behind_the_relay_is_not_capped_like_one_address(
+    api_client, session_pool, monkeypatch, site_relay
+):
+    from services import http_api as api_mod
+
+    api_client._transport.app.state.redis = _FakeRedis()
+    monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: True)
+    monkeypatch.setattr(api_mod.yookassa, "create_payment", _yk_unique_payment_mock("yk-relay"))
+
+    statuses = []
+    for i in range(api_mod._CHECKOUT_IP_LIMIT + 1):
+        resp = await api_client.post(
+            "/web/checkout",
+            json={"plan": "standard_1m", "email": f"relaybuyer{i}@mail.ru"},
+            headers={"x-client-ip": RELAY_IP},
+        )
+        statuses.append(resp.status_code)
+
+    assert 429 not in statuses
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_address_keeps_its_own_budget(api_client, site_relay):
+    """The relay rule must not loosen anything for everybody else."""
+    api_client._transport.app.state.redis = _FakeRedis()
+    last = None
+    for i in range(api_mod_auth_ip_limit() + 1):
+        last = await api_client.post(
+            "/web/auth/login",
+            json={"email": f"other{i}@mail.ru", "password": "whatever1"},
+            headers={"x-client-ip": "203.0.113.200"},
+        )
+
+    assert last.status_code == 429

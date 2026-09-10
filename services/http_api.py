@@ -202,6 +202,32 @@ class LinkClickRequest(BaseModel):
 _AUTH_IP_LIMIT = 10
 _AUTH_IP_WINDOW = 600  # 10 min
 
+# Ceilings for everybody behind a site relay taken together. Generous on
+# purpose: there they only stop spraying, the per-account budget does the
+# actual protecting.
+_RELAY_AUTH_LIMIT = 300
+_RELAY_CHECKOUT_LIMIT = 600
+
+
+def _site_relay_ips() -> frozenset[str]:
+    """Addresses that front the site for networks that cut Cloudflare.
+
+    Every visitor on such a network arrives from one of them, so a budget kept
+    per address would lock all of them out together on an ordinary evening.
+    """
+    return frozenset(ip.strip() for ip in settings.SITE_RELAY_IPS.split(",") if ip.strip())
+
+
+async def _auth_allowed(redis: Any, request: Request, account: str) -> bool:
+    ip = _client_ip(request)
+    if ip not in _site_relay_ips():
+        return await _rate_limit_ok(redis, "auth:ip", ip, _AUTH_IP_LIMIT, _AUTH_IP_WINDOW)
+    # Behind the relay the address says nothing about who is knocking: cap the
+    # relay as a whole, and give each account the budget one address used to get.
+    if not await _rate_limit_ok(redis, "auth:relay", ip, _RELAY_AUTH_LIMIT, _AUTH_IP_WINDOW):
+        return False
+    return await _rate_limit_ok(redis, "auth:account", account or "-", _AUTH_IP_LIMIT, _AUTH_IP_WINDOW)
+
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
@@ -426,7 +452,7 @@ def create_app() -> FastAPI:
     @application.post("/web/auth/register")
     async def web_auth_register(body: WebAuthRequest, request: Request, session: SessionDep) -> dict[str, Any]:
         redis = getattr(request.app.state, "redis", None)
-        if not await _rate_limit_ok(redis, "auth:ip", _client_ip(request), _AUTH_IP_LIMIT, _AUTH_IP_WINDOW):
+        if not await _auth_allowed(redis, request, body.email.strip().lower()):
             raise HTTPException(status_code=429, detail="rate_limited")
         email = body.email.strip().lower()
         if not _WEB_EMAIL_RE.match(email):
@@ -454,9 +480,8 @@ def create_app() -> FastAPI:
         which links exist.
         """
         redis = getattr(request.app.state, "redis", None)
-        if not await _rate_limit_ok(
-            redis, "auth:ip", _client_ip(request), _AUTH_IP_LIMIT, _AUTH_IP_WINDOW
-        ):
+        account = (body.email or body.subscription or "").strip().lower()
+        if not await _auth_allowed(redis, request, account):
             raise HTTPException(status_code=429, detail="rate_limited")
         email = (body.email or "").strip().lower() or None
         if email and not _WEB_EMAIL_RE.match(email):
@@ -490,7 +515,7 @@ def create_app() -> FastAPI:
     @application.post("/web/auth/login")
     async def web_auth_login(body: WebAuthRequest, request: Request, session: SessionDep) -> dict[str, Any]:
         redis = getattr(request.app.state, "redis", None)
-        if not await _rate_limit_ok(redis, "auth:ip", _client_ip(request), _AUTH_IP_LIMIT, _AUTH_IP_WINDOW):
+        if not await _auth_allowed(redis, request, body.email.strip().lower()):
             raise HTTPException(status_code=429, detail="rate_limited")
         telegram_id = await billing_api.authenticate_web_account(
             session, email=body.email.strip().lower(), password=body.password
@@ -518,7 +543,12 @@ def create_app() -> FastAPI:
         redis = getattr(request.app.state, "redis", None)
         ip = _client_ip(request)
         identity = email or (str(body.telegram_id) if body.telegram_id else "") or (linked or "")
-        allowed = await _rate_limit_ok(redis, "checkout:ip", ip, _CHECKOUT_IP_LIMIT, _CHECKOUT_IP_WINDOW)
+        if ip in _site_relay_ips():
+            allowed = await _rate_limit_ok(
+                redis, "checkout:relay", ip, _RELAY_CHECKOUT_LIMIT, _CHECKOUT_IP_WINDOW
+            )
+        else:
+            allowed = await _rate_limit_ok(redis, "checkout:ip", ip, _CHECKOUT_IP_LIMIT, _CHECKOUT_IP_WINDOW)
         if allowed:
             allowed = await _rate_limit_ok(
                 redis, "checkout:id", identity, _CHECKOUT_ID_LIMIT, _CHECKOUT_ID_WINDOW
