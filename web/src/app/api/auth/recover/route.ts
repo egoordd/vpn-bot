@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { WebAuthError, recoverWebAccount } from "@/lib/billing/client";
 import { USER_SESSION_COOKIE, USER_SESSION_TTL_SECONDS, createUserSession } from "@/lib/web-session";
+import { clientIpFrom } from "@/lib/client-ip";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
 
   let telegramId: number;
   try {
-    const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
+    const clientIp = clientIpFrom(request);
     telegramId = await recoverWebAccount(subscription, password, email || undefined, clientIp);
   } catch (error: unknown) {
     if (error instanceof WebAuthError) {

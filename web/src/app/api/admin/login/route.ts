@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { ADMIN_SESSION_TTL_SECONDS, createAdminSession, isAdminPassword } from "@/lib/admin";
+import { clientIpFrom } from "@/lib/client-ip";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +20,7 @@ interface AttemptWindow {
 const attempts = new Map<string, AttemptWindow>();
 
 function clientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for") ?? "";
-  return forwarded.split(",")[0]?.trim() || "unknown";
+  return clientIpFrom(request) || "unknown";
 }
 
 function isRateLimited(ip: string): boolean {
