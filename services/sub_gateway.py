@@ -11,13 +11,8 @@ Trojan + Hysteria2, 🇳🇱 Нидерланды VLESS + Trojan + Hysteria2.
 
 Runs on the main server next to Marzban. Stdlib only (no pip deps).
 
-Provider-agnostic upstream: when REMNAWAVE_SUB_BASE is set the gateway fetches
-the per-user config from the Remnawave panel first and falls back to Marzban,
-so both panels can be served through one subscription host during the cutover.
-
 Env:
-  REMNAWAVE_SUB_BASE  e.g. https://panel.23.95.3.18.sslip.io/api/sub (tried first)
-  MARZBAN_BASE   e.g. https://panel.23.95.3.18.sslip.io (fallback)
+  MARZBAN_BASE   e.g. https://panel.23.95.3.18.sslip.io
   US_HY2_PASS    Hysteria2 password on the US node
   NL_HY2_PASS    Hysteria2 password on the NL node
   LISTEN_PORT    default 8090 (bind 127.0.0.1; nginx proxies a public path)
@@ -46,8 +41,6 @@ except ImportError:  # pragma: no cover - standalone deploy path
     from xray_json import build_json_subscription
 
 MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://panel.23.95.3.18.sslip.io").rstrip("/")
-# When set, the gateway serves Remnawave subscriptions (tried before Marzban).
-REMNAWAVE_SUB_BASE = os.environ.get("REMNAWAVE_SUB_BASE", "").rstrip("/")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8090"))
 BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 CERT_FILE = os.environ.get("CERT_FILE", "")  # when set -> serve HTTPS on BIND_HOST
@@ -118,7 +111,27 @@ SUB_ANNOUNCE = os.environ.get(
 )
 # Buttons Happ renders next to the subscription.
 SUPPORT_URL = os.environ.get("SUB_SUPPORT_URL", "https://t.me/unlock_support_bot")
-PROFILE_WEB_PAGE_URL = os.environ.get("SUB_WEB_PAGE_URL", "https://unlockvpn.site")
+PROFILE_WEB_PAGE_URL = os.environ.get("SUB_WEB_PAGE_URL", "https://unlockproject.site")
+
+# Happ "advanced" parameters. They only apply when `providerid` rides along, and
+# they are what turns a filtered domain from an outage into something nobody
+# notices:
+#   new-domain   the app rewrites the host of its stored subscription URL on the
+#                next refresh and keeps the token, so every install that can
+#                still reach the old host migrates itself within the hour;
+#   fallback-url the app stores it and switches over on its own once the primary
+#                stops answering (no reply in 9s, or HTTP 300-599) — which is
+#                exactly how a name-filtered host fails.
+# Kept on a domain-independent host so one blocklist entry cannot take out both.
+HAPP_PROVIDER_ID = os.environ.get("HAPP_PROVIDER_ID", "")
+SUB_NEW_DOMAIN = os.environ.get("SUB_NEW_DOMAIN", "")
+SUB_FALLBACK_BASE = os.environ.get("SUB_FALLBACK_BASE", "")
+# Who is told to move. `new-domain` rewrites an install for good, so it goes to a
+# named test group first: comma-separated panel usernames, or "*" for everyone.
+# Empty means nobody — a target domain on its own never migrates a single user.
+SUB_MIGRATE_USERS = frozenset(
+    name.strip() for name in os.environ.get("SUB_MIGRATE_USERS", "").split(",") if name.strip()
+)
 
 
 # Settings we apply on the user's behalf. The product promise is pay, tap once,
@@ -143,9 +156,48 @@ APP_HEADERS = {
 }
 
 
-def _client_headers() -> dict[str, str]:
+def _token_username(token: str) -> str | None:
+    """Panel username inside a Marzban token, unverified.
+
+    The token is base64 of `<username>,<issued-at>` with the signature appended
+    raw, so only its longest decodable prefix carries the name. Good enough to
+    pick a test group; never an authorisation decision.
+    """
+    if not token or len(token) > 256:
+        return None
+    for length in range(len(token), 7, -1):
+        if length % 4 == 1:
+            continue
+        try:
+            decoded = base64.urlsafe_b64decode(token[:length] + "===")
+        except Exception:
+            continue
+        name = decoded.decode("utf-8", "replace").split(",", 1)[0].strip()
+        if re.fullmatch(r"tg_-?\d{1,20}", name):
+            return name
+    return None
+
+
+def _migrates(token: str | None) -> bool:
+    if not SUB_NEW_DOMAIN or not token or not SUB_MIGRATE_USERS:
+        return False
+    if "*" in SUB_MIGRATE_USERS:
+        return True
+    return _token_username(token) in SUB_MIGRATE_USERS
+
+
+def _client_headers(token: str | None = None, flavor: str = "") -> dict[str, str]:
     """Presentation headers every subscription response carries."""
     headers = {"profile-title": PROFILE_TITLE_HEADER, **APP_HEADERS}
+    if HAPP_PROVIDER_ID:
+        headers["providerid"] = HAPP_PROVIDER_ID
+        if _migrates(token):
+            headers["new-domain"] = SUB_NEW_DOMAIN
+        if SUB_FALLBACK_BASE and token:
+            # Keep the flavor: falling back must not silently downgrade a user
+            # from /split (RU services direct) to the plain subscription.
+            suffix = f"/{flavor}" if flavor else ""
+            headers["fallback-url"] = f"{SUB_FALLBACK_BASE.rstrip('/')}/sub/{token}{suffix}"
     if SUB_ANNOUNCE.strip():
         announce = SUB_ANNOUNCE.strip()[:200]
         headers["announce"] = "base64:" + base64.b64encode(
@@ -451,22 +503,9 @@ def _http_get_sub(url: str) -> tuple[str, str | None] | None:
     return decoded, userinfo
 
 
-def _fetch_upstream_sub(token: str) -> tuple[str, str | None, str] | None:
-    """Resolve a per-user subscription, Remnawave first then Marzban.
-
-    A single token belongs to exactly one panel; trying Remnawave first and
-    falling back to Marzban lets both coexist during the cutover without the
-    gateway needing to know which panel issued a given token. The third tuple
-    element names the panel that served the sub ("remnawave" | "marzban").
-    """
-    if REMNAWAVE_SUB_BASE:
-        result = _http_get_sub(f"{REMNAWAVE_SUB_BASE}/{token}")
-        if result is not None and any("://" in line for line in result[0].splitlines()):
-            return result[0], result[1], "remnawave"
-    result = _http_get_sub(f"{MARZBAN_BASE}/sub/{token}")
-    if result is None:
-        return None
-    return result[0], result[1], "marzban"
+def _fetch_upstream_sub(token: str) -> tuple[str, str | None] | None:
+    """Fetch one per-user subscription from Marzban."""
+    return _http_get_sub(f"{MARZBAN_BASE}/sub/{token}")
 
 
 def _userinfo_expired(userinfo: str | None) -> bool:
@@ -672,10 +711,8 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     fetched = _fetch_upstream_sub(token)
     if fetched is None:
         return None
-    decoded, userinfo, provider = fetched
-    if _userinfo_expired(userinfo) or (
-        provider == "marzban" and not _marzban_sub_active(token)
-    ):
+    decoded, userinfo = fetched
+    if _userinfo_expired(userinfo) or not _marzban_sub_active(token):
         return [], userinfo
     combined = combine_links(decoded)
     if not combined:
@@ -801,10 +838,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
             return
         # A browser gets the connect landing; VPN clients get the raw config.
-        if CONNECT_PAGE_BASE and _TOKEN_RE.match(token) and _is_browser(self.headers.get("User-Agent", "")):
+        if _TOKEN_RE.match(token) and _is_browser(self.headers.get("User-Agent", "")):
             base = PUBLIC_BASE or f"https://{self.headers.get('Host', '')}".rstrip("/")
-            sub_url = f"{base}/sub/{token}/{flavor}" if flavor else f"{base}/sub/{token}"
-            location = f"{CONNECT_PAGE_BASE}/connect#sub={urllib.parse.quote(sub_url, safe='')}"
+            # Stay on this host. Sending the browser to the marketing site made
+            # a pasted subscription link only as reachable as that site: while
+            # the old domain was filtered a user got a plain timeout, and once
+            # it moved, Vercel answered our origin with a bot challenge. The
+            # /happ/ page lives here, needs nothing else up, and is reachable
+            # wherever the subscription link itself is.
+            location = f"{base}/happ/{token}/{flavor}" if flavor else f"{base}/happ/{token}"
             self.send_response(302)
             self.send_header("Location", location)
             self.send_header("Content-Length", "0")
@@ -827,7 +869,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b"invalid subscription", "text/plain")
                 return
             body, userinfo, is_json = auto
-            extra = _client_headers()
+            extra = _client_headers(token, flavor)
             # Autoconnect/1h-refresh headers stay exclusive to the explicit /auto
             # link: the plain subscription must not start dialling on its own.
             if is_json and (is_auto or is_split):
@@ -844,7 +886,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"invalid subscription", "text/plain")
             return
         payload, userinfo = result
-        extra = _client_headers()
+        extra = _client_headers(token, flavor)
         if userinfo:
             extra["subscription-userinfo"] = _normalise_userinfo(userinfo)
         _log_served(token, ua, "base64", payload)

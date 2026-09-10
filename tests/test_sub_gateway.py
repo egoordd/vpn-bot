@@ -116,54 +116,13 @@ def test_happ_redirect_page_is_valid_html_document():
     assert 'http-equiv="refresh"' in page
 
 
-def test_fetch_upstream_prefers_remnawave_when_configured(monkeypatch):
-    calls: list[str] = []
-
-    def fake_get(url: str):
-        calls.append(url)
-        return ("vless://uuid@78.17.154.225.sslip.io:2088?security=reality#PL", None)
-
-    monkeypatch.setattr(sub_gateway, "REMNAWAVE_SUB_BASE", "https://panel.example/api/sub")
-    monkeypatch.setattr(sub_gateway, "_http_get_sub", fake_get)
-
-    result = sub_gateway._fetch_upstream_sub("tok123")
-
-    assert result is not None
-    assert result[2] == "remnawave"
-    assert calls == ["https://panel.example/api/sub/tok123"]
-
-
-def test_fetch_upstream_falls_back_to_marzban_on_empty_remnawave(monkeypatch):
-    calls: list[str] = []
-
-    def fake_get(url: str):
-        calls.append(url)
-        if "panel.example" in url:
-            return None  # token not on Remnawave yet (mid-migration)
-        return ("vless://uuid@172.86.119.133.sslip.io:443?security=reality#US", None)
-
-    monkeypatch.setattr(sub_gateway, "REMNAWAVE_SUB_BASE", "https://panel.example/api/sub")
-    monkeypatch.setattr(sub_gateway, "MARZBAN_BASE", "https://mz.example:8443")
-    monkeypatch.setattr(sub_gateway, "_http_get_sub", fake_get)
-
-    result = sub_gateway._fetch_upstream_sub("tok123")
-
-    assert result is not None
-    assert result[2] == "marzban"
-    assert calls == [
-        "https://panel.example/api/sub/tok123",
-        "https://mz.example:8443/sub/tok123",
-    ]
-
-
-def test_fetch_upstream_uses_marzban_when_remnawave_unset(monkeypatch):
+def test_fetch_upstream_uses_marzban(monkeypatch):
     calls: list[str] = []
 
     def fake_get(url: str):
         calls.append(url)
         return ("vless://uuid@172.86.119.133.sslip.io:443#US", None)
 
-    monkeypatch.setattr(sub_gateway, "REMNAWAVE_SUB_BASE", "")
     monkeypatch.setattr(sub_gateway, "MARZBAN_BASE", "https://mz.example:8443")
     monkeypatch.setattr(sub_gateway, "_http_get_sub", fake_get)
 
@@ -199,7 +158,7 @@ def test_build_combined_blanks_sub_when_userinfo_expired(monkeypatch):
     monkeypatch.setattr(
         sub_gateway,
         "_fetch_upstream_sub",
-        lambda token: (f"vless://uuid@{US_HOST}:443#US", userinfo, "marzban"),
+        lambda token: (f"vless://uuid@{US_HOST}:443#US", userinfo),
     )
     monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
 
@@ -213,7 +172,7 @@ def test_build_combined_blanks_sub_when_marzban_reports_inactive(monkeypatch):
     monkeypatch.setattr(
         sub_gateway,
         "_fetch_upstream_sub",
-        lambda token: (f"vless://uuid@{US_HOST}:443#US", None, "marzban"),
+        lambda token: (f"vless://uuid@{US_HOST}:443#US", None),
     )
     monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: False)
 
@@ -230,30 +189,9 @@ def test_build_combined_serves_active_marzban_user(monkeypatch):
     monkeypatch.setattr(
         sub_gateway,
         "_fetch_upstream_sub",
-        lambda token: (vless, f"expire={_future_ts()}", "marzban"),
+        lambda token: (vless, f"expire={_future_ts()}"),
     )
     monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
-
-    payload, _ = sub_gateway.build_combined("tok")
-
-    assert base64.b64decode(payload).decode("utf-8") == vless
-
-
-def test_build_combined_skips_marzban_status_check_for_remnawave(monkeypatch):
-    import base64
-
-    vless = f"vless://uuid@{US_HOST}:443#US"
-    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", False)
-    monkeypatch.setattr(
-        sub_gateway,
-        "_fetch_upstream_sub",
-        lambda token: (vless, None, "remnawave"),
-    )
-
-    def boom(token):
-        raise AssertionError("must not query Marzban for a Remnawave sub")
-
-    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", boom)
 
     payload, _ = sub_gateway.build_combined("tok")
 
@@ -490,7 +428,7 @@ def test_resolve_links_places_cascade_first_when_enabled(monkeypatch):
     monkeypatch.setattr(
         sub_gateway,
         "_fetch_upstream_sub",
-        lambda token: (_de_reality("u1") + "\n" + _reality_uri("78.17.154.225.sslip.io"), None, "remnawave"),
+        lambda token: (_de_reality("u1") + "\n" + _reality_uri("78.17.154.225.sslip.io"), None),
     )
     links, _ = sub_gateway.resolve_links("tok")
     # cascade (relay host) is the very first entry a user sees
@@ -506,7 +444,7 @@ def test_resolve_links_omits_cascade_when_disabled(monkeypatch):
     monkeypatch.setattr(
         sub_gateway,
         "_fetch_upstream_sub",
-        lambda token: (_de_reality("u1"), None, "remnawave"),
+        lambda token: (_de_reality("u1"), None),
     )
     links, _ = sub_gateway.resolve_links("tok")
     # no relay-host entries at all; Frankfurt direct leads
@@ -879,3 +817,52 @@ def test_device_report_does_not_count_link_previews_as_devices():
 
     _, is_crawler = device_key("Happ/5.6.0/ios/2608171408551")
     assert not is_crawler
+
+
+def _panel_token(username: str) -> str:
+    head = base64.urlsafe_b64encode(f"{username},1788973596".encode()).decode().rstrip("=")
+    return head + "rqtbHlK660"
+
+
+@pytest.fixture
+def migration(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HAPP_PROVIDER_ID", "Yvxgm466")
+    monkeypatch.setattr(sub_gateway, "SUB_NEW_DOMAIN", "sub.unlockvpn.shop")
+
+
+def test_new_domain_goes_only_to_the_test_group(monkeypatch, migration):
+    """The header moves an install for good, so a test must stay a test."""
+    monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"tg_740484324"}))
+
+    mine = sub_gateway._client_headers(_panel_token("tg_740484324"))
+    someone_else = sub_gateway._client_headers(_panel_token("tg_111"))
+
+    assert mine["new-domain"] == "sub.unlockvpn.shop"
+    assert "new-domain" not in someone_else
+
+
+def test_a_target_domain_alone_migrates_nobody(monkeypatch, migration):
+    monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset())
+
+    assert "new-domain" not in sub_gateway._client_headers(_panel_token("tg_740484324"))
+
+
+def test_star_rolls_the_move_out_to_everyone(monkeypatch, migration):
+    monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"*"}))
+
+    assert sub_gateway._client_headers(_panel_token("tg_-555"))["new-domain"] == "sub.unlockvpn.shop"
+
+
+def test_website_buyers_can_be_named_in_the_test_group(monkeypatch, migration):
+    monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"tg_-2080153529382715"}))
+
+    headers = sub_gateway._client_headers(_panel_token("tg_-2080153529382715"))
+
+    assert headers["new-domain"] == "sub.unlockvpn.shop"
+
+
+def test_a_token_that_is_not_ours_never_migrates(monkeypatch, migration):
+    monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"tg_740484324"}))
+
+    assert "new-domain" not in sub_gateway._client_headers("not-a-panel-token")
+    assert "new-domain" not in sub_gateway._client_headers(None)
