@@ -20,9 +20,10 @@ from __future__ import annotations
 from services.tariffs import TARIFFS, Tariff
 
 
-# Shown to the acquirer's reviewer while the payment desk is being approved.
-# Remove once Platega confirms registration.
-VERIFICATION_CODE = "PLAT"
+# Shown to the acquirer's reviewer while a payment desk is being approved: in
+# the bot name and on the help screen. Empty once the desk is registered —
+# Platega's was, on 11 September 2026.
+VERIFICATION_CODE = ""
 
 PROJECT_NAME = "UnLock VPN"
 DOCUMENT_REVISION = "8 сентября 2026 года"
@@ -104,8 +105,8 @@ def privacy_policy() -> str:
         "их уточнения или удаления и отозвать согласие на обработку. Запрос "
         "направляется в поддержку, ответ даётся в течение 30 дней.\n\n"
         "<b>10. Изменение Политики</b>\n"
-        "Действующая редакция всегда доступна в этом боте по кнопке "
-        "«🔒 Политика конфиденциальности».\n\n"
+        "Действующая редакция всегда доступна в этом боте: раздел «❓ Помощь» → "
+        "«🔒 Конфиденциальность», или команда /privacy.\n\n"
         "<b>11. Контакты</b>\n"
         f"Поддержка: {_support()}"
     )
@@ -130,7 +131,7 @@ def terms_of_use() -> str:
         "настройки клиентского приложения. Ссылка предназначена для личного "
         "использования и не подлежит передаче третьим лицам.\n\n"
         "<b>4. Стоимость и оплата</b>\n"
-        "Действующие тарифы приведены в боте по кнопке «💳 Тарифы». Оплата вносится "
+        "Действующие тарифы приведены в боте в разделе «💳 Тарифы». Оплата вносится "
         "авансом за выбранный период. Подписка активируется автоматически после "
         "подтверждения платежа.\n\n"
         "<b>5. Пробный период</b>\n"
@@ -160,49 +161,134 @@ def terms_of_use() -> str:
         "действий, совершённых пользователем при использовании Сервиса.\n\n"
         "<b>10. Изменение условий</b>\n"
         "Сервис вправе изменять условия соглашения. Действующая редакция всегда "
-        "доступна по кнопке «📄 Пользовательское соглашение». Продолжение использования "
+        "доступна в разделе «❓ Помощь» → «📄 Соглашение» или по команде /terms. "
+        "Продолжение использования "
         "Сервиса означает согласие с изменениями.\n\n"
         "<b>11. Контакты</b>\n"
         f"Поддержка: {_support()}"
     )
 
 
+def _plural(count: int, one: str, few: str, many: str) -> str:
+    tail = count % 100
+    if 11 <= tail <= 14:
+        return many
+    if count % 10 == 1:
+        return one
+    if 2 <= count % 10 <= 4:
+        return few
+    return many
+
+
+def months(tariff: Tariff) -> int:
+    """Whole months a paid plan covers: 30, 90, 180 and 365 days read as 1, 3, 6 and 12."""
+
+    return max(1, round(tariff.duration_days / 30.4))
+
+
+def period_label(tariff: Tariff, *, short: bool = False) -> str:
+    count = months(tariff)
+    if short:
+        return f"{count} мес"
+    return f"{count} {_plural(count, 'месяц', 'месяца', 'месяцев')}"
+
+
+def _per_month(tariff: Tariff) -> int:
+    # Rounded half up: 699 ₽ over 6 months reads as 117, not banker's 116.
+    return int(tariff.price_rub / months(tariff) + 0.5)
+
+
+def _paid_tariffs() -> list[Tariff]:
+    ordered = sorted(TARIFFS.values(), key=lambda item: item.sort_order)
+    return [item for item in ordered if item.price_rub > 0]
+
+
+def device_limit() -> int | None:
+    """Devices a paid plan allows, when every plan allows the same number."""
+
+    limits = {item.device_limit for item in _paid_tariffs()}
+    return limits.pop() if len(limits) == 1 else None
+
+
+def _traffic(tariff: Tariff) -> str:
+    if tariff.traffic_gb is None:
+        return "трафик без учёта"
+    return f"{tariff.traffic_gb} ГБ " + ("в месяц" if tariff.traffic_resets_monthly else "на весь срок")
+
+
 def _tariff_line(tariff: Tariff) -> str:
-    devices = tariff.device_limit if tariff.device_limit is not None else "∞"
-    traffic = f"{tariff.traffic_gb} ГБ" if tariff.traffic_gb is not None else "без учёта"
-    period = "в месяц" if tariff.traffic_resets_monthly else "на весь срок"
-    price = "бесплатно" if tariff.price_rub == 0 else f"{tariff.price_rub} ₽"
-    return (
-        f"<b>{tariff.title}</b> — {price}\n"
-        f"Срок: {tariff.duration_days} дн. · Трафик: {traffic} {period} · "
-        f"Устройств: до {devices}"
-    )
+    price = f"{period_label(tariff)} — <b>{tariff.price_rub} ₽</b>"
+    if months(tariff) > 1:
+        price += f" ({_per_month(tariff)} ₽/мес)"
+    details = [_traffic(tariff)]
+    if device_limit() is None:
+        devices = tariff.device_limit if tariff.device_limit is not None else "∞"
+        details.append(f"до {devices} устройств")
+    return f"{price}\n<i>{', '.join(details)}</i>"
+
+
+def _trial() -> Tariff | None:
+    return next((item for item in TARIFFS.values() if item.price_rub == 0), None)
+
+
+def _trial_line() -> str | None:
+    trial = _trial()
+    if trial is None:
+        return None
+    days = trial.duration_days
+    parts = [f"{days} {_plural(days, 'день', 'дня', 'дней')}"]
+    if trial.traffic_gb is not None:
+        parts.append(f"{trial.traffic_gb} ГБ")
+    if trial.device_limit is not None:
+        count = trial.device_limit
+        parts.append(f"{count} {_plural(count, 'устройство', 'устройства', 'устройств')}")
+    return "🎁 Пробный период: " + ", ".join(parts) + " — один раз для нового пользователя."
 
 
 def tariffs_text() -> str:
-    ordered = sorted(TARIFFS.values(), key=lambda item: item.sort_order)
-    trial = [item for item in ordered if item.price_rub == 0]
-    paid = [item for item in ordered if item.price_rub > 0]
-
-    sections = ["💳 <b>Тарифы</b>"]
+    sections = ["💳 <b>Тарифы</b>", "\n\n".join(_tariff_line(item) for item in _paid_tariffs())]
+    notes = []
+    devices = device_limit()
+    if devices is not None:
+        notes.append(f"📱 На любом тарифе — до {devices} {_plural(devices, 'устройства', 'устройств', 'устройств')}.")
+    trial = _trial_line()
     if trial:
-        sections.append(
-            "<b>Пробный доступ</b>\n<blockquote>"
-            + "\n\n".join(_tariff_line(item) for item in trial)
-            + "\nПредоставляется один раз новому пользователю.</blockquote>"
-        )
-    if paid:
-        sections.append(
-            "<b>Платные тарифы</b>\n<blockquote>"
-            + "\n\n".join(_tariff_line(item) for item in paid)
-            + "</blockquote>"
-        )
+        notes.append(trial)
+    if notes:
+        sections.append("<blockquote>" + "\n".join(notes) + "</blockquote>")
     sections.append(
-        "Оплата вносится авансом за выбранный период. Подписка включается "
-        "автоматически после подтверждения платежа.\n"
-        "Условия возврата — в разделе «📄 Пользовательское соглашение»."
+        "Оплата картой или через СБП, авансом за выбранный срок. Подписка включается "
+        "сама после оплаты. Условия возврата — в пользовательском соглашении."
     )
     return "\n\n".join(sections)
+
+
+def bot_description() -> str:
+    """The «Что умеет этот бот?» card a newcomer sees before pressing Start."""
+
+    devices = device_limit()
+    trial = _trial()
+    lines = [
+        f"{PROJECT_NAME} — быстрый защищённый VPN для телефона и компьютера.",
+        "",
+        "⚡️ Подключение одной кнопкой",
+        "🌍 Серверы в Европе и США",
+    ]
+    if devices is not None:
+        lines.append(f"📱 До {devices} {_plural(devices, 'устройства', 'устройств', 'устройств')} на подписке")
+    if trial is not None:
+        days = trial.duration_days
+        lines.append(f"🎁 {days} {_plural(days, 'день', 'дня', 'дней')} бесплатно для новых пользователей")
+    lines += [
+        "",
+        "Оплата картой или через СБП. Пользовательское соглашение и политика "
+        "конфиденциальности — в разделе «❓ Помощь».",
+    ]
+    return "\n".join(lines)
+
+
+def bot_short_description() -> str:
+    return "Быстрый защищённый VPN для телефона и компьютера. Попробуйте бесплатно."
 
 
 def documents() -> dict[str, str]:

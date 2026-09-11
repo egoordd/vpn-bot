@@ -18,13 +18,13 @@ import logging
 import os
 import time
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from bot.texts import format_gb, format_msk, trial_days
+from bot.texts import MONTHS_RU, aware, format_gb, format_msk, trial_days
 from config import settings
 from database.models import Payment, Subscription, User
 from database.repository import Repository
@@ -39,7 +39,6 @@ from services.referral import (
 )
 from services.subscription import (
     activate_panel_subscription,
-    connect_page_url,
     to_gateway_subscription_url,
     to_happ_import_url,
 )
@@ -114,35 +113,42 @@ def _keyboard(*rows: list[dict[str, str]]) -> dict[str, list[list[dict[str, str]
 
 
 def main_menu_keyboard(*, has_subscription: bool, trial_available: bool) -> dict[str, Any]:
-    rows: list[list[dict[str, str]]] = []
-    if trial_available:
-        rows.append(
-            [_button(f"🎁 Активировать пробный период — {trial_days()}", callback="activate_trial")]
-        )
+    """Three short menus, one per kind of visitor.
+
+    The first version put every screen on the main menu, eight full-width
+    buttons deep. Documents and support now sit one tap away under «Помощь»,
+    which still keeps them reachable from the interface as the bank requires.
+    """
+
+    help_button = _button("❓ Помощь", callback="help")
     if has_subscription:
-        rows.append([_button("📋 Мои подписки", callback="my_subs")])
-    rows.append([_button("💳 Тарифы", callback="tariffs")])
-    rows.append([_button("🎟 Промокод", callback="promo_enter")])
-    rows.append([_button("❓ Помощь", callback="help")])
-    rows.append([_button("📄 Пользовательское соглашение", callback="terms")])
-    rows.append([_button("🔒 Политика конфиденциальности", callback="privacy")])
-    support = _support_button()
-    if support is not None:
-        rows.append([support])
-    return _keyboard(*rows)
+        return _keyboard(
+            [_button("📱 Подключить устройство", callback="connect_device")],
+            [_button("🔄 Продлить", callback="tariffs"), _button("🎟 Промокод", callback="promo_enter")],
+            [help_button],
+        )
+    if trial_available:
+        return _keyboard(
+            [_button("🎁 Попробовать бесплатно", callback="activate_trial")],
+            [_button("💳 Тарифы", callback="tariffs"), help_button],
+        )
+    return _keyboard(
+        [_button("💳 Тарифы", callback="tariffs")],
+        [_button("🎟 Промокод", callback="promo_enter"), help_button],
+    )
 
 
 def _back_keyboard() -> dict[str, Any]:
     return _keyboard([_button("◀️ В меню", callback="main_menu")])
 
 
-def _support_button() -> dict[str, str] | None:
+def _support_button(text: str = "💬 Поддержка") -> dict[str, str] | None:
     """Direct link to the support account, or None when none is configured."""
 
     username = settings.support_contact.lstrip("@")
     if not username or username == "не указан":
         return None
-    return _button("💬 Поддержка", url=f"https://t.me/{username}")
+    return _button(text, url=f"https://t.me/{username}")
 
 
 def _support_keyboard() -> dict[str, Any]:
@@ -154,28 +160,45 @@ def _support_keyboard() -> dict[str, Any]:
     return _keyboard(*rows)
 
 
+def _help_keyboard() -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = []
+    support = _support_button("💬 Написать в поддержку")
+    if support is not None:
+        rows.append([support])
+    rows.append(
+        [_button("📄 Соглашение", callback="terms"), _button("🔒 Конфиденциальность", callback="privacy")]
+    )
+    rows.append([_button("◀️ Назад", callback="main_menu")])
+    return _keyboard(*rows)
+
+
 DOCUMENT_CALLBACKS = ("tariffs", "terms", "privacy")
 
 
 def tariffs_keyboard() -> dict[str, Any]:
-    """Tariffs screen: a buy button per paid plan once Platega is switched on."""
+    """Tariffs screen: buy buttons two to a row once Platega is switched on."""
 
     rows: list[list[dict[str, str]]] = []
     if mirror_platega.is_configured():
+        buttons = []
         for plan in mirror_platega.PAID_PLANS:
             tariff = resolve_tariff(plan)
-            rows.append(
-                [_button(f"🛒 {tariff.title} — {tariff.price_rub} ₽", callback=f"pl_plan:{plan}")]
-            )
-    support = _support_button()
-    if support is not None:
-        rows.append([support])
-    rows.append([_button("◀️ В меню", callback="main_menu")])
+            label = f"{mirror_legal.period_label(tariff, short=True)} · {tariff.price_rub} ₽"
+            buttons.append(_button(label, callback=f"pl_plan:{plan}"))
+        rows.extend(buttons[index:index + 2] for index in range(0, len(buttons), 2))
+    else:
+        support = _support_button()
+        if support is not None:
+            rows.append([support])
+    rows.append([_button("🎟 Промокод", callback="promo_enter"), _button("◀️ Назад", callback="main_menu")])
     return _keyboard(*rows)
 
 
 def _document_keyboard(name: str) -> dict[str, Any]:
-    return tariffs_keyboard() if name == "tariffs" else _support_keyboard()
+    if name == "tariffs":
+        return tariffs_keyboard()
+    # Documents are opened from «Помощь», so «Назад» returns there.
+    return _keyboard([_button("◀️ Назад", callback="help")])
 
 
 def _document_text(name: str) -> str:
@@ -197,44 +220,75 @@ def _tariff_title(plan: str) -> str:
         return plan
 
 
-def _profile_text(user: User, display_name: str | None) -> str:
-    name = html.escape(display_name or user.username or "—")
+HAPP_APPS = (
+    ("iPhone", "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215"),
+    ("Android", "https://play.google.com/store/apps/details?id=com.happproxy"),
+    ("Windows", "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe"),
+    ("macOS", "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg"),
+)
+
+
+def _date(value: datetime) -> str:
+    msk = aware(value) + timedelta(hours=3)
+    return f"{msk.day} {MONTHS_RU[msk.month - 1]} {msk.year}"
+
+
+def _gb(value_bytes: int | None) -> str:
+    return format_gb(value_bytes).replace(".", ",")
+
+
+def _devices_phrase() -> str:
+    devices = mirror_legal.device_limit()
+    if devices is None:
+        return "Несколько устройств на одной подписке"
+    word = "устройства" if devices % 10 == 1 and devices % 100 != 11 else "устройств"
+    return f"До {devices} {word} на подписке"
+
+
+def _welcome_text() -> str:
     return (
-        "👤 <b>Профиль</b>\n"
-        "<blockquote>"
-        f"📝 Имя: {name}\n"
-        f"🆔 ID: <code>{user.telegram_id}</code>"
-        "</blockquote>"
+        f"👋 <b>Добро пожаловать в {mirror_legal.PROJECT_NAME}</b>\n\n"
+        "Быстрый защищённый VPN для телефона и компьютера.\n\n"
+        "⚡️ Подключение одной кнопкой\n"
+        "🌍 Серверы в Европе и США\n"
+        f"📱 {_devices_phrase()}\n\n"
+        f"🎁 Попробуйте бесплатно — {trial_days()}."
     )
 
 
-def _menu_text(
-    user: User,
-    subscriptions: list[Subscription],
-    display_name: str | None,
-    *,
-    trial_available: bool,
-) -> str:
-    sections = [_profile_text(user, display_name)]
+def _inactive_text() -> str:
+    if mirror_platega.is_configured():
+        return (
+            "🔑 <b>Подписка не активна</b>\n\n"
+            "Выберите тариф — оплата картой или через СБП, подписка включится сразу после оплаты."
+        )
+    return (
+        "🔑 <b>Подписка не активна</b>\n\n"
+        "Тарифы и цены — в разделе «💳 Тарифы». Оформить подписку поможет поддержка."
+    )
+
+
+def _subscription_status(subscriptions: list[Subscription]) -> str:
+    current = max(subscriptions, key=lambda item: item.expires_at)
+    text = (
+        "✅ <b>Подписка активна</b>\n"
+        "<blockquote>"
+        f"💎 Тариф: {html.escape(_tariff_title(current.plan))}\n"
+        f"📅 До: {_date(current.expires_at)}\n"
+        f"📊 Трафик: {_gb(current.traffic_used_bytes or 0)} из {_gb(current.traffic_limit_bytes)} ГБ"
+        "</blockquote>"
+    )
+    if len(subscriptions) > 1:
+        text += f"\nЕщё подписок: {len(subscriptions) - 1} — выбор при подключении."
+    return text
+
+
+def _menu_text(subscriptions: list[Subscription], *, trial_available: bool) -> str:
     if subscriptions:
-        nearest = min(subscriptions, key=lambda item: item.expires_at)
-        sections.append(
-            f"✅ Активных подписок: <b>{len(subscriptions)}</b>\n"
-            f"📅 Ближайшее окончание: {format_msk(nearest.expires_at)}\n\n"
-            "Подключение и детали — в «📋 Мои подписки»."
-        )
-    elif trial_available:
-        sections.append(
-            f"🎁 Доступен <b>бесплатный пробный период — {trial_days()}</b>.\n"
-            "Ссылка придёт сразу после активации."
-        )
-    else:
-        sections.append(
-            "🔑 Активной подписки нет.\n"
-            "Тарифы и цены — в разделе «💳 Тарифы».\n"
-            "Оплата в этом боте временно недоступна, оформить подписку поможет поддержка."
-        )
-    return "\n\n".join(sections)
+        return _subscription_status(subscriptions)
+    if trial_available:
+        return _welcome_text()
+    return _inactive_text()
 
 
 def _subscription_card(subscription: Subscription) -> str:
@@ -253,49 +307,53 @@ def _subscription_card(subscription: Subscription) -> str:
 
 def _subscriptions_text(subscriptions: list[Subscription]) -> str:
     if not subscriptions:
-        return (
-            "📋 <b>Мои подписки</b>\n\nАктивных подписок нет.\n"
-            "Тарифы и цены — в разделе «💳 Тарифы».\n"
-            "Оплата в этом боте временно недоступна, оформить подписку поможет поддержка."
-        )
+        return _inactive_text()
     return "📋 <b>Мои подписки</b>\n\n" + "\n\n".join(
         _subscription_card(subscription) for subscription in subscriptions
     )
 
 
 def _help_text(telegram_id: int) -> str:
-    return (
+    text = (
         "❓ <b>Помощь</b>\n\n"
         "<b>Как подключиться</b>\n"
         "<blockquote>"
-        "1️⃣ Откройте «Мои подписки»\n"
-        "2️⃣ Нажмите «Подключить устройство»\n"
-        "3️⃣ Импортируйте ссылку и включите VPN"
+        "1️⃣ Оформите подписку или пробный период\n"
+        "2️⃣ Нажмите «📱 Подключить устройство» и установите Happ\n"
+        "3️⃣ Нажмите «📲 Добавить в Happ» и включите VPN"
         "</blockquote>\n\n"
-        "<b>Поддержка</b> — напишите и приложите ID\n"
-        "<blockquote>"
-        f"{html.escape(settings.support_contact)}\n"
-        f"Ваш ID: <code>{telegram_id}</code>"
-        "</blockquote>\n\n"
-        "<b>Документы</b>\n"
-        "<blockquote>"
-        "💳 Тарифы\n"
-        "📄 Пользовательское соглашение\n"
-        "🔒 Политика конфиденциальности\n"
-        "Открываются кнопками в главном меню."
-        "</blockquote>\n\n"
-        f"<code>{mirror_legal.VERIFICATION_CODE}</code>"
+        f"<b>Поддержка:</b> {html.escape(settings.support_contact)}\n"
+        f"Ваш ID: <code>{telegram_id}</code> — приложите его к сообщению.\n\n"
+        "Соглашение и политика конфиденциальности — кнопками ниже."
     )
+    if mirror_legal.VERIFICATION_CODE:
+        text += f"\n\n<code>{mirror_legal.VERIFICATION_CODE}</code>"
+    return text
 
 
-def _subscription_access_text(url: str, subscription: Subscription) -> str:
-    return (
-        "📱 <b>Подключение устройства</b>\n\n"
-        f"Тариф: {html.escape(_tariff_title(subscription.plan))}\n"
-        "Нажмите <b>«Подключить VPN»</b> — приложение и серверы настроятся сами.\n\n"
-        "Ссылка-подписка:\n"
+def connection_screen(subscription: Subscription, url: str) -> tuple[str, dict[str, Any]]:
+    """How to connect, with the import page on the subscription host.
+
+    This bot must not point at the website, so the one-tap import is the
+    subscription host's own /happ/ page and the apps are linked to their stores.
+    """
+
+    apps = " · ".join(f'<a href="{link}">{name}</a>' for name, link in HAPP_APPS)
+    text = (
+        "📱 <b>Подключение устройства</b>\n"
+        f"💎 {html.escape(_tariff_title(subscription.plan))} · до {_date(subscription.expires_at)}\n\n"
+        f"1️⃣ Установите Happ: {apps}\n"
+        "2️⃣ Нажмите «📲 Добавить в Happ» — подписка и серверы настроятся сами\n"
+        "3️⃣ Включите VPN в приложении\n\n"
+        "Ссылка-подписка, если нужно добавить вручную:\n"
         f"<code>{html.escape(url)}</code>"
     )
+    rows: list[list[dict[str, str]]] = []
+    import_url = to_happ_import_url(url)
+    if import_url:
+        rows.append([_button("📲 Добавить в Happ", url=import_url)])
+    rows.append([_button("◀️ В меню", callback="main_menu")])
+    return text, _keyboard(*rows)
 
 
 def _promo_error_text(exc: promo.PromoError) -> str:
@@ -417,12 +475,7 @@ class MirrorBot:
             subscriptions = await repo.list_active_subscriptions(user.id)
             trial_available = not subscriptions and not await repo.has_used_trial(user.id)
         return (
-            _menu_text(
-                user,
-                subscriptions,
-                display_name,
-                trial_available=trial_available,
-            ),
+            _menu_text(subscriptions, trial_available=trial_available),
             main_menu_keyboard(
                 has_subscription=bool(subscriptions),
                 trial_available=trial_available,
@@ -493,7 +546,7 @@ class MirrorBot:
             )
             return
         if command == "/help":
-            await self.render(chat_id, _help_text(telegram_id), _support_keyboard())
+            await self.render(chat_id, _help_text(telegram_id), _help_keyboard())
             return
         if command.lstrip("/") in DOCUMENT_CALLBACKS:
             await self.render(
@@ -545,7 +598,7 @@ class MirrorBot:
         if is_payment_callback(data):
             await self.answer_callback(
                 callback_id,
-                "Оплата временно недоступна. Тарифы — в разделе «Тарифы», оформление — через поддержку.",
+                "Тарифы и оплата — в разделе «💳 Тарифы». Откройте меню: /start",
                 alert=True,
             )
             return
@@ -564,7 +617,7 @@ class MirrorBot:
             await self.render(
                 chat_id,
                 _help_text(telegram_id),
-                _support_keyboard(),
+                _help_keyboard(),
                 message_id=message_id,
             )
             await self.answer_callback(callback_id)
@@ -753,7 +806,7 @@ class MirrorBot:
             await self.render(
                 telegram_id,
                 mirror_platega.paid_text(subscription, format_msk(subscription.expires_at)),
-                _keyboard([_button("📋 Мои подписки", callback="my_subs")]),
+                _back_keyboard(),
             )
             await self.render_connection(telegram_id, None, subscription, url)
             await send_alert(
@@ -948,20 +1001,8 @@ class MirrorBot:
         subscription: Subscription,
         url: str,
     ) -> None:
-        rows: list[list[dict[str, str]]] = []
-        site_url = connect_page_url(url)
-        auto_url = to_happ_import_url(url, auto=True)
-        if site_url:
-            rows.append([_button("🔗 Подключить VPN", url=site_url)])
-        if auto_url:
-            rows.append([_button("⚡️ Автовыбор сервера", url=auto_url)])
-        rows.append([_button("◀️ В меню", callback="main_menu")])
-        await self.render(
-            chat_id,
-            _subscription_access_text(url, subscription),
-            _keyboard(*rows),
-            message_id=message_id,
-        )
+        text, keyboard = connection_screen(subscription, url)
+        await self.render(chat_id, text, keyboard, message_id=message_id)
 
     async def redeem_promo(
         self,
@@ -1076,9 +1117,9 @@ async def main() -> None:
                 {
                     "commands": [
                         {"command": "start", "description": "Главное меню"},
-                        {"command": "help", "description": "Помощь и поддержка"},
-                        {"command": "promo", "description": "Ввести промокод"},
                         {"command": "tariffs", "description": "Тарифы и цены"},
+                        {"command": "promo", "description": "Ввести промокод"},
+                        {"command": "help", "description": "Помощь и поддержка"},
                         {"command": "terms", "description": "Пользовательское соглашение"},
                         {"command": "privacy", "description": "Политика конфиденциальности"},
                     ]
@@ -1092,24 +1133,9 @@ async def main() -> None:
                 logger.info("Mirror name updated: %r -> %r", current_name, desired_name)
             await api.call(
                 "setMyShortDescription",
-                {
-                    "short_description": (
-                        "UnLock VPN: подписка, подключение устройств, тарифы и поддержка."
-                    )
-                },
+                {"short_description": mirror_legal.bot_short_description()},
             )
-            await api.call(
-                "setMyDescription",
-                {
-                    "description": (
-                        "UnLock VPN — доступ к защищённому каналу передачи данных.\n\n"
-                        "В боте: тарифы и цены, пробный период, подключение устройств, "
-                        "промокоды и поддержка.\n"
-                        "Пользовательское соглашение и политика конфиденциальности "
-                        "открываются кнопками в главном меню."
-                    )
-                },
-            )
+            await api.call("setMyDescription", {"description": mirror_legal.bot_description()})
             bot = MirrorBot(api, session_pool)
             if bot.platega is not None:
                 logger.info(

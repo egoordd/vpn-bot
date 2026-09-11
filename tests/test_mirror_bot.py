@@ -14,18 +14,24 @@ def _callback_values(markup: dict) -> list[str]:
     ]
 
 
-def test_mirror_menu_has_no_payment_or_renewal_actions() -> None:
-    markup = mirror_bot.main_menu_keyboard(
-        has_subscription=True,
-        trial_available=True,
-    )
+def test_subscriber_menu_is_short_and_sells_nothing_by_itself() -> None:
+    markup = mirror_bot.main_menu_keyboard(has_subscription=True, trial_available=False)
     callbacks = _callback_values(markup)
 
-    assert "my_subs" in callbacks
-    assert "activate_trial" in callbacks
-    assert "promo_enter" in callbacks
-    assert "buy_menu" not in callbacks
-    assert "renew_menu" not in callbacks
+    assert callbacks == ["connect_device", "tariffs", "promo_enter", "help"]
+    assert len(markup["inline_keyboard"]) == 3
+
+
+def test_newcomer_gets_the_free_trial_first() -> None:
+    markup = mirror_bot.main_menu_keyboard(has_subscription=False, trial_available=True)
+
+    assert _callback_values(markup) == ["activate_trial", "tariffs", "help"]
+
+
+def test_lapsed_user_is_sent_to_the_tariffs() -> None:
+    markup = mirror_bot.main_menu_keyboard(has_subscription=False, trial_available=False)
+
+    assert _callback_values(markup) == ["tariffs", "promo_enter", "help"]
 
 
 @pytest.mark.parametrize(
@@ -103,33 +109,97 @@ RESTRICTED_VOCABULARY = (
 PERSONAL_DATA_MARKERS = ("инн", "дегтяр", "самозанят", "220454839571")
 
 
+def _subscription(**overrides):
+    from datetime import datetime, timezone
+
+    values = dict(
+        id=7,
+        plan="standard_1m",
+        expires_at=datetime(2026, 10, 11, 3, 30, tzinfo=timezone.utc),
+        traffic_used_bytes=12 * 1024**3,
+        traffic_limit_bytes=150 * 1024**3,
+    )
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
 def _mirror_surfaces() -> dict[str, str]:
-    """Every long-form text the mirror shows to a user or a reviewer."""
+    """Every text the mirror shows to a user or a reviewer."""
 
     from services import mirror_legal
 
     surfaces = dict(mirror_legal.documents())
     surfaces["help"] = mirror_bot._help_text(1)
+    surfaces["welcome"] = mirror_bot._menu_text([], trial_available=True)
+    surfaces["subscriber"] = mirror_bot._menu_text([_subscription()], trial_available=False)
+    surfaces["lapsed"] = mirror_bot._menu_text([], trial_available=False)
+    surfaces["connect"] = mirror_bot.connection_screen(_subscription(), "https://unlockru.site/sub/T")[0]
+    surfaces["description"] = mirror_legal.bot_description()
+    surfaces["short_description"] = mirror_legal.bot_short_description()
     return surfaces
 
 
-def test_menu_exposes_documents_tariffs_and_support() -> None:
-    markup = mirror_bot.main_menu_keyboard(
-        has_subscription=False,
-        trial_available=False,
+def test_documents_and_support_are_one_tap_from_the_menu() -> None:
+    """The bank wants documents, prices and support reachable from the interface."""
+
+    menu = _callback_values(
+        mirror_bot.main_menu_keyboard(has_subscription=False, trial_available=False)
     )
-    callbacks = _callback_values(markup)
+    help_markup = mirror_bot._help_keyboard()
     urls = [
         button["url"]
-        for row in markup["inline_keyboard"]
+        for row in help_markup["inline_keyboard"]
         for button in row
         if "url" in button
     ]
 
-    assert "tariffs" in callbacks
-    assert "terms" in callbacks
-    assert "privacy" in callbacks
+    assert "tariffs" in menu and "help" in menu
+    assert {"terms", "privacy"} <= set(_callback_values(help_markup))
     assert any("t.me/" in url for url in urls), "нет прямой кнопки поддержки"
+
+
+def test_welcome_names_the_service_and_the_free_trial() -> None:
+    from bot.texts import trial_days
+
+    text = mirror_bot._menu_text([], trial_available=True)
+
+    assert "Добро пожаловать" in text
+    assert trial_days() in text
+
+
+def test_subscriber_sees_the_subscription_not_a_profile() -> None:
+    text = mirror_bot._menu_text([_subscription()], trial_available=False)
+
+    assert "Standard 1 месяц" in text
+    assert "11 октября 2026" in text
+    assert "12 из 150 ГБ" in text
+    assert "Профиль" not in text
+
+
+def test_no_screen_still_says_payment_is_unavailable(monkeypatch) -> None:
+    from services import mirror_platega
+
+    monkeypatch.setattr(mirror_platega, "MERCHANT_ID", "m")
+    monkeypatch.setattr(mirror_platega, "SECRET", "s")
+
+    for text in (
+        mirror_bot._menu_text([], trial_available=False),
+        mirror_bot._subscriptions_text([]),
+    ):
+        assert "недоступна" not in text
+
+
+def test_connecting_never_sends_anyone_to_the_website(monkeypatch) -> None:
+    """This bot knows nothing of the site: the import page is the subscription host's own."""
+
+    monkeypatch.setattr(mirror_bot.settings, "WEB_BASE_URL", "https://unlockproject.site")
+
+    text, markup = mirror_bot.connection_screen(_subscription(), "https://unlockru.site/sub/TOKEN")
+    urls = [button["url"] for row in markup["inline_keyboard"] for button in row if "url" in button]
+
+    assert urls == ["https://unlockru.site/happ/TOKEN"]
+    assert "unlockproject" not in text
+    assert "https://unlockru.site/sub/TOKEN" in text
 
 
 def test_documents_fit_the_telegram_message_limit() -> None:
@@ -164,10 +234,21 @@ def test_mirror_texts_carry_no_personal_data() -> None:
     assert not offenders, f"персональные данные в текстах зеркала: {sorted(offenders)}"
 
 
-def test_help_carries_the_verification_code() -> None:
+def test_the_review_code_is_gone_once_the_desk_is_approved() -> None:
     from services import mirror_legal
 
-    assert mirror_legal.VERIFICATION_CODE in mirror_bot._help_text(1)
+    assert mirror_legal.VERIFICATION_CODE == ""
+    assert "PLAT" not in mirror_bot._help_text(1)
+    assert mirror_legal.bot_display_name() == mirror_legal.PROJECT_NAME
+
+
+def test_a_review_code_still_shows_wherever_it_must(monkeypatch) -> None:
+    from services import mirror_legal
+
+    monkeypatch.setattr(mirror_legal, "VERIFICATION_CODE", "PLAT")
+
+    assert "PLAT" in mirror_bot._help_text(1)
+    assert mirror_legal.bot_display_name() == "UnLock VPN PLAT"
 
 
 def test_tariffs_screen_lists_real_prices() -> None:
@@ -180,10 +261,17 @@ def test_tariffs_screen_lists_real_prices() -> None:
             assert f"{tariff.price_rub} ₽" in body, f"нет цены тарифа {tariff.code}"
 
 
-def test_bot_name_carries_the_verification_code() -> None:
+def test_tariffs_show_the_monthly_price_of_longer_plans() -> None:
     from services import mirror_legal
 
-    name = mirror_legal.bot_display_name()
-    assert mirror_legal.PROJECT_NAME in name
-    assert mirror_legal.VERIFICATION_CODE in name
-    assert len(name) <= mirror_legal.TELEGRAM_NAME_LIMIT
+    body = mirror_legal.tariffs_text()
+
+    assert "3 месяца" in body and "133 ₽/мес" in body
+    assert "12 месяцев" in body and "100 ₽/мес" in body
+
+
+def test_bot_profile_texts_fit_telegram_limits() -> None:
+    from services import mirror_legal
+
+    assert len(mirror_legal.bot_description()) <= 512
+    assert len(mirror_legal.bot_short_description()) <= 120
