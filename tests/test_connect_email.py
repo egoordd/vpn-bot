@@ -87,7 +87,8 @@ async def test_the_link_is_mailed_and_the_address_remembered(session_pool, monke
     to, subject, text = send.await_args.args[:3]
     assert to == "buyer@mail.ru"
     assert "https://sub.example/sub/tok" in text
-    assert "unlockvpn.site/download" in text, "the mail has to carry the app too"
+    assert "/download" in text, "the mail has to carry the app too"
+    assert "unlockvpn.site" not in text, "a blocked domain does not open for the reader"
 
     async with session_pool() as session:
         saved = await Repository(session).get_user(user_id)

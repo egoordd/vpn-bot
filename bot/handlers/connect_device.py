@@ -337,12 +337,21 @@ def _email_prompt_keyboard(sub_id: int | None) -> InlineKeyboardMarkup:
     )
 
 
+def _download_url() -> str:
+    # The site moves when a domain is blocked; the letter must follow it, not
+    # point at a name that no longer opens (it still said unlockvpn.site).
+    from config import settings
+
+    base = (settings.WEB_BASE_URL or "").strip().rstrip("/") or "https://unlockproject.site"
+    return f"{base}/download"
+
+
 def _subscription_email_body(url: str) -> tuple[str, str]:
     text = (
         "Ваша ссылка-подписка UnLock VPN:\n\n"
         f"{url}\n\n"
         "Как подключиться:\n"
-        "1. Установите приложение — https://unlockvpn.site/download\n"
+        f"1. Установите приложение — {_download_url()}\n"
         "2. Добавьте в него эту ссылку.\n"
         "3. Включите туннель.\n\n"
         "Ссылка постоянная: сохраните это письмо, и доступ можно будет восстановить "
@@ -354,8 +363,8 @@ def _subscription_email_body(url: str) -> tuple[str, str]:
         "<p>Ваша ссылка-подписка <b>UnLock VPN</b>:</p>"
         f'<p><a href="{safe}">{safe}</a></p>'
         "<p>Как подключиться:</p><ol>"
-        '<li>Установите приложение — <a href="https://unlockvpn.site/download">'
-        "unlockvpn.site/download</a></li>"
+        f'<li>Установите приложение — <a href="{html.escape(_download_url())}">'
+        f"{html.escape(_download_url().split('://', 1)[-1])}</a></li>"
         "<li>Добавьте в него эту ссылку.</li><li>Включите туннель.</li></ol>"
         "<p>Ссылка постоянная: сохраните это письмо, и доступ можно будет восстановить "
         "даже без Telegram.</p>"

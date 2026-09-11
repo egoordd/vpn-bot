@@ -10,11 +10,13 @@ from typing import Annotated, Any, AsyncIterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from config import settings
+from database.models import Payment
 from database.repository import Repository
-from services import billing_api, moynalog, promo, tribute, yookassa
+from services import billing_api, moynalog, promo, tribute, web_delivery, yookassa
 from services.billing_api import AccountOverview, BillingPlan, SubscriptionSnapshot
 from services.payment import parse_invoice_payload_details
 from services.referral import normalize_source_slug, ReferralStats
@@ -201,6 +203,9 @@ class LinkClickRequest(BaseModel):
 
 _AUTH_IP_LIMIT = 10
 _AUTH_IP_WINDOW = 600  # 10 min
+
+# The order token in the site's return address: our payload's uuid4 hex tail.
+_ORDER_TOKEN_RE = re.compile(r"[0-9a-f]{32}")
 
 # Ceilings for everybody behind a site relay taken together. Generous on
 # purpose: there they only stop spraying, the per-account budget does the
@@ -583,12 +588,18 @@ def create_app() -> FastAPI:
         await _tag_source(session, intent.user_id, body.source)
 
         web_base = get_settings().WEB_BASE_URL.strip().rstrip("/")
+        # The return address names the order. The success page used to find it in
+        # the browser's storage only, and a payment finished in a bank app comes
+        # back in another browser with nothing stored — the buyer saw a blank page.
+        # The token is the random tail of our own payload: YooKassa's id does not
+        # exist yet when the return address has to be set.
+        order_token = intent.payload.rsplit(":", 1)[-1]
         try:
             payment = await yookassa.create_payment(
                 amount_kopecks=intent.plan.price_rub * 100,
                 description=intent.description,
                 metadata={"user_id": intent.user_id, "plan": intent.plan.code, "source": "web"},
-                return_url=f"{web_base}/pay/success" if web_base else None,
+                return_url=f"{web_base}/pay/success?order={order_token}" if web_base else None,
                 receipt_email=email,
             )
         except yookassa.YooKassaError as exc:
@@ -613,6 +624,15 @@ def create_app() -> FastAPI:
     async def web_order(order_id: str, session: SessionDep) -> dict[str, Any]:
         repo = Repository(session)
         payment = await repo.get_payment_by_external_id(order_id)
+        if payment is None and _ORDER_TOKEN_RE.fullmatch(order_id):
+            # The token from the return address: the random tail of our payload.
+            result = await session.execute(
+                select(Payment).where(
+                    Payment.provider == "yookassa",
+                    Payment.invoice_payload.endswith(f":{order_id}"),
+                )
+            )
+            payment = result.scalars().first()
         if payment is None or payment.provider != "yookassa":
             raise HTTPException(status_code=404, detail="order_not_found")
         if payment.status != "completed":
@@ -908,11 +928,19 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001 - surface as 500 so YooKassa retries
             raise HTTPException(status_code=500, detail="provisioning failed") from exc
 
-        # Web email-only buyers have a synthetic negative telegram_id — there is
-        # no Telegram chat to DM; they get the link on the site's success page.
+        sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
         if int(user.telegram_id) > 0:
-            sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
             await tribute.deliver_subscription(int(user.telegram_id), sub_url)
+        elif (user.email or "").strip():
+            # Email-only buyers (synthetic negative id) have no chat. The success
+            # page alone missed them whenever the payment returned in another
+            # browser, so the link also goes by letter. Best effort by design.
+            await web_delivery.send_subscription_letter(
+                user.email.strip(),
+                sub_url,
+                billing_api.get_billing_plan(details.plan).title,
+                getattr(subscription, "expires_at", None),
+            )
 
         # Auto-issue the self-employed чек in «Мой налог» and hand its link to the
         # buyer (best-effort; YooKassa no longer forms НПД чеки, so we register the

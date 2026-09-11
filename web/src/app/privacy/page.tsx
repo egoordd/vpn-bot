@@ -83,7 +83,7 @@ export default function PrivacyPage() {
         <li>Телефон: <a href="tel:+79628329293">+7 962 832-92-93</a></li>
         <li>E-mail: <a href="mailto:unlockvpnru@gmail.com">unlockvpnru@gmail.com</a></li>
         <li>Поддержка: Telegram <a href="https://t.me/unlock_support_bot">@unlock_support_bot</a></li>
-        <li>Сайт: <a href="https://unlockvpn.site">unlockvpn.site</a></li>
+        <li>Сайт: <a href="https://unlockproject.site">unlockproject.site</a></li>
       </ul>
     </LegalLayout>
   );
