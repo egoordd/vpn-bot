@@ -64,6 +64,28 @@ PLATEGA_WATCH_SECONDS = 20
 PLATEGA_CALLBACK_PREFIXES = ("pl_plan:", "pl_pay:", "pl_check:")
 
 
+# The mirror keeps accounts of its own. Someone who uses both bots from one
+# Telegram account gets two independent accounts, so a subscription, trial or
+# payment made here never meets the main bot's, and the other way round. The
+# mirror's account is stored under a synthetic id below every other one:
+# Telegram ids are positive and website accounts are random ids above -2**52,
+# so this offset collides with neither. Messages still go to the person's own
+# chat, and Platega is still told their real Telegram id.
+MIRROR_ID_OFFSET = 9_000_000_000_000_000
+
+
+def mirror_account_id(telegram_id: int) -> int:
+    return -(MIRROR_ID_OFFSET + telegram_id)
+
+
+def chat_id_of(account_telegram_id: int) -> int:
+    """Chat to message for an account row; rows from before the split carry the chat id itself."""
+
+    if account_telegram_id <= -MIRROR_ID_OFFSET:
+        return -account_telegram_id - MIRROR_ID_OFFSET
+    return account_telegram_id
+
+
 def configured_payment_fields() -> list[str]:
     """Main-bot payment settings that must stay empty in the mirror environment.
 
@@ -471,7 +493,7 @@ class MirrorBot:
     ) -> tuple[str, dict[str, Any]]:
         async with self.session_pool() as session:
             repo = Repository(session)
-            user = await repo.get_or_create_user(telegram_id, username)
+            user = await repo.get_or_create_user(mirror_account_id(telegram_id), username)
             subscriptions = await repo.list_active_subscriptions(user.id)
             trial_available = not subscriptions and not await repo.has_used_trial(user.id)
         return (
@@ -501,7 +523,7 @@ class MirrorBot:
             async with self.session_pool() as session:
                 repo = Repository(session)
                 account = await repo.get_or_create_user(
-                    int(user["id"]),
+                    mirror_account_id(int(user["id"])),
                     user.get("username"),
                 )
                 ref_code = parse_referral_start_payload(payload)
@@ -729,10 +751,13 @@ class MirrorBot:
                 return
             async with self._lock_for(telegram_id):
                 async with self.session_pool() as session:
-                    user = await Repository(session).get_or_create_user(telegram_id, username)
+                    user = await Repository(session).get_or_create_user(
+                        mirror_account_id(telegram_id), username
+                    )
                     try:
                         payment, pay_url = await mirror_platega.start_payment(
-                            session, self.platega, user=user, plan=plan, method=method
+                            session, self.platega, user=user, plan=plan, method=method,
+                            payer_id=telegram_id,
                         )
                     except Exception as exc:  # noqa: BLE001 - surface a retry, alert the owner
                         logger.exception("Platega invoice failed for telegram_id=%s", telegram_id)
@@ -763,7 +788,7 @@ class MirrorBot:
             payment_id = int(rest) if rest.isdigit() else -1
             async with self.session_pool() as session:
                 payment = await session.get(Payment, payment_id)
-                user = await Repository(session).get_user_by_telegram_id(telegram_id)
+                user = await Repository(session).get_user_by_telegram_id(mirror_account_id(telegram_id))
                 owned = payment is not None and user is not None and payment.user_id == user.id
             if not owned:
                 await self.answer_callback(callback_id, "Платёж не найден.", alert=True)
@@ -797,7 +822,7 @@ class MirrorBot:
             payment = result.payment
             if payment is not None:
                 owner = await session.get(User, payment.user_id)
-                telegram_id = owner.telegram_id if owner is not None else None
+                telegram_id = chat_id_of(owner.telegram_id) if owner is not None else None
             if result.state == "completed":
                 subscription = result.subscription
 
@@ -856,7 +881,7 @@ class MirrorBot:
         async with self._lock_for(telegram_id):
             async with self.session_pool() as session:
                 repo = Repository(session)
-                user = await repo.get_or_create_user(telegram_id, username)
+                user = await repo.get_or_create_user(mirror_account_id(telegram_id), username)
                 if await repo.list_active_subscriptions(user.id):
                     await self.answer_callback(
                         callback_id,
@@ -906,7 +931,7 @@ class MirrorBot:
     ) -> None:
         async with self.session_pool() as session:
             repo = Repository(session)
-            user = await repo.get_or_create_user(telegram_id, username)
+            user = await repo.get_or_create_user(mirror_account_id(telegram_id), username)
             subscriptions = await repo.list_active_subscriptions(user.id)
         rows: list[list[dict[str, str]]] = []
         if subscriptions:
@@ -940,7 +965,7 @@ class MirrorBot:
         try:
             async with self.session_pool() as session:
                 repo = Repository(session)
-                user = await repo.get_user_by_telegram_id(telegram_id)
+                user = await repo.get_user_by_telegram_id(mirror_account_id(telegram_id))
                 if user is None:
                     await self.answer_callback(
                         callback_id,
@@ -1014,7 +1039,7 @@ class MirrorBot:
         async with self._lock_for(telegram_id):
             async with self.session_pool() as session:
                 repo = Repository(session)
-                user = await repo.get_or_create_user(telegram_id, username)
+                user = await repo.get_or_create_user(mirror_account_id(telegram_id), username)
                 try:
                     result = await billing_api.redeem_promo(
                         session,

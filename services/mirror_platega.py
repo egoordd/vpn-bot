@@ -170,13 +170,24 @@ def plan_from_payload(payload: str | None) -> str | None:
 
 
 async def start_payment(
-    session: AsyncSession, client: PlategaClient, *, user: User, plan: str, method: int
+    session: AsyncSession,
+    client: PlategaClient,
+    *,
+    user: User,
+    plan: str,
+    method: int,
+    payer_id: int | None = None,
 ) -> tuple[Payment, str]:
-    """Open an invoice: our row first, then Platega, so no paid invoice is unknown to us."""
+    """Open an invoice: our row first, then Platega, so no paid invoice is unknown to us.
+
+    `payer_id` is the buyer's real Telegram id. The mirror stores its accounts
+    under synthetic ids, but Platega's antifraud needs to know who is paying.
+    """
 
     if plan not in PAID_PLANS or method not in offered_methods():
         raise ValueError("unknown plan or payment method")
     tariff = resolve_tariff(plan)
+    payer = payer_id if payer_id is not None else user.telegram_id
     payload = make_payload(user_id=user.id, plan=plan)
     payment = Payment(
         user_id=user.id,
@@ -196,8 +207,8 @@ async def start_payment(
             description=f"Подписка UnLock VPN: {tariff.title}",
             payload=payload,
             order_id=str(payment.id),
-            user_id=user.telegram_id,
-            user_name=f"@{user.username}" if user.username else f"tg{user.telegram_id}",
+            user_id=payer,
+            user_name=f"@{user.username}" if user.username else f"tg{payer}",
         )
     except Exception:
         payment.status = "failed"
