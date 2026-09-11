@@ -653,21 +653,25 @@ class MirrorBot:
             if rest not in mirror_platega.PAID_PLANS:
                 await self.answer_callback(callback_id, "Неизвестный тариф.", alert=True)
                 return
-            rows = [
-                [_button(mirror_platega.METHOD_LABELS[method], callback=f"pl_pay:{rest}:{method}")]
-                for method in mirror_platega.ENABLED_METHODS
-            ]
-            rows.append([_button("◀️ К тарифам", callback="tariffs")])
-            await self.render(
-                chat_id, mirror_platega.checkout_text(rest), _keyboard(*rows), message_id=message_id
-            )
-            await self.answer_callback(callback_id)
-            return
+            if not mirror_platega.ENABLED_METHODS:
+                # The buyer picks the method on Platega's page: straight to the invoice.
+                kind, rest = "pl_pay", f"{rest}:{mirror_platega.PAYER_CHOOSES}"
+            else:
+                rows = [
+                    [_button(mirror_platega.METHOD_LABELS[method], callback=f"pl_pay:{rest}:{method}")]
+                    for method in mirror_platega.ENABLED_METHODS
+                ]
+                rows.append([_button("◀️ К тарифам", callback="tariffs")])
+                await self.render(
+                    chat_id, mirror_platega.checkout_text(rest), _keyboard(*rows), message_id=message_id
+                )
+                await self.answer_callback(callback_id)
+                return
 
         if kind == "pl_pay":
             plan, _, method_raw = rest.partition(":")
             method = int(method_raw) if method_raw.isdigit() else -1
-            if plan not in mirror_platega.PAID_PLANS or method not in mirror_platega.ENABLED_METHODS:
+            if plan not in mirror_platega.PAID_PLANS or method not in mirror_platega.offered_methods():
                 await self.answer_callback(callback_id, "Неизвестный способ оплаты.", alert=True)
                 return
             async with self._lock_for(telegram_id):
@@ -1110,7 +1114,7 @@ async def main() -> None:
             if bot.platega is not None:
                 logger.info(
                     "Mirror started: @%s (%s), payments: Platega %s",
-                    me.get("username"), me["id"], mirror_platega.ENABLED_METHODS,
+                    me.get("username"), me["id"], mirror_platega.offered_methods(),
                 )
                 await asyncio.gather(bot.poll(), bot.platega_watch())
             else:

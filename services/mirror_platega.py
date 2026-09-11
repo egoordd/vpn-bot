@@ -47,16 +47,24 @@ SECRET = os.environ.get("PLATEGA_SECRET", "").strip()
 # Where Platega sends the buyer after the payment page: back to the bot.
 RETURN_URL = os.environ.get("PLATEGA_RETURN_URL", "https://t.me/UnLockFreedom_bot").strip()
 
-# Platega's method codes. Only the ones switched on for this merchant are offered.
+# Platega's method codes. By default the buyer picks the method on Platega's own
+# page (method 0 here, the /v2 endpoint), which is one screen fewer in the bot.
+# Listing codes in PLATEGA_METHODS instead offers a choice inside the bot.
+PAYER_CHOOSES = 0
 METHOD_LABELS: dict[int, str] = {
     2: "⚡️ СБП",
     11: "💳 Банковская карта",
     13: "🪙 Криптовалюта",
 }
-METHOD_NAMES: dict[int, str] = {2: "СБП", 11: "банковская карта", 13: "криптовалюта"}
+METHOD_NAMES: dict[int, str] = {
+    PAYER_CHOOSES: "на выбор на странице оплаты",
+    2: "СБП",
+    11: "банковская карта",
+    13: "криптовалюта",
+}
 ENABLED_METHODS: tuple[int, ...] = tuple(
     int(code)
-    for code in os.environ.get("PLATEGA_METHODS", "2,11").split(",")
+    for code in os.environ.get("PLATEGA_METHODS", "").split(",")
     if code.strip().isdigit() and int(code) in METHOD_LABELS
 )
 
@@ -70,7 +78,13 @@ _TIMEOUT = aiohttp.ClientTimeout(total=15)
 
 
 def is_configured() -> bool:
-    return bool(MERCHANT_ID and SECRET and ENABLED_METHODS)
+    return bool(MERCHANT_ID and SECRET)
+
+
+def offered_methods() -> tuple[int, ...]:
+    """What the bot offers: the listed methods, or one button leading to Platega's choice."""
+
+    return ENABLED_METHODS or (PAYER_CHOOSES,)
 
 
 class PlategaError(RuntimeError):
@@ -105,25 +119,37 @@ class PlategaClient:
         return data
 
     async def create(
-        self, *, amount_rub: int, method: int, description: str, payload: str, user_id: int
+        self,
+        *,
+        amount_rub: int,
+        method: int,
+        description: str,
+        payload: str,
+        order_id: str,
+        user_id: int,
+        user_name: str,
     ) -> tuple[str, str]:
-        data = await self._request(
-            "POST",
-            "/transaction/process",
-            {
-                "paymentMethod": method,
-                "paymentDetails": {"amount": amount_rub, "currency": "RUB"},
-                "description": description,
-                "return": RETURN_URL,
-                "failedUrl": RETURN_URL,
-                "payload": payload,
-                "metadata": {"userId": str(user_id)},
-            },
-        )
-        transaction_id, redirect = data.get("transactionId"), data.get("redirect")
-        if not transaction_id or not redirect:
-            raise PlategaError("create: no transactionId or redirect in the answer")
-        return str(transaction_id), str(redirect)
+        body: dict[str, Any] = {
+            "paymentDetails": {"amount": amount_rub, "currency": "RUB"},
+            "description": description,
+            "return": RETURN_URL,
+            "failedUrl": RETURN_URL,
+            "payload": payload,
+            "orderId": order_id,
+            # Platega requires the payer's identity for some merchant categories;
+            # without it their antifraud is off and the shop can be suspended.
+            "metadata": {"userId": str(user_id), "userName": user_name},
+        }
+        if method == PAYER_CHOOSES:
+            data = await self._request("POST", "/v2/transaction/process", body)
+            pay_url = data.get("url")
+        else:
+            data = await self._request("POST", "/transaction/process", {"paymentMethod": method, **body})
+            pay_url = data.get("redirect")
+        transaction_id = data.get("transactionId")
+        if not transaction_id or not pay_url:
+            raise PlategaError("create: no transactionId or payment link in the answer")
+        return str(transaction_id), str(pay_url)
 
     async def status(self, transaction_id: str) -> tuple[str, float | None]:
         data = await self._request("GET", f"/transaction/{transaction_id}")
@@ -148,7 +174,7 @@ async def start_payment(
 ) -> tuple[Payment, str]:
     """Open an invoice: our row first, then Platega, so no paid invoice is unknown to us."""
 
-    if plan not in PAID_PLANS or method not in ENABLED_METHODS:
+    if plan not in PAID_PLANS or method not in offered_methods():
         raise ValueError("unknown plan or payment method")
     tariff = resolve_tariff(plan)
     payload = make_payload(user_id=user.id, plan=plan)
@@ -169,7 +195,9 @@ async def start_payment(
             method=method,
             description=f"Подписка UnLock VPN: {tariff.title}",
             payload=payload,
+            order_id=str(payment.id),
             user_id=user.telegram_id,
+            user_name=f"@{user.username}" if user.username else f"tg{user.telegram_id}",
         )
     except Exception:
         payment.status = "failed"

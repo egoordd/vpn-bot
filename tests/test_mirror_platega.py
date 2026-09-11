@@ -19,12 +19,12 @@ class FakePlatega:
         self.created: list[dict] = []
         self.status_calls = 0
 
-    async def create(self, *, amount_rub, method, description, payload, user_id):
+    async def create(self, *, amount_rub, method, description, payload, order_id, user_id, user_name):
         if self.fail_create:
             raise mirror_platega.PlategaError("HTTP 400")
         self.created.append(
             {"amount": amount_rub, "method": method, "description": description,
-             "payload": payload, "user_id": user_id}
+             "payload": payload, "order_id": order_id, "user_id": user_id, "user_name": user_name}
         )
         return "tx-" + str(len(self.created)), "https://pay.platega.io/tx"
 
@@ -72,10 +72,67 @@ def configured(monkeypatch):
     monkeypatch.setattr(mirror_platega, "ENABLED_METHODS", (2, 11))
 
 
-def test_needs_merchant_secret_and_a_method(monkeypatch):
+def test_needs_merchant_and_secret(monkeypatch):
     assert mirror_platega.is_configured()
     monkeypatch.setattr(mirror_platega, "SECRET", "")
     assert not mirror_platega.is_configured()
+
+
+def test_without_listed_methods_the_buyer_chooses_on_plategas_page(monkeypatch):
+    monkeypatch.setattr(mirror_platega, "ENABLED_METHODS", ())
+    assert mirror_platega.offered_methods() == (mirror_platega.PAYER_CHOOSES,)
+
+
+class _RecordingClient(mirror_platega.PlategaClient):
+    def __init__(self, answer):
+        super().__init__("merchant", "secret")
+        self.answer = answer
+        self.sent = []
+
+    async def _request(self, method, path, body=None):
+        self.sent.append((method, path, body))
+        return self.answer
+
+
+_CREATE = dict(
+    amount_rub=149, description="d", payload="p", order_id="42", user_id=5001, user_name="@buyer"
+)
+
+
+@pytest.mark.asyncio
+async def test_a_fixed_method_goes_to_the_documented_endpoint():
+    client = _RecordingClient({"transactionId": "t1", "redirect": "https://pay.platega.io/r"})
+
+    tx, url = await client.create(method=2, **_CREATE)
+
+    method, path, body = client.sent[0]
+    assert (method, path) == ("POST", "/transaction/process")
+    assert body["paymentMethod"] == 2
+    assert body["paymentDetails"] == {"amount": 149, "currency": "RUB"}
+    assert body["orderId"] == "42"
+    assert body["metadata"] == {"userId": "5001", "userName": "@buyer"}
+    assert (tx, url) == ("t1", "https://pay.platega.io/r")
+
+
+@pytest.mark.asyncio
+async def test_payer_choice_uses_v2_and_its_url_field():
+    client = _RecordingClient({"transactionId": "t2", "url": "https://pay.platega.io/?id=x"})
+
+    tx, url = await client.create(method=mirror_platega.PAYER_CHOOSES, **_CREATE)
+
+    method, path, body = client.sent[0]
+    assert (method, path) == ("POST", "/v2/transaction/process")
+    assert "paymentMethod" not in body
+    assert body["metadata"]["userId"] == "5001"
+    assert (tx, url) == ("t2", "https://pay.platega.io/?id=x")
+
+
+@pytest.mark.asyncio
+async def test_an_answer_without_a_link_is_an_error():
+    client = _RecordingClient({"transactionId": "t3"})
+
+    with pytest.raises(mirror_platega.PlategaError):
+        await client.create(method=2, **_CREATE)
 
 
 def test_payload_carries_the_plan():
@@ -98,6 +155,8 @@ async def test_an_invoice_is_recorded_before_the_buyer_pays(db_session):
     sent = client.created[0]
     assert (sent["amount"], sent["method"]) == (399, 11)
     assert sent["payload"] == payment.invoice_payload
+    assert sent["order_id"] == str(payment.id)
+    assert (sent["user_id"], sent["user_name"]) == (5001, "@buyer")
 
 
 @pytest.mark.asyncio
@@ -303,3 +362,24 @@ async def test_nobody_can_check_someone_elses_payment(session_pool):
     answer = next(p for m, p in telegram.calls if m == "answerCallbackQuery")
     assert "не найден" in answer.get("text", "")
     assert bot.platega.status_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_by_default_a_tariff_tap_opens_the_invoice_straight_away(session_pool, monkeypatch):
+    monkeypatch.setattr(mirror_platega, "ENABLED_METHODS", ())
+    telegram = FakeTelegram()
+    bot = mirror_bot.MirrorBot(telegram, session_pool)
+    bot.platega = FakePlatega()
+
+    await bot.handle_callback(
+        {
+            "id": "cb3",
+            "from": {"id": 5003, "username": "buyer"},
+            "message": {"chat": {"id": 5003}, "message_id": 12},
+            "data": "pl_plan:standard_1m",
+        }
+    )
+
+    assert bot.platega.created[0]["method"] == mirror_platega.PAYER_CHOOSES
+    screen = next(p for m, p in telegram.calls if m in {"editMessageText", "sendMessage"})
+    assert "https://pay.platega.io/tx" in [b.get("url") for b in _buttons(screen["reply_markup"])]
