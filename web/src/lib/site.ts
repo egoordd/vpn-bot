@@ -5,10 +5,10 @@ export const SITE = {
     "UnLock — надёжный VPN с подпиской. Подключение за минуту, работает на телефоне и компьютере, не обрывается. Оплата удобными способами.",
   botUsername: process.env.NEXT_PUBLIC_TELEGRAM_BOT ?? "unlock_bot",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://unlock.example",
-  // Support mailbox shown on the site. Own-domain address by default; set up
-  // Cloudflare Email Routing (free) to forward it to your real inbox, or point
-  // NEXT_PUBLIC_SUPPORT_EMAIL at any working address.
-  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@unlockvpn.site",
+  // Support mailbox shown on the site: the inbox our letters are sent from, so
+  // a reply to a purchase letter and a message from the site land together.
+  // The old unlockvpn.site zone has no mail server — mail there bounced.
+  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "unlockvpnru@gmail.com",
 } as const;
 
 /** Кампания, по ссылке которой пришёл посетитель. Ставится /go/<кампания>,

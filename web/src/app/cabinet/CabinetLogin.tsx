@@ -140,7 +140,7 @@ export function CabinetLogin({ telegramLoginHref, note }: CabinetLoginProps) {
               type="url"
               inputMode="url"
               autoComplete="off"
-              placeholder="https://sub.unlockvpn.site/sub/…"
+              placeholder="https://…/sub/…"
               value={subscription}
               onChange={(e) => setSubscription(e.target.value)}
               disabled={busy}

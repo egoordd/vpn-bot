@@ -134,7 +134,7 @@ export function BuyClient({
               type="url"
               inputMode="url"
               autoComplete="off"
-              placeholder="https://sub.unlockvpn.site/sub/…"
+              placeholder="https://…/sub/…"
               value={subLink}
               onChange={(event) => setSubLink(event.target.value)}
             />

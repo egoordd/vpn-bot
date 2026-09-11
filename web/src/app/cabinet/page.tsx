@@ -25,7 +25,7 @@ export default async function CabinetPage() {
   // Taken from the request, not from NEXT_PUBLIC_SITE_URL: Telegram rejects the
   // login when `origin` does not match the domain the person is actually on,
   // and that variable is currently set to a domain that does not resolve.
-  const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "unlockvpn.site";
+  const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "unlockproject.site";
   const proto = headers().get("x-forwarded-proto") ?? "https";
   const tgHref = telegramLoginUrl(`${proto}://${host}/auth/telegram/callback`);
 

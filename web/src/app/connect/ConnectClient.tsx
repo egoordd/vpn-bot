@@ -189,7 +189,7 @@ export function ConnectClient() {
           <input
             id="sub-input"
             className="connectp__input mono"
-            placeholder="https://sub.unlockvpn.site/sub/…"
+            placeholder="https://…/sub/…"
             value={manual}
             onChange={(e) => setManual(e.target.value)}
           />
