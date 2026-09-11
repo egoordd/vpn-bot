@@ -890,3 +890,55 @@ def test_a_token_that_is_not_ours_never_migrates(monkeypatch, migration):
 
     assert "new-url" not in sub_gateway._client_headers("not-a-panel-token")
     assert "new-url" not in sub_gateway._client_headers(None)
+
+
+# --- 📶 запись для мобильного интернета в «белых списках» ------------------------
+# Российские операторы периодически оставляют открытыми только разрешённые
+# сервисы. Туннель переживает это, если первый узел стоит на российском адресе,
+# а в рукопожатии названа разрешённая служба.
+
+MOBILE_RELAY = "203.0.113.10"
+
+
+@pytest.fixture
+def mobile_relay(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "MOBILE_HOST", MOBILE_RELAY)
+    monkeypatch.setattr(sub_gateway, "MOBILE_UUID", "mobile-uuid")
+    monkeypatch.setattr(sub_gateway, "MOBILE_PBK", "mobile-pbk")
+    monkeypatch.setattr(sub_gateway, "MOBILE_SID", "mobilesid")
+
+
+def test_the_mobile_entry_names_a_whitelisted_service_not_our_own_host(mobile_relay):
+    """Смысл записи: адрес российский, а имя в рукопожатии — разрешённой службы."""
+    link = sub_gateway.build_mobile_links([_de_reality()])[0]
+
+    assert f"@{MOBILE_RELAY}:443" in link
+    assert f"sni={sub_gateway.MOBILE_SNI}" in link
+    assert sub_gateway.MOBILE_SNI != MOBILE_RELAY, "маскировка своим же адресом бессмысленна"
+    assert "security=reality" in link and "flow=xtls-rprx-vision" in link
+    assert "pbk=mobile-pbk" in link and "sid=mobilesid" in link
+
+
+def test_no_relay_no_entry(monkeypatch):
+    """Код живёт в выдаче и спит, пока сервер не куплен и не прописан."""
+    monkeypatch.setattr(sub_gateway, "MOBILE_HOST", "")
+
+    assert sub_gateway.build_mobile_links([_de_reality()]) == []
+
+
+def test_a_lapsed_subscription_never_receives_the_shared_mobile_secret(mobile_relay):
+    assert sub_gateway.build_mobile_links([]) == []
+
+
+def test_the_mobile_entry_is_not_pulled_into_the_automatic_balancer(mobile_relay):
+    """Трафик в российском облаке платный: авто-режим не должен его расходовать."""
+    from services import xray_json
+
+    links = [_de_reality(), *sub_gateway.build_mobile_links([_de_reality()])]
+
+    configs = xray_json.build_json_subscription(links, exclude_from_balancer={MOBILE_RELAY})
+
+    balancer = configs[0]
+    assert MOBILE_RELAY not in json.dumps(balancer), "запись попала в авто-режим"
+    servers = json.dumps(configs[1:])
+    assert MOBILE_RELAY in servers, "запись должна оставаться выбираемой вручную"

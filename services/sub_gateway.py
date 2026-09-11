@@ -674,6 +674,58 @@ def build_cascade_links(links: list[str]) -> list[str]:
     ]
 
 
+# --- 📶 мобильный интернет в «белых списках» -------------------------------------
+# Российские операторы периодически опускают мобильный интернет до белого списка:
+# открыты только разрешённые службы, а все зарубежные адреса недоступны. Туннель
+# переживает это лишь при двух условиях сразу — первый узел стоит на российском
+# адресе, и рукопожатие называет службу из списка.
+#
+# Отсюда устройство записи: VLESS Reality на входе в российском облаке, а в SNI —
+# имя разрешённого сервиса (по умолчанию `max.ru`, национальный мессенджер).
+# Reality на том сервере направляет неопознанные соединения на настоящий max.ru,
+# поэтому проверяющий видит его собственный сертификат. Российские адреса вход
+# отдаёт со своего же адреса, остальное передаёт на наши зарубежные узлы.
+#
+# Запись спит, пока не куплен сервер: без MOBILE_HOST/UUID ничего не выдаётся.
+# Она намеренно не попадает в «Авто-обход» (см. build_auto_json): трафик в
+# российском облаке платный, а канал этот — аварийный, а не для всех подряд.
+MOBILE_HOST = os.environ.get("MOBILE_HOST", "")
+MOBILE_PORT = int(os.environ.get("MOBILE_PORT", "443") or 443)
+# Имя, которое видит оператор. Своим адресом маскироваться бессмысленно: в белом
+# списке его нет, а значит и соединения не будет.
+MOBILE_SNI = os.environ.get("MOBILE_SNI", "max.ru")
+MOBILE_UUID = os.environ.get("MOBILE_UUID", "")
+MOBILE_PBK = os.environ.get("MOBILE_PBK", "")
+MOBILE_SID = os.environ.get("MOBILE_SID", "")
+MOBILE_REMARK = os.environ.get("MOBILE_REMARK", "📶 Мобильный интернет")
+
+
+def _mobile_link() -> str | None:
+    """Ссылка на российский вход, или None, пока он не настроен."""
+
+    if not (MOBILE_HOST and MOBILE_UUID and MOBILE_PBK):
+        return None
+    return (
+        f"vless://{MOBILE_UUID}@{MOBILE_HOST}:{MOBILE_PORT}"
+        f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={MOBILE_SNI}"
+        f"&fp=firefox&pbk={MOBILE_PBK}&sid={MOBILE_SID}"
+        f"#{urllib.parse.quote(MOBILE_REMARK)}"
+    )
+
+
+def build_mobile_links(links: list[str]) -> list[str]:
+    """Добавить запись для белых списков живой подписке.
+
+    Как и каскад, это ссылка с общим секретом, поэтому она выдаётся только
+    тому, у кого уже есть хотя бы один живой сервер: resolve_links к этому
+    моменту уже обнулил подписку истёкшему пользователю.
+    """
+    link = _mobile_link()
+    if link is None or not links:
+        return []
+    return [link]
+
+
 # RU-audience proximity order: the app's default/top server should be the
 # lowest-ping one. The 🇷🇺→🇩🇪 cascade enters on a domestic Moscow IP (the
 # un-throttled first hop) so it wins outright; Germany/Poland/Netherlands are
@@ -721,7 +773,7 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     combined = combine_links(decoded)
     if not combined:
         return [], userinfo
-    combined = combined + build_cascade_links(combined)
+    combined = combined + build_cascade_links(combined) + build_mobile_links(combined)
     _register_probe_targets(combined)
     return reorder_by_proximity(filter_alive(combined)), userinfo
 
@@ -750,7 +802,9 @@ def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
     if resolved is None:
         return None
     links, userinfo = resolved
-    configs = build_json_subscription(links)
+    configs = build_json_subscription(
+        links, exclude_from_balancer={MOBILE_HOST} if MOBILE_HOST else frozenset()
+    )
     if configs:
         # Compact separators, because the size of this body decides whether a
         # Russian client can fetch it at all. The path from RU to the gateway is

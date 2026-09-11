@@ -680,7 +680,11 @@ def _health_check(strategy: str) -> tuple[dict, dict]:
 
 
 def build_balancer_config(
-    uris: list[str], remarks: str = AUTO_REMARKS, *, ru_apps_direct: bool = False
+    uris: list[str],
+    remarks: str = AUTO_REMARKS,
+    *,
+    ru_apps_direct: bool = False,
+    exclude_hosts: frozenset[str] | set[str] = frozenset(),
 ) -> dict | None:
     """The one automatic entry: balances over one server per exit, healthiest first.
 
@@ -699,7 +703,7 @@ def build_balancer_config(
     below, so nothing is lost but the churn.
     """
     outbounds: list[dict] = []
-    for uri in _balancer_selection(uris):
+    for uri in _balancer_selection(uris, exclude_hosts):
         outbound = build_outbound(uri, f"proxy-{len(outbounds)}")
         if outbound is not None:
             outbounds.append(outbound)
@@ -727,7 +731,7 @@ def build_balancer_config(
 BALANCER_MAX_OUTBOUNDS = int(os.environ.get("BALANCER_MAX_OUTBOUNDS", "5"))
 
 
-def _balancer_selection(uris: list[str]) -> list[str]:
+def _balancer_selection(uris: list[str], exclude_hosts: frozenset[str] | set[str] = frozenset()) -> list[str]:
     """One entry per exit, plus the first Hysteria2, in that order.
 
     Twelve outbounds means the health prober opens twelve tunnels a minute,
@@ -751,6 +755,10 @@ def _balancer_selection(uris: list[str]) -> list[str]:
         if parsed is None:
             continue
         scheme, _, host, _, _, _ = parsed
+        # Узел, который платит за трафик (российское облако для «белых списков»),
+        # остаётся выбираемым вручную, но не крутится в автоматическом режиме.
+        if host in exclude_hosts:
+            continue
         if scheme in ("hysteria2", "hy2"):
             hysteria = hysteria or uri
             continue
@@ -778,7 +786,9 @@ def _balancer_selection(uris: list[str]) -> list[str]:
 SPLIT_REMARKS = "🇷🇺 Режим РУ-сервисов"
 
 
-def build_json_subscription(links: list[str]) -> list[dict]:
+def build_json_subscription(
+    links: list[str], *, exclude_from_balancer: frozenset[str] | set[str] = frozenset()
+) -> list[dict]:
     """Full JSON-array body: both balancers first, then each server on its own.
 
     Objects only: mixing raw URI strings into the array broke Happ's import
@@ -801,11 +811,13 @@ def build_json_subscription(links: list[str]) -> list[dict]:
     Empty when no xray-core-compatible server is present (caller then falls
     back to the plain base64 subscription).
     """
-    balancer = build_balancer_config(links, AUTO_REMARKS)
+    balancer = build_balancer_config(links, AUTO_REMARKS, exclude_hosts=exclude_from_balancer)
     if balancer is None:
         return []
     configs = [balancer]
-    split = build_balancer_config(links, SPLIT_REMARKS, ru_apps_direct=True)
+    split = build_balancer_config(
+        links, SPLIT_REMARKS, ru_apps_direct=True, exclude_hosts=exclude_from_balancer
+    )
     if split is not None:
         configs.append(split)
     for index, uri in enumerate(links):
