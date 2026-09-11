@@ -291,9 +291,9 @@ def _about_text() -> str:
     """What the service is, in claims the tariffs and the privacy policy back up."""
 
     points = ["Полная конфиденциальность — не храним историю посещений"]
-    lowest = mirror_legal.lowest_monthly_price()
-    if lowest is not None:
-        points.append(f"Доступные цены — от {lowest} ₽ в месяц")
+    starting = mirror_legal.starting_price()
+    if starting is not None:
+        points.append(f"Доступные цены — от {starting} ₽ в месяц")
     traffic = mirror_legal.largest_monthly_traffic_gb()
     devices = mirror_legal.device_limit()
     if traffic is not None and devices is not None:

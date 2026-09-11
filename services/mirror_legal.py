@@ -210,8 +210,10 @@ def device_limit() -> int | None:
     return limits.pop() if len(limits) == 1 else None
 
 
-def lowest_monthly_price() -> int | None:
-    prices = [_per_month(item) for item in _paid_tariffs()]
+def starting_price() -> int | None:
+    """The price a subscription starts at: the cheapest plan as it is sold, not a per-month average."""
+
+    prices = [item.price_rub for item in _paid_tariffs()]
     return min(prices) if prices else None
 
 

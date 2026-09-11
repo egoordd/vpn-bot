@@ -163,7 +163,7 @@ def test_about_claims_only_what_the_service_really_offers() -> None:
     text = mirror_bot._about_text()
     lowered = text.lower()
 
-    assert "от 100 ₽" in text
+    assert "от 149 ₽ в месяц" in text
     assert "200 ГБ" in text
     assert "3 устройств" in text
     for claim in ("безлимит", "24/7", "тысяч", "лучшие цены"):
