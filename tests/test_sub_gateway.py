@@ -827,42 +827,66 @@ def _panel_token(username: str) -> str:
 @pytest.fixture
 def migration(monkeypatch):
     monkeypatch.setattr(sub_gateway, "HAPP_PROVIDER_ID", "Yvxgm466")
-    monkeypatch.setattr(sub_gateway, "SUB_NEW_DOMAIN", "sub.unlockvpn.shop")
+    monkeypatch.setattr(sub_gateway, "SUB_NEW_BASE", "https://unlockru.site")
 
 
-def test_new_domain_goes_only_to_the_test_group(monkeypatch, migration):
+def test_new_url_goes_only_to_the_test_group(monkeypatch, migration):
     """The header moves an install for good, so a test must stay a test."""
     monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"tg_740484324"}))
+    token = _panel_token("tg_740484324")
 
-    mine = sub_gateway._client_headers(_panel_token("tg_740484324"))
+    mine = sub_gateway._client_headers(token)
     someone_else = sub_gateway._client_headers(_panel_token("tg_111"))
 
-    assert mine["new-domain"] == "sub.unlockvpn.shop"
-    assert "new-domain" not in someone_else
+    assert mine["new-url"] == f"https://unlockru.site/sub/{token}"
+    assert "new-url" not in someone_else
 
 
-def test_a_target_domain_alone_migrates_nobody(monkeypatch, migration):
+def test_the_move_keeps_the_links_flavor(monkeypatch, migration):
+    """Moving must not quietly swap «РУ сервисы напрямую» for the plain link."""
+    monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"*"}))
+    token = _panel_token("tg_-555")
+
+    headers = sub_gateway._client_headers(token, "split")
+
+    assert headers["new-url"] == f"https://unlockru.site/sub/{token}/split"
+
+
+def test_the_move_names_the_whole_address_not_just_the_host(monkeypatch, migration):
+    """Old links also live on :8444 and :8446. A bare host swap keeps the port
+    and sends those installs to an address nothing answers on."""
+    monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"*"}))
+
+    headers = sub_gateway._client_headers(_panel_token("tg_-555"))
+
+    assert "new-domain" not in headers
+    assert headers["new-url"].startswith("https://unlockru.site/sub/")
+
+
+def test_a_target_address_alone_migrates_nobody(monkeypatch, migration):
     monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset())
 
-    assert "new-domain" not in sub_gateway._client_headers(_panel_token("tg_740484324"))
+    assert "new-url" not in sub_gateway._client_headers(_panel_token("tg_740484324"))
 
 
 def test_star_rolls_the_move_out_to_everyone(monkeypatch, migration):
     monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"*"}))
+    token = _panel_token("tg_-555")
 
-    assert sub_gateway._client_headers(_panel_token("tg_-555"))["new-domain"] == "sub.unlockvpn.shop"
+    assert sub_gateway._client_headers(token)["new-url"] == f"https://unlockru.site/sub/{token}"
 
 
 def test_website_buyers_can_be_named_in_the_test_group(monkeypatch, migration):
     monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"tg_-2080153529382715"}))
+    token = _panel_token("tg_-2080153529382715")
 
-    headers = sub_gateway._client_headers(_panel_token("tg_-2080153529382715"))
+    headers = sub_gateway._client_headers(token)
 
-    assert headers["new-domain"] == "sub.unlockvpn.shop"
+    assert headers["new-url"] == f"https://unlockru.site/sub/{token}"
 
 
 def test_a_token_that_is_not_ours_never_migrates(monkeypatch, migration):
     monkeypatch.setattr(sub_gateway, "SUB_MIGRATE_USERS", frozenset({"tg_740484324"}))
 
-    assert "new-domain" not in sub_gateway._client_headers("not-a-panel-token")
-    assert "new-domain" not in sub_gateway._client_headers(None)
+    assert "new-url" not in sub_gateway._client_headers("not-a-panel-token")
+    assert "new-url" not in sub_gateway._client_headers(None)

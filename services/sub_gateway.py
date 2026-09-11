@@ -116,19 +116,23 @@ PROFILE_WEB_PAGE_URL = os.environ.get("SUB_WEB_PAGE_URL", "https://unlockproject
 # Happ "advanced" parameters. They only apply when `providerid` rides along, and
 # they are what turns a filtered domain from an outage into something nobody
 # notices:
-#   new-domain   the app rewrites the host of its stored subscription URL on the
-#                next refresh and keeps the token, so every install that can
-#                still reach the old host migrates itself within the hour;
+#   new-url      the app replaces its stored subscription address with this one
+#                on the next refresh, so every install that can still reach the
+#                old host migrates itself within the hour. The whole address, not
+#                Happ's `new-domain` host swap: old links also live on :8444 and
+#                :8446, and a swap keeps the port, pointing them at nothing;
 #   fallback-url the app stores it and switches over on its own once the primary
 #                stops answering (no reply in 9s, or HTTP 300-599) — which is
 #                exactly how a name-filtered host fails.
 # Kept on a domain-independent host so one blocklist entry cannot take out both.
 HAPP_PROVIDER_ID = os.environ.get("HAPP_PROVIDER_ID", "")
-SUB_NEW_DOMAIN = os.environ.get("SUB_NEW_DOMAIN", "")
+# Where installs are moved to: scheme and host of the working subscription
+# address, e.g. https://unlockru.site.
+SUB_NEW_BASE = os.environ.get("SUB_NEW_BASE", "")
 SUB_FALLBACK_BASE = os.environ.get("SUB_FALLBACK_BASE", "")
-# Who is told to move. `new-domain` rewrites an install for good, so it goes to a
+# Who is told to move. `new-url` rewrites an install for good, so it goes to a
 # named test group first: comma-separated panel usernames, or "*" for everyone.
-# Empty means nobody — a target domain on its own never migrates a single user.
+# Empty means nobody — a target address on its own never migrates a single user.
 SUB_MIGRATE_USERS = frozenset(
     name.strip() for name in os.environ.get("SUB_MIGRATE_USERS", "").split(",") if name.strip()
 )
@@ -179,7 +183,7 @@ def _token_username(token: str) -> str | None:
 
 
 def _migrates(token: str | None) -> bool:
-    if not SUB_NEW_DOMAIN or not token or not SUB_MIGRATE_USERS:
+    if not SUB_NEW_BASE or not token or not SUB_MIGRATE_USERS:
         return False
     if "*" in SUB_MIGRATE_USERS:
         return True
@@ -191,12 +195,12 @@ def _client_headers(token: str | None = None, flavor: str = "") -> dict[str, str
     headers = {"profile-title": PROFILE_TITLE_HEADER, **APP_HEADERS}
     if HAPP_PROVIDER_ID:
         headers["providerid"] = HAPP_PROVIDER_ID
+        # Keep the flavor: moving or falling back must not silently downgrade a
+        # user from /split (RU services direct) to the plain subscription.
+        suffix = f"/{flavor}" if flavor else ""
         if _migrates(token):
-            headers["new-domain"] = SUB_NEW_DOMAIN
+            headers["new-url"] = f"{SUB_NEW_BASE.rstrip('/')}/sub/{token}{suffix}"
         if SUB_FALLBACK_BASE and token:
-            # Keep the flavor: falling back must not silently downgrade a user
-            # from /split (RU services direct) to the plain subscription.
-            suffix = f"/{flavor}" if flavor else ""
             headers["fallback-url"] = f"{SUB_FALLBACK_BASE.rstrip('/')}/sub/{token}{suffix}"
     if SUB_ANNOUNCE.strip():
         announce = SUB_ANNOUNCE.strip()[:200]
