@@ -105,7 +105,7 @@ def privacy_policy() -> str:
         "их уточнения или удаления и отозвать согласие на обработку. Запрос "
         "направляется в поддержку, ответ даётся в течение 30 дней.\n\n"
         "<b>10. Изменение Политики</b>\n"
-        "Действующая редакция всегда доступна в этом боте: раздел «❓ Помощь» → "
+        "Действующая редакция всегда доступна в этом боте: раздел «ℹ️ О сервисе» → "
         "«🔒 Конфиденциальность», или команда /privacy.\n\n"
         "<b>11. Контакты</b>\n"
         f"Поддержка: {_support()}"
@@ -161,7 +161,7 @@ def terms_of_use() -> str:
         "действий, совершённых пользователем при использовании Сервиса.\n\n"
         "<b>10. Изменение условий</b>\n"
         "Сервис вправе изменять условия соглашения. Действующая редакция всегда "
-        "доступна в разделе «❓ Помощь» → «📄 Соглашение» или по команде /terms. "
+        "доступна в разделе «ℹ️ О сервисе» → «📄 Соглашение» или по команде /terms. "
         "Продолжение использования "
         "Сервиса означает согласие с изменениями.\n\n"
         "<b>11. Контакты</b>\n"
@@ -208,6 +208,16 @@ def device_limit() -> int | None:
 
     limits = {item.device_limit for item in _paid_tariffs()}
     return limits.pop() if len(limits) == 1 else None
+
+
+def lowest_monthly_price() -> int | None:
+    prices = [_per_month(item) for item in _paid_tariffs()]
+    return min(prices) if prices else None
+
+
+def largest_monthly_traffic_gb() -> int | None:
+    volumes = [item.traffic_gb for item in _paid_tariffs() if item.traffic_gb and item.traffic_resets_monthly]
+    return max(volumes) if volumes else None
 
 
 def _traffic(tariff: Tariff) -> str:
@@ -282,7 +292,7 @@ def bot_description() -> str:
     lines += [
         "",
         "Оплата картой или через СБП. Пользовательское соглашение и политика "
-        "конфиденциальности — в разделе «❓ Помощь».",
+        "конфиденциальности — в разделе «ℹ️ О сервисе».",
     ]
     return "\n".join(lines)
 

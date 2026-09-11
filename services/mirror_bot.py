@@ -138,25 +138,26 @@ def main_menu_keyboard(*, has_subscription: bool, trial_available: bool) -> dict
     """Three short menus, one per kind of visitor.
 
     The first version put every screen on the main menu, eight full-width
-    buttons deep. Documents and support now sit one tap away under «Помощь»,
+    buttons deep. Documents and support now sit one tap away under «О сервисе»,
     which still keeps them reachable from the interface as the bank requires.
     """
 
-    help_button = _button("❓ Помощь", callback="help")
+    info_row = [_button("ℹ️ О сервисе", callback="about"), _button("❓ Помощь", callback="help")]
     if has_subscription:
         return _keyboard(
             [_button("📱 Подключить устройство", callback="connect_device")],
             [_button("🔄 Продлить", callback="tariffs"), _button("🎟 Промокод", callback="promo_enter")],
-            [help_button],
+            info_row,
         )
     if trial_available:
         return _keyboard(
             [_button("🎁 Попробовать бесплатно", callback="activate_trial")],
-            [_button("💳 Тарифы", callback="tariffs"), help_button],
+            [_button("💳 Тарифы", callback="tariffs")],
+            info_row,
         )
     return _keyboard(
-        [_button("💳 Тарифы", callback="tariffs")],
-        [_button("🎟 Промокод", callback="promo_enter"), help_button],
+        [_button("💳 Тарифы", callback="tariffs"), _button("🎟 Промокод", callback="promo_enter")],
+        info_row,
     )
 
 
@@ -187,9 +188,17 @@ def _help_keyboard() -> dict[str, Any]:
     support = _support_button("💬 Написать в поддержку")
     if support is not None:
         rows.append([support])
-    rows.append(
+    rows.append([_button("◀️ Назад", callback="main_menu")])
+    return _keyboard(*rows)
+
+
+def _about_keyboard() -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = [
         [_button("📄 Соглашение", callback="terms"), _button("🔒 Конфиденциальность", callback="privacy")]
-    )
+    ]
+    support = _support_button()
+    if support is not None:
+        rows.append([support])
     rows.append([_button("◀️ Назад", callback="main_menu")])
     return _keyboard(*rows)
 
@@ -219,8 +228,8 @@ def tariffs_keyboard() -> dict[str, Any]:
 def _document_keyboard(name: str) -> dict[str, Any]:
     if name == "tariffs":
         return tariffs_keyboard()
-    # Documents are opened from «Помощь», so «Назад» returns there.
-    return _keyboard([_button("◀️ Назад", callback="help")])
+    # Documents are opened from «О сервисе», so «Назад» returns there.
+    return _keyboard([_button("◀️ Назад", callback="about")])
 
 
 def _document_text(name: str) -> str:
@@ -275,6 +284,26 @@ def _welcome_text() -> str:
         "🌍 Серверы в Европе и США\n"
         f"📱 {_devices_phrase()}\n\n"
         f"🎁 Попробуйте бесплатно — {trial_days()}."
+    )
+
+
+def _about_text() -> str:
+    """What the service is, in claims the tariffs and the privacy policy back up."""
+
+    points = ["Полная конфиденциальность — не храним историю посещений"]
+    lowest = mirror_legal.lowest_monthly_price()
+    if lowest is not None:
+        points.append(f"Доступные цены — от {lowest} ₽ в месяц")
+    traffic = mirror_legal.largest_monthly_traffic_gb()
+    devices = mirror_legal.device_limit()
+    if traffic is not None and devices is not None:
+        points.append(f"До {traffic} ГБ в месяц и до {devices} устройств на подписке")
+    points += ["Серверы в Европе и США", "Живая поддержка в Telegram"]
+    return (
+        "ℹ️ <b>О сервисе</b>\n\n"
+        "🎯 <b>Наши преимущества</b>\n\n"
+        + "\n".join(f"• {point}" for point in points)
+        + f"\n\n🤝 Подключайтесь — первые {trial_days()} бесплатно."
     )
 
 
@@ -346,7 +375,7 @@ def _help_text(telegram_id: int) -> str:
         "</blockquote>\n\n"
         f"<b>Поддержка:</b> {html.escape(settings.support_contact)}\n"
         f"Ваш ID: <code>{telegram_id}</code> — приложите его к сообщению.\n\n"
-        "Соглашение и политика конфиденциальности — кнопками ниже."
+        "Соглашение и политика конфиденциальности — в разделе «ℹ️ О сервисе»."
     )
     if mirror_legal.VERIFICATION_CODE:
         text += f"\n\n<code>{mirror_legal.VERIFICATION_CODE}</code>"
@@ -567,6 +596,9 @@ class MirrorBot:
                 chat_id=chat_id,
             )
             return
+        if command == "/about":
+            await self.render(chat_id, _about_text(), _about_keyboard())
+            return
         if command == "/help":
             await self.render(chat_id, _help_text(telegram_id), _help_keyboard())
             return
@@ -633,6 +665,10 @@ class MirrorBot:
                 chat_id=chat_id,
                 message_id=message_id,
             )
+            await self.answer_callback(callback_id)
+            return
+        if data == "about":
+            await self.render(chat_id, _about_text(), _about_keyboard(), message_id=message_id)
             await self.answer_callback(callback_id)
             return
         if data == "help":
@@ -1144,6 +1180,7 @@ async def main() -> None:
                         {"command": "start", "description": "Главное меню"},
                         {"command": "tariffs", "description": "Тарифы и цены"},
                         {"command": "promo", "description": "Ввести промокод"},
+                        {"command": "about", "description": "О сервисе"},
                         {"command": "help", "description": "Помощь и поддержка"},
                         {"command": "terms", "description": "Пользовательское соглашение"},
                         {"command": "privacy", "description": "Политика конфиденциальности"},

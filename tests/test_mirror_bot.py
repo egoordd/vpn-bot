@@ -18,20 +18,20 @@ def test_subscriber_menu_is_short_and_sells_nothing_by_itself() -> None:
     markup = mirror_bot.main_menu_keyboard(has_subscription=True, trial_available=False)
     callbacks = _callback_values(markup)
 
-    assert callbacks == ["connect_device", "tariffs", "promo_enter", "help"]
+    assert callbacks == ["connect_device", "tariffs", "promo_enter", "about", "help"]
     assert len(markup["inline_keyboard"]) == 3
 
 
 def test_newcomer_gets_the_free_trial_first() -> None:
     markup = mirror_bot.main_menu_keyboard(has_subscription=False, trial_available=True)
 
-    assert _callback_values(markup) == ["activate_trial", "tariffs", "help"]
+    assert _callback_values(markup) == ["activate_trial", "tariffs", "about", "help"]
 
 
 def test_lapsed_user_is_sent_to_the_tariffs() -> None:
     markup = mirror_bot.main_menu_keyboard(has_subscription=False, trial_available=False)
 
-    assert _callback_values(markup) == ["tariffs", "promo_enter", "help"]
+    assert _callback_values(markup) == ["tariffs", "promo_enter", "about", "help"]
 
 
 @pytest.mark.parametrize(
@@ -130,6 +130,7 @@ def _mirror_surfaces() -> dict[str, str]:
 
     surfaces = dict(mirror_legal.documents())
     surfaces["help"] = mirror_bot._help_text(1)
+    surfaces["about"] = mirror_bot._about_text()
     surfaces["welcome"] = mirror_bot._menu_text([], trial_available=True)
     surfaces["subscriber"] = mirror_bot._menu_text([_subscription()], trial_available=False)
     surfaces["lapsed"] = mirror_bot._menu_text([], trial_available=False)
@@ -145,17 +146,36 @@ def test_documents_and_support_are_one_tap_from_the_menu() -> None:
     menu = _callback_values(
         mirror_bot.main_menu_keyboard(has_subscription=False, trial_available=False)
     )
-    help_markup = mirror_bot._help_keyboard()
+    about_markup = mirror_bot._about_keyboard()
     urls = [
         button["url"]
-        for row in help_markup["inline_keyboard"]
+        for row in about_markup["inline_keyboard"]
         for button in row
         if "url" in button
     ]
 
-    assert "tariffs" in menu and "help" in menu
-    assert {"terms", "privacy"} <= set(_callback_values(help_markup))
+    assert {"tariffs", "about", "help"} <= set(menu)
+    assert {"terms", "privacy"} <= set(_callback_values(about_markup))
     assert any("t.me/" in url for url in urls), "нет прямой кнопки поддержки"
+
+
+def test_about_claims_only_what_the_service_really_offers() -> None:
+    text = mirror_bot._about_text()
+    lowered = text.lower()
+
+    assert "от 100 ₽" in text
+    assert "200 ГБ" in text
+    assert "3 устройств" in text
+    for claim in ("безлимит", "24/7", "тысяч", "лучшие цены"):
+        assert claim not in lowered, claim
+
+
+def test_about_links_to_neither_the_channel_nor_the_site() -> None:
+    markup = mirror_bot._about_keyboard()
+    urls = [b["url"] for row in markup["inline_keyboard"] for b in row if "url" in b]
+
+    assert all("UnlockAccess" not in url and "unlockproject" not in url for url in urls)
+    assert "unlockproject" not in mirror_bot._about_text()
 
 
 def test_welcome_names_the_service_and_the_free_trial() -> None:
