@@ -20,11 +20,13 @@ Env:
 from __future__ import annotations
 
 import base64
+import functools
 import html
 import json
 import os
 import re
 import socket
+import sqlite3
 import ssl
 import threading
 import time
@@ -674,6 +676,171 @@ def build_cascade_links(links: list[str]) -> list[str]:
     ]
 
 
+# --- учёт устройств -------------------------------------------------------------
+# Тариф обещает «до 3 устройств», но до сих пор это была только надпись: ссылку
+# можно было раздать кому угодно, и один оплаченный доступ работал на десятке
+# телефонов. Приложения сами присылают идентификатор устройства (`x-hwid`, а с ним
+# модель и систему) — по нему лимит соблюдается прямо на выдаче.
+#
+# Правила, которые важнее самого лимита:
+#   • приложение, которое идентификатор не шлёт, не блокируется никогда — таких
+#     около десятой части обращений, и оставить их без серверов хуже, чем
+#     недосчитаться устройства;
+#   • устройство, которым не пользовались DEVICE_IDLE_DAYS, освобождает место —
+#     человек сменил телефон, и слот не должен держаться за старым вечно;
+#   • любая ошибка хранилища трактуется в пользу пользователя (выдаём серверы);
+#   • отказ — это не пустой список (приложение показывает его как поломку
+#     подписки), а одна понятная запись с адресом поддержки.
+#
+# DEVICE_LIMIT=0 выключает всё. DEVICE_ENFORCE=0 — режим наблюдения: устройства
+# считаются и видны в отчёте, но никого не отключают. Так лимит включается по
+# фактам, а не на ощупь: сначала неделя наблюдения, потом решение о цифре.
+DEVICE_LIMIT = int(os.environ.get("DEVICE_LIMIT", "0") or 0)
+DEVICE_ENFORCE = os.environ.get("DEVICE_ENFORCE", "1").lower() not in ("0", "false", "no", "")
+DEVICE_DB = os.environ.get("DEVICE_DB", "/var/lib/unlock-subgw/devices.sqlite3")
+DEVICE_IDLE_DAYS = int(os.environ.get("DEVICE_IDLE_DAYS", "14") or 14)
+DEVICE_LIMIT_REMARK = "❗️ Лимит устройств — напишите в поддержку"
+DEVICE_LIMIT_ANNOUNCE = (
+    "❗️ Достигнут лимит устройств по подписке.\n"
+    "Отключите лишнее устройство или напишите в поддержку."
+)
+_DEVICE_LOCK = threading.Lock()
+
+
+@functools.lru_cache(maxsize=1)
+def _device_store() -> sqlite3.Connection | None:
+    """Хранилище устройств, или None — тогда лимит просто не действует."""
+
+    try:
+        directory = os.path.dirname(DEVICE_DB)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        conn = sqlite3.connect(DEVICE_DB, check_same_thread=False)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS devices ("
+            " username TEXT NOT NULL, hwid TEXT NOT NULL, model TEXT, os TEXT,"
+            " first_seen REAL NOT NULL, last_seen REAL NOT NULL,"
+            " PRIMARY KEY (username, hwid))"
+        )
+        conn.commit()
+        return conn
+    except Exception as exc:  # noqa: BLE001 — без хранилища выдача продолжается
+        print(f"devices: хранилище недоступно ({type(exc).__name__}), лимит не действует", flush=True)
+        return None
+
+
+def device_allowed(
+    username: str | None, hwid: str | None, *, model: str | None = None, os_name: str | None = None
+) -> bool:
+    """Запомнить устройство и сказать, помещается ли оно в лимит подписки."""
+
+    if DEVICE_LIMIT <= 0 or not username or not hwid:
+        return True
+    conn = _device_store()
+    if conn is None:
+        return True
+    now = time.time()
+    try:
+        with _DEVICE_LOCK:
+            conn.execute("DELETE FROM devices WHERE last_seen < ?", (now - DEVICE_IDLE_DAYS * 86400,))
+            known = conn.execute(
+                "SELECT 1 FROM devices WHERE username = ? AND hwid = ?", (username, hwid)
+            ).fetchone()
+            if known is None:
+                used = conn.execute(
+                    "SELECT COUNT(*) FROM devices WHERE username = ?", (username,)
+                ).fetchone()[0]
+                if used >= DEVICE_LIMIT:
+                    mode = "отказ" if DEVICE_ENFORCE else "наблюдение"
+                    print(
+                        f"device limit hit ({mode}) username={username} devices={used} hwid={hwid[:12]}",
+                        flush=True,
+                    )
+                    if DEVICE_ENFORCE:
+                        conn.commit()
+                        return False
+                conn.execute(
+                    "INSERT INTO devices (username, hwid, model, os, first_seen, last_seen)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (username, hwid, model, os_name, now, now),
+                )
+            else:
+                conn.execute(
+                    "UPDATE devices SET last_seen = ?, model = COALESCE(?, model),"
+                    " os = COALESCE(?, os) WHERE username = ? AND hwid = ?",
+                    (now, model, os_name, username, hwid),
+                )
+            conn.commit()
+    except Exception as exc:  # noqa: BLE001 — учёт не повод оставить человека без серверов
+        print(f"devices: ошибка учёта ({type(exc).__name__}), пропускаю", flush=True)
+        return True
+    return True
+
+
+def devices_of(username: str) -> list[dict]:
+    """Устройства подписки — для поддержки и экрана «Устройства» в боте."""
+
+    conn = _device_store()
+    if conn is None:
+        return []
+    rows = conn.execute(
+        "SELECT hwid, model, os, first_seen, last_seen FROM devices"
+        " WHERE username = ? ORDER BY first_seen",
+        (username,),
+    ).fetchall()
+    return [
+        {"hwid": row[0], "model": row[1], "os": row[2], "first_seen": row[3], "last_seen": row[4]}
+        for row in rows
+    ]
+
+
+def forget_devices(username: str, hwid: str | None = None) -> int:
+    """Сбросить привязку — человек сменил телефон или раздал ссылку и просит помочь."""
+
+    conn = _device_store()
+    if conn is None:
+        return 0
+    with _DEVICE_LOCK:
+        if hwid:
+            cur = conn.execute(
+                "DELETE FROM devices WHERE username = ? AND hwid = ?", (username, hwid)
+            )
+        else:
+            cur = conn.execute("DELETE FROM devices WHERE username = ?", (username,))
+        conn.commit()
+    return cur.rowcount or 0
+
+
+def device_gate(token: str, headers) -> str | None:
+    """Тело-заглушка, если устройство не помещается в лимит подписки, иначе None.
+
+    Отдельной функцией, чтобы решение можно было проверить тестом, не поднимая
+    HTTP-сервер: именно здесь решается, увидит человек серверы или объяснение.
+    """
+
+    if DEVICE_LIMIT <= 0:
+        return None
+    hwid = (headers.get("x-hwid") or "").strip()
+    username = _token_username(token)
+    if not hwid or username is None:
+        return None
+    if device_allowed(
+        username, hwid, model=headers.get("x-device-model"), os_name=headers.get("x-device-os")
+    ):
+        return None
+    return device_limit_body()
+
+
+def device_limit_body() -> str:
+    """Ответ устройству сверх лимита: одна запись вместо пустоты."""
+
+    link = (
+        "vless://00000000-0000-0000-0000-000000000000@127.0.0.1:1"
+        "?security=none&type=tcp&encryption=none#" + urllib.parse.quote(DEVICE_LIMIT_REMARK)
+    )
+    return base64.b64encode(link.encode("utf-8")).decode("ascii")
+
+
 # --- 📶 мобильный интернет в «белых списках» -------------------------------------
 # Российские операторы периодически опускают мобильный интернет до белого списка:
 # открыты только разрешённые службы, а все зарубежные адреса недоступны. Туннель
@@ -918,6 +1085,20 @@ class Handler(BaseHTTPRequestHandler):
         # that is what the /hy2 flavor above exists to hand over. Other clients
         # keep the base64 URI list, Hysteria2 included.
         ua = self.headers.get("User-Agent", "")
+        blocked = device_gate(token, self.headers)
+        if blocked is not None:
+            _log_served(token, ua, "device-limit", blocked)
+            self._send(
+                200,
+                blocked.encode("ascii"),
+                "text/plain; charset=utf-8",
+                {
+                    "profile-title": PROFILE_TITLE_HEADER,
+                    "announce": "base64:"
+                    + base64.b64encode(DEVICE_LIMIT_ANNOUNCE.encode("utf-8")).decode("ascii"),
+                },
+            )
+            return
         wants_json = not force_plain and (
             is_auto or is_split or (AUTO_IN_SUB and _supports_xray_json(ua))
         )

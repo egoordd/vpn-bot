@@ -1,5 +1,6 @@
 import base64
 import json
+import time
 import urllib.parse
 
 import pytest
@@ -942,3 +943,128 @@ def test_the_mobile_entry_is_not_pulled_into_the_automatic_balancer(mobile_relay
     assert MOBILE_RELAY not in json.dumps(balancer), "запись попала в авто-режим"
     servers = json.dumps(configs[1:])
     assert MOBILE_RELAY in servers, "запись должна оставаться выбираемой вручную"
+
+
+# --- учёт устройств по идентификатору приложения --------------------------------
+# Тариф обещает «до 3 устройств», но до сих пор это была только надпись: одну
+# ссылку можно раздать кому угодно. Приложения сами присылают идентификатор
+# устройства (x-hwid), и по нему лимит можно соблюдать на выдаче.
+
+@pytest.fixture
+def device_store(tmp_path, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "DEVICE_DB", str(tmp_path / "devices.sqlite3"))
+    monkeypatch.setattr(sub_gateway, "DEVICE_LIMIT", 3)
+    monkeypatch.setattr(sub_gateway, "DEVICE_IDLE_DAYS", 14)
+    sub_gateway._device_store.cache_clear()
+    yield
+    sub_gateway._device_store.cache_clear()
+
+
+def _allow(hwid: str, username: str = "tg_1") -> bool:
+    return sub_gateway.device_allowed(username, hwid, model="iPhone", os_name="ios")
+
+
+def test_devices_within_the_limit_are_served(device_store):
+    assert [_allow(f"hw{i}") for i in range(3)] == [True, True, True]
+
+
+def test_the_fourth_device_is_turned_away(device_store):
+    for i in range(3):
+        _allow(f"hw{i}")
+
+    assert _allow("hw-extra") is False
+
+
+def test_a_device_that_comes_back_keeps_its_place(device_store):
+    for i in range(3):
+        _allow(f"hw{i}")
+
+    assert _allow("hw0") is True, "своё же устройство не должно упираться в лимит"
+    assert _allow("hw-extra") is False
+
+
+def test_limits_are_counted_per_subscription(device_store):
+    for i in range(3):
+        _allow(f"hw{i}", username="tg_1")
+
+    assert _allow("hw-other", username="tg_2") is True
+
+
+def test_a_device_nobody_used_for_weeks_frees_its_slot(device_store, monkeypatch):
+    """Человек сменил телефон — слот не должен держаться вечно."""
+    for i in range(3):
+        _allow(f"hw{i}")
+    later = time.time() + sub_gateway.DEVICE_IDLE_DAYS * 86400 + 60
+    monkeypatch.setattr(sub_gateway.time, "time", lambda: later)
+
+    assert _allow("hw-new") is True
+
+
+def test_an_app_that_sends_no_identifier_is_never_blocked(device_store):
+    """Часть клиентов идентификатор не шлёт — их нельзя оставить без серверов."""
+    for i in range(5):
+        _allow(f"hw{i}")
+
+    assert sub_gateway.device_allowed("tg_1", "", model=None, os_name=None) is True
+    assert sub_gateway.device_allowed("tg_1", None, model=None, os_name=None) is True
+
+
+def test_the_limit_is_off_until_it_is_switched_on(tmp_path, monkeypatch):
+    """Выкладываем спящим: включаем отдельно, посмотрев на журнал."""
+    monkeypatch.setattr(sub_gateway, "DEVICE_DB", str(tmp_path / "d.sqlite3"))
+    monkeypatch.setattr(sub_gateway, "DEVICE_LIMIT", 0)
+    sub_gateway._device_store.cache_clear()
+
+    assert all(_allow(f"hw{i}") for i in range(10))
+
+
+def test_the_owner_can_see_and_reset_someones_devices(device_store):
+    _allow("hw1")
+    _allow("hw2", username="tg_1")
+
+    listed = sub_gateway.devices_of("tg_1")
+    assert {d["hwid"] for d in listed} == {"hw1", "hw2"}
+    assert listed[0]["model"] == "iPhone"
+
+    sub_gateway.forget_devices("tg_1")
+    assert sub_gateway.devices_of("tg_1") == []
+
+
+def test_the_turned_away_device_gets_a_readable_answer_not_an_empty_list(device_store):
+    """Пустой ответ приложение показывает как поломку подписки."""
+    body = sub_gateway.device_limit_body()
+    decoded = base64.b64decode(body).decode()
+
+    assert decoded.count("://") == 1, "одна запись, чтобы приложению было что показать"
+    assert "устройств" in urllib.parse.unquote(decoded).lower()
+
+
+def test_the_gate_answers_the_extra_device_and_lets_the_rest_through(device_store):
+    token = _panel_token("tg_555")
+    headers = {"x-hwid": "hw-a", "x-device-model": "Pixel", "x-device-os": "android"}
+
+    assert sub_gateway.device_gate(token, headers) is None
+    for hwid in ("hw-b", "hw-c"):
+        assert sub_gateway.device_gate(token, {**headers, "x-hwid": hwid}) is None
+
+    blocked = sub_gateway.device_gate(token, {**headers, "x-hwid": "hw-d"})
+
+    assert blocked is not None, "четвёртое устройство должно получить объяснение"
+    shown = urllib.parse.unquote(base64.b64decode(blocked).decode())
+    assert "устройств" in shown.lower()
+    assert sub_gateway.device_gate(token, headers) is None, "своё устройство продолжает работать"
+
+
+def test_the_gate_stays_out_of_the_way_without_an_identifier(device_store):
+    token = _panel_token("tg_556")
+
+    assert sub_gateway.device_gate(token, {}) is None
+    assert sub_gateway.device_gate("не-наш-токен", {"x-hwid": "hw"}) is None
+
+
+def test_watching_mode_counts_devices_without_turning_anyone_away(device_store, monkeypatch):
+    """Сначала неделя наблюдения: цифру лимита выбираем по фактам, а не на ощупь."""
+    monkeypatch.setattr(sub_gateway, "DEVICE_ENFORCE", False)
+
+    assert all(_allow(f"hw{i}") for i in range(6)), "в наблюдении никого не отключаем"
+    assert len(sub_gateway.devices_of("tg_1")) == 6, "но считаем всех, чтобы увидеть раздачу"
