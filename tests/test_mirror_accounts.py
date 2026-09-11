@@ -115,6 +115,13 @@ async def test_a_paid_invoice_is_announced_in_the_buyers_own_chat(session_pool, 
         return await real_settle(session, client, payment_id, activate=FakeActivation())
 
     monkeypatch.setattr(mirror_platega, "settle", settle)
+    alerts: list[str] = []
+
+    async def record_alert(text, **_kwargs):
+        alerts.append(text)
+        return True
+
+    monkeypatch.setattr(mirror_bot, "send_alert", record_alert)
     telegram = FakeTelegram()
     bot = mirror_bot.MirrorBot(telegram, session_pool)
     bot.platega = FakePlatega(status="CONFIRMED", amount=149.0)
@@ -127,3 +134,4 @@ async def test_a_paid_invoice_is_announced_in_the_buyers_own_chat(session_pool, 
     assert await bot.settle_and_notify(payment.id) == "completed"
     chats = {payload["chat_id"] for method, payload in telegram.calls if method == "sendMessage"}
     assert chats == {6004}
+    assert len(alerts) == 1 and "Оплата в зеркале" in alerts[0]

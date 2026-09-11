@@ -25,6 +25,8 @@ os.environ["AWG_NODES"] = "{}"
 os.environ["AWG_SSH_KEY"] = ""
 os.environ["SUB_GATEWAY_URL"] = ""
 os.environ["CRYPTOBOT_TOKEN"] = ""
+# The owner's alerts bot: a test that settles a payment must not tell him about it.
+os.environ["ALERTS_BOT_TOKEN"] = ""
 os.environ["VULTR_API_TOKEN"] = ""
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
