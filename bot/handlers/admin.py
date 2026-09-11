@@ -269,7 +269,7 @@ async def funnel_handler(message: Message, session_pool: async_sessionmaker[Asyn
         + "\n\n"
         + bq(
             "События пишутся один раз на пользователя; проценты — конверсия из предыдущего шага.",
-            "Ссылка кампании: unlockvpn.site/go/ИМЯ — считает переходы и ведёт в бота.",
+            "Ссылка кампании: unlockproject.site/go/ИМЯ — считает переходы и ведёт в бота.",
             "Прямая ссылка без счётчика переходов: t.me/unlkvpn_bot?start=src_ИМЯ.",
         )
     )
