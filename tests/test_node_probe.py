@@ -188,11 +188,20 @@ def test_no_message_when_nothing_changed():
 def test_same_box_under_two_hostnames_is_named_once():
     """The US box is probed bare and as an sslip name; two lines for one
     location reads like two outages."""
-    prev = {"nodes": {"144.172.101.217": True, "144.172.101.217.sslip.io": True}}
+    prev = {"nodes": {"172.86.119.133": True, "172.86.119.133.sslip.io": True}}
     text, _ = node_probe.compose_alert(
-        prev, {"144.172.101.217": False, "144.172.101.217.sslip.io": False}, 1000.0
+        prev, {"172.86.119.133": False, "172.86.119.133.sslip.io": False}, 1000.0
     )
     assert text.count("🇺🇸 США") == 1
+
+
+def test_a_retired_box_does_not_borrow_a_live_location_name():
+    """Старый американский сервер снят 11.09; тревога о нём не должна выглядеть
+    как падение работающей локации США."""
+    prev = {"nodes": {"144.172.101.217": True}}
+    text, _ = node_probe.compose_alert(prev, {"144.172.101.217": False}, 1000.0)
+
+    assert "🇺🇸 США" not in text
 
 
 def test_several_nodes_flip_in_one_message():
