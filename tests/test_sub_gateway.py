@@ -1160,3 +1160,26 @@ def test_a_broken_answer_does_not_turn_the_limit_into_a_refusal(plan_api):
     set_answer({"subscription": {"deviceLimit": "три"}})
 
     assert all(_allow(f"hw{i}", username="tg_80") for i in range(5)), "мусор в ответе — не повод отключать"
+
+
+# --- «Авто-обход» в чужих приложениях -------------------------------------------
+# У конкурента авто-режим работает и в INCY, у нас пока только в Happ. Чужое
+# приложение проверяется на живой установке, а не тестом, поэтому цена ошибки
+# здесь — настройка, а не выкладка кода.
+
+def test_only_happ_gets_the_auto_mode_until_another_client_is_checked():
+    assert sub_gateway._supports_xray_json("Happ/5.7.0/ios/2609021014549") is True
+    assert sub_gateway._supports_xray_json("v2rayNG/1.8.5") is False
+
+
+def test_another_client_is_added_by_a_setting_not_by_a_deploy(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "_XRAY_JSON_UA", sub_gateway._json_clients("happ, incy"))
+
+    assert sub_gateway._supports_xray_json("INCY/2.1 (iPhone)") is True
+    assert sub_gateway._supports_xray_json("Streisand/1.0") is False, "остальные — как раньше"
+
+
+def test_an_empty_setting_leaves_everyone_on_the_plain_subscription():
+    """Пустая настройка не должна означать «отдавать JSON всем»."""
+    assert sub_gateway._json_clients("") == ()
+    assert sub_gateway._json_clients(" , ") == ()

@@ -83,7 +83,21 @@ def _is_browser(user_agent: str) -> bool:
 # live on the /auto flavor. AUTO_IN_SUB switches the behaviour off without a
 # code deploy if a client turns out to choke on it.
 AUTO_IN_SUB = os.environ.get("AUTO_IN_SUB", "1").lower() not in ("0", "false", "no", "")
-_XRAY_JSON_UA = ("happ",)
+
+
+def _json_clients(raw: str) -> tuple[str, ...]:
+    """Список приложений из настройки: «happ, incy» → ("happ", "incy")."""
+
+    return tuple(part.strip().lower() for part in raw.split(",") if part.strip())
+
+
+# У конкурента «Авто-обход» работает и в INCY, у нас — только в Happ, и людям
+# это видно. Проверить чужое приложение можно лишь на настоящей установке,
+# поэтому список вынесен в настройку XRAY_JSON_UA: добавили `incy`, попробовали
+# на живом телефоне, не понравилось — убрали строку, без выкладки кода. Отдать
+# JSON тому, кто его не разбирает, нельзя молча: человек останется вообще без
+# серверов, а выглядеть это будет как сломанная подписка.
+_XRAY_JSON_UA = _json_clients(os.environ.get("XRAY_JSON_UA", "happ"))
 
 
 def _supports_xray_json(user_agent: str) -> bool:
