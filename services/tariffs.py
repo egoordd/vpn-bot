@@ -67,7 +67,10 @@ TARIFFS: dict[str, Tariff] = {
         price_rub=0,
         crypto_amount="0",
         traffic_gb=10,
-        device_limit=1,
+        # Два устройства, а не одно: человек пробует сервис на телефоне и на
+        # компьютере одновременно, и упереться в лимит на пробнике — это отказ
+        # от покупки. Случай из поддержки 11.09: телефон работал, компьютер нет.
+        device_limit=2,
         description="Пробный доступ: 7 дней, 10 ГБ",
         sort_order=0,
         traffic_resets_monthly=False,
@@ -91,9 +94,9 @@ TARIFFS: dict[str, Tariff] = {
         duration_days=90,
         price_rub=399,
         crypto_amount="4.99",
-        traffic_gb=150,
+        traffic_gb=200,
         device_limit=3,
-        description="Общий тариф на 90 дней, 150 ГБ в месяц",
+        description="Общий тариф на 90 дней, 200 ГБ в месяц",
         sort_order=20,
     ),
     "standard_6m": Tariff(
@@ -103,9 +106,9 @@ TARIFFS: dict[str, Tariff] = {
         duration_days=180,
         price_rub=699,
         crypto_amount="7.99",
-        traffic_gb=150,
-        device_limit=5,
-        description="Общий тариф на 180 дней, 150 ГБ в месяц",
+        traffic_gb=200,
+        device_limit=3,
+        description="Общий тариф на 180 дней, 200 ГБ в месяц",
         sort_order=30,
     ),
     "standard_12m": Tariff(
@@ -115,9 +118,9 @@ TARIFFS: dict[str, Tariff] = {
         duration_days=365,
         price_rub=1199,
         crypto_amount="12.99",
-        traffic_gb=150,
-        device_limit=5,
-        description="Общий тариф на 12 месяцев, 150 ГБ в месяц",
+        traffic_gb=200,
+        device_limit=3,
+        description="Общий тариф на 12 месяцев, 200 ГБ в месяц",
         sort_order=40,
     ),
 }
@@ -139,5 +142,3 @@ def resolve_tariff(code: str) -> Tariff:
         return TARIFFS[tariff_code]
     except KeyError as exc:
         raise ValueError(f"Unknown tariff: {code}") from exc
-
-

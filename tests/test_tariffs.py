@@ -35,18 +35,24 @@ def test_paid_tariffs_sell_a_monthly_allowance_not_a_term_pool():
     """A longer term buys more months of the same allowance, not one big bucket.
 
     A pooled bucket let a heavy first month strand the customer for the rest of
-    the term, and the bot has always advertised "150 ГБ трафика в месяц".
+    the term. Longer commitments deliberately receive a larger monthly bucket.
     """
-    for code in ("standard_1m", "standard_3m", "standard_6m", "standard_12m"):
-        assert resolve_tariff(code).traffic_limit_bytes == 150 * BYTES_IN_GB
+    assert resolve_tariff("standard_1m").traffic_limit_bytes == 150 * BYTES_IN_GB
+    for code in ("standard_3m", "standard_6m", "standard_12m"):
+        assert resolve_tariff(code).traffic_limit_bytes == 200 * BYTES_IN_GB
 
 
 @pytest.mark.unit
-def test_monthly_allowance_still_adds_up_to_the_old_term_total():
-    """Pacing the quota must not quietly shrink what the term is worth."""
-    assert resolve_tariff("standard_3m").total_traffic_gb == 450
-    assert resolve_tariff("standard_6m").total_traffic_gb == 900
-    assert resolve_tariff("standard_12m").total_traffic_gb == 1800
+def test_every_paid_tariff_is_limited_to_three_devices():
+    for code in ("standard_1m", "standard_3m", "standard_6m", "standard_12m"):
+        assert resolve_tariff(code).device_limit == 3
+
+
+@pytest.mark.unit
+def test_long_term_allowance_total_uses_the_larger_monthly_bucket():
+    assert resolve_tariff("standard_3m").total_traffic_gb == 600
+    assert resolve_tariff("standard_6m").total_traffic_gb == 1200
+    assert resolve_tariff("standard_12m").total_traffic_gb == 2400
 
 
 @pytest.mark.unit
@@ -77,3 +83,9 @@ def test_day_counts_are_declined_for_russian():
         "1 день", "2 дня", "4 дня", "5 дней", "11 дней", "14 дней", "21 день", "22 дня",
     ]
     assert trial_days() == "7 дней"
+
+
+def test_the_trial_covers_a_phone_and_a_computer():
+    """Пробуют сервис сразу на двух устройствах; лимит в одно устройство читается
+    как «не работает» и стоит нам покупки (случай из поддержки 11.09)."""
+    assert resolve_tariff("trial").device_limit == 2
