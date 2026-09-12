@@ -1,6 +1,5 @@
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +9,6 @@ from database.repository import Repository
 from services.panel_gateway import (
     PanelGateway,
     PanelUserNotFoundError,
-    RemnawavePanelGateway,
     get_panel_gateway,
 )
 from services.payment import PLANS
@@ -75,46 +73,6 @@ def to_happ_import_url(gateway_url: str | None, auto: bool = False) -> str | Non
     return f"{happ_url.rstrip('/')}/auto" if auto else happ_url
 
 
-async def activate_subscription(session: AsyncSession, user_id: int, plan: str) -> Subscription:
-    plan_data = PLANS.get(plan)
-    if plan_data is None:
-        try:
-            tariff = resolve_tariff(plan)
-        except ValueError as exc:
-            raise ValueError(f"Unknown plan: {plan}") from exc
-        plan_code = tariff.code
-        days = tariff.duration_days
-        tier = tariff.tier
-        traffic_limit_bytes = tariff.traffic_limit_bytes
-        device_limit = tariff.device_limit
-    else:
-        plan_code = plan
-        days = int(plan_data["days"])
-        tier = "standard"
-        traffic_limit_bytes = None
-        device_limit = None
-
-    repo = Repository(session)
-    now = datetime.now(timezone.utc)
-    latest = await repo.get_latest_subscription(user_id)
-    starts_at = now
-    if latest and latest.is_active and _aware(latest.expires_at) > now:
-        starts_at = _aware(latest.expires_at)
-
-    await repo.deactivate_user_subscriptions(user_id)
-    expires_at = starts_at + timedelta(days=days)
-    return await repo.create_subscription(
-        user_id=user_id,
-        plan=plan_code,
-        tier=tier,
-        traffic_limit_bytes=traffic_limit_bytes,
-        device_limit=device_limit,
-        started_at=starts_at,
-        expires_at=expires_at,
-        is_active=True,
-    )
-
-
 async def sync_default_plans(session: AsyncSession) -> None:
     repo = Repository(session)
     for tariff in TARIFFS.values():
@@ -140,11 +98,43 @@ async def _panel_user_exists(panel_gateway: PanelGateway, panel_username: str) -
     return True
 
 
+async def _renewal_starts_at(
+    repo: Repository,
+    latest: Subscription | None,
+    now: datetime,
+    *,
+    paid_renewal: bool,
+) -> datetime:
+    """Preserve paid time when only the current account's traffic ran out.
+
+    ``is_active`` is availability, not proof that the paid term has expired.
+    Other inactive states retain their existing behavior: a disabled or
+    superseded subscription must not regain its old term through this path.
+    """
+    if latest is None or _aware(latest.expires_at) <= now:
+        return now
+    if latest.is_active:
+        return _aware(latest.expires_at)
+    if not (
+        paid_renewal
+        and latest.tier == "standard"
+        and (latest.status or "").lower() == "limited"
+    ):
+        return now
+
+    # The existing "latest" lookup sorts by expiry, not creation order. An
+    # older limited row with a long expiry may already have been superseded.
+    # Premium was a separate lane; all other rows share this account's lane.
+    subscriptions = await repo.list_subscriptions_by_user(latest.user_id)
+    if any(row.id > latest.id and row.tier != "premium" for row in subscriptions):
+        return now
+    return _aware(latest.expires_at)
+
+
 async def activate_panel_subscription(
     session: AsyncSession,
     user_id: int,
     plan: str,
-    panel_client: Any | None = None,
     panel_gateway: PanelGateway | None = None,
 ) -> Subscription:
     tariff: Tariff = resolve_tariff(plan)
@@ -154,17 +144,13 @@ async def activate_panel_subscription(
         raise ValueError(f"Unknown user_id: {user_id}")
 
     now = datetime.now(timezone.utc)
-    # One lane: Premium is gone, so trial and standard share a panel user, an
-    # expiry and a link, and buying always extends the same subscription.
-    latest = await repo.get_latest_subscription_in_lane(user_id, False)
-    starts_at = now
-    if latest and latest.is_active and _aware(latest.expires_at) > now:
-        starts_at = _aware(latest.expires_at)
+    latest = await repo.get_latest_standard_subscription(user_id)
+    starts_at = await _renewal_starts_at(
+        repo, latest, now, paid_renewal=tariff.tier == "standard"
+    )
 
     expires_at = starts_at + timedelta(days=tariff.duration_days)
-    if panel_gateway is not None and panel_client is not None:
-        raise ValueError("panel_gateway and panel_client are mutually exclusive")
-    gateway = panel_gateway or (RemnawavePanelGateway(panel_client) if panel_client is not None else get_panel_gateway())
+    gateway = panel_gateway or get_panel_gateway()
     if latest and latest.panel_username:
         panel_username = latest.panel_username
     else:
@@ -175,9 +161,7 @@ async def activate_panel_subscription(
             username=panel_username,
             expire_at=expires_at,
             traffic_limit_bytes=tariff.traffic_limit_bytes,
-            device_limit=tariff.device_limit,
             status="active",
-            tag=tariff.tier,
             traffic_resets_monthly=tariff.traffic_resets_monthly,
         )
         # A renewal reuses the panel account, and the panel counts traffic
@@ -201,20 +185,17 @@ async def activate_panel_subscription(
             username=panel_username,
             expire_at=expires_at,
             traffic_limit_bytes=tariff.traffic_limit_bytes,
-            device_limit=tariff.device_limit,
             telegram_id=user.telegram_id,
             status="active",
             description=f"Telegram user {user.telegram_id}",
-            tag=tariff.tier,
             traffic_resets_monthly=tariff.traffic_resets_monthly,
         )
 
-    await repo.deactivate_subscriptions_in_lane(user_id, False)
+    await repo.deactivate_standard_subscriptions(user_id)
     subscription = await repo.create_subscription(
         user_id=user_id,
         plan=tariff.code,
         tier=tariff.tier,
-        region=None,
         panel_username=panel_user.username,
         sub_token=panel_user.short_uuid,
         subscription_url=panel_user.subscription_url,
@@ -239,6 +220,22 @@ async def check_subscription_active(session: AsyncSession, user_id: int) -> bool
     repo = Repository(session)
     subscription = await repo.get_active_subscription(user_id)
     return subscription is not None
+
+
+def _device_limit(subscription: Subscription) -> int | None:
+    """Сколько устройств обещает тариф этой подписки.
+
+    Источник правды — тариф, а не колонка в базе. Колонка заполнена у четверти
+    подписок, у остальных NULL, и последствия были такие: человеку с оплаченным
+    тарифом бот показывал «∞ устройств», а выдача считала, что ограничивать его
+    не нужно. Сохранённое значение остаётся запасным — для планов, которых в
+    тарифах больше нет.
+    """
+
+    try:
+        return resolve_tariff(subscription.plan).device_limit
+    except ValueError:
+        return subscription.device_limit
 
 
 async def get_subscription_info(session: AsyncSession, user_id: int) -> dict[str, object]:
@@ -276,7 +273,7 @@ async def get_subscription_info(session: AsyncSession, user_id: int) -> dict[str
         "subscription_url": subscription.subscription_url,
         "traffic_limit_bytes": subscription.traffic_limit_bytes,
         "traffic_used_bytes": subscription.traffic_used_bytes,
-        "device_limit": subscription.device_limit,
+        "device_limit": _device_limit(subscription),
         "status": subscription.status,
         "started_at": subscription.started_at,
         "expires_at": subscription.expires_at,

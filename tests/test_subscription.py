@@ -1,15 +1,16 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from database.repository import Repository
-from services.panel_client import PanelUsage, PanelUser, RemnawaveNotFoundError
 from services.panel_gateway import PanelAccount, PanelGatewayError, PanelUserNotFoundError
-from services.payment import PLANS
 from services.subscription import (
     _aware,
+    _device_limit,
+    _renewal_starts_at,
     activate_panel_subscription,
-    activate_subscription,
     check_subscription_active,
     get_subscription_info,
     to_gateway_subscription_url,
@@ -53,63 +54,27 @@ def test_happ_import_url_none_for_invalid_links():
     assert to_happ_import_url("https://panel/no-token") is None
 
 
-@pytest.mark.integration
-async def test_activate_subscription_unknown_plan_raises(db_session):
-    with pytest.raises(ValueError):
-        await activate_subscription(db_session, user_id=1, plan="unknown")
+def test_the_tariff_decides_how_many_devices_a_subscription_gets():
+    """Колонка в базе пуста у трёх четвертей подписок — цифру знает тариф.
+
+    Пока её брали из колонки, оплативший человек видел «∞ устройств», а выдача
+    считала, что ограничивать его не нужно.
+    """
+    paid = SimpleNamespace(plan="standard_1m", device_limit=None)
+    trial = SimpleNamespace(plan="trial", device_limit=1)
+
+    assert _device_limit(paid) == 3
+    assert _device_limit(trial) == 2, "старая цифра из базы не должна пережить смену тарифа"
 
 
-@pytest.mark.integration
-async def test_activate_subscription_without_prior_subscription_starts_now(db_session):
-    repo = Repository(db_session)
-    user = await repo.create_user(telegram_id=1, username="alice")
+def test_a_plan_we_no_longer_sell_keeps_the_stored_number():
+    legacy = SimpleNamespace(plan="promo_2024", device_limit=5)
 
-    before = datetime.now(timezone.utc)
-    subscription = await activate_subscription(db_session, user.id, "standard_1m")
-    after = datetime.now(timezone.utc)
-
-    assert _aware(subscription.started_at) >= before - timedelta(seconds=1)
-    assert _aware(subscription.started_at) <= after + timedelta(seconds=1)
-    assert _aware(subscription.expires_at) == _aware(subscription.started_at) + timedelta(
-        days=PLANS["standard_1m"]["days"]
-    )
-    assert subscription.plan == "standard_1m"
-    assert subscription.is_active is True
+    assert _device_limit(legacy) == 5
 
 
-@pytest.mark.integration
-async def test_activate_subscription_accepts_legacy_plan_alias(db_session):
-    repo = Repository(db_session)
-    user = await repo.create_user(telegram_id=11)
-
-    subscription = await activate_subscription(db_session, user.id, "1m")
-
-    assert subscription.plan == "standard_1m"
-    assert subscription.tier == "standard"
-
-
-@pytest.mark.integration
-async def test_activate_subscription_stacks_existing_active_subscription(db_session):
-    repo = Repository(db_session)
-    user = await repo.create_user(telegram_id=2)
-    now = datetime.now(timezone.utc)
-    old = await repo.create_subscription(
-        user_id=user.id,
-        plan="1m",
-        started_at=now - timedelta(days=1),
-        expires_at=now + timedelta(days=10),
-        is_active=True,
-    )
-
-    new_subscription = await activate_subscription(db_session, user.id, "standard_3m")
-    await db_session.refresh(old)
-
-    assert _aware(new_subscription.started_at) == _aware(old.expires_at)
-    assert _aware(new_subscription.expires_at) == _aware(old.expires_at) + timedelta(
-        days=PLANS["standard_3m"]["days"]
-    )
-    assert old.is_active is False
-    assert new_subscription.is_active is True
+def test_a_forgotten_plan_without_a_stored_number_stays_unlimited():
+    assert _device_limit(SimpleNamespace(plan="promo_2024", device_limit=None)) is None
 
 
 @pytest.mark.integration
@@ -190,49 +155,6 @@ def test_aware_converts_naive_and_preserves_aware():
     assert _aware(aware) is aware
 
 
-class FakePanelClient:
-    def __init__(self, exists: bool = False):
-        self.exists = exists
-        self.created: list[dict[str, object]] = []
-        self.modified: list[dict[str, object]] = []
-        self.reset_calls: list[str] = []
-        self.last_username = ""
-
-    async def get_user(self, username: str) -> PanelUser:
-        if not self.exists:
-            raise RemnawaveNotFoundError("missing")
-        return self._panel_user(username)
-
-    async def create_user(self, **kwargs) -> PanelUser:
-        self.created.append(kwargs)
-        self.exists = True
-        return self._panel_user(str(kwargs["username"]))
-
-    async def modify_user(self, **kwargs) -> PanelUser:
-        self.modified.append(kwargs)
-        self.exists = True
-        return self._panel_user(str(kwargs["username"]))
-
-    async def reset_user_traffic(self, uuid: str) -> PanelUser:
-        self.reset_calls.append(uuid)
-        return self._panel_user(self.last_username)
-
-    def _panel_user(self, username: str) -> PanelUser:
-        self.last_username = username
-        return PanelUser(
-            uuid="uuid",
-            username=username,
-            short_uuid="short",
-            subscription_url="https://sub.example/api/sub/short",
-            status="ACTIVE",
-            expire_at="2026-07-03T00:00:00Z",
-            traffic_limit_bytes=10 * 1024**3,
-            traffic_limit_strategy="NO_RESET",
-            hwid_device_limit=1,
-            usage=PanelUsage(used_traffic_bytes=42, lifetime_used_traffic_bytes=42),
-        )
-
-
 class FakeGenericPanelGateway:
     provider = "marzban"
 
@@ -277,38 +199,12 @@ class FakeGenericPanelGateway:
             traffic_limit_bytes=10 * 1024**3,
             used_traffic_bytes=used_traffic_bytes,
             lifetime_used_traffic_bytes=88,
-            device_limit=None,
             provider=self.provider,
         )
 
 
 @pytest.mark.integration
-async def test_activate_panel_subscription_creates_panel_user_and_subscription(db_session, monkeypatch):
-    monkeypatch.setattr(
-        "services.subscription.settings.REMNAWAVE_DEFAULT_INTERNAL_SQUAD_UUIDS",
-        "squad-1, squad-2",
-    )
-    repo = Repository(db_session)
-    user = await repo.create_user(telegram_id=600, username="alice")
-    panel = FakePanelClient(exists=False)
-
-    subscription = await activate_panel_subscription(db_session, user.id, "trial", panel_client=panel)
-
-    assert panel.created[0]["username"] == "tg_600"
-    assert panel.created[0]["telegram_id"] == 600
-    assert panel.created[0]["active_internal_squads"] == ["squad-1", "squad-2"]
-    assert subscription.plan == "trial"
-    assert subscription.tier == "trial"
-    assert subscription.panel_username == "tg_600"
-    assert subscription.sub_token == "short"
-    assert subscription.traffic_limit_bytes == 10 * 1024**3
-    assert subscription.traffic_used_bytes == 42
-    assert subscription.device_limit == 1
-
-
-@pytest.mark.integration
-async def test_activate_panel_subscription_extends_existing_panel_user(db_session, monkeypatch):
-    monkeypatch.setattr("services.subscription.settings.REMNAWAVE_DEFAULT_INTERNAL_SQUAD_UUIDS", "squad-1")
+async def test_activate_panel_subscription_extends_existing_panel_user(db_session):
     repo = Repository(db_session)
     user = await repo.create_user(telegram_id=601)
     now = datetime.now(timezone.utc)
@@ -322,15 +218,14 @@ async def test_activate_panel_subscription_extends_existing_panel_user(db_sessio
         expires_at=now + timedelta(days=3),
         is_active=True,
     )
-    panel = FakePanelClient(exists=True)
+    panel = FakeGenericPanelGateway(exists=True)
 
-    subscription = await activate_panel_subscription(db_session, user.id, "standard_1m", panel_client=panel)
+    subscription = await activate_panel_subscription(db_session, user.id, "standard_1m", panel_gateway=panel)
     await db_session.refresh(old)
 
     assert panel.created == []
     assert panel.modified[0]["username"] == "tg_601"
-    assert panel.modified[0]["status"] == "ACTIVE"
-    assert panel.modified[0]["active_internal_squads"] == ["squad-1"]
+    assert panel.modified[0]["status"] == "active"
     assert _aware(subscription.started_at) == _aware(old.expires_at)
     assert subscription.plan == "standard_1m"
     assert subscription.tier == "standard"
@@ -443,3 +338,145 @@ async def test_a_failed_reset_still_delivers_the_paid_subscription(db_session):
     assert subscription.is_active is True
     assert subscription.panel_username == "mz_6004"
     assert gateway.reset_calls == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "tier,status,is_active,expiry_days,paid_renewal,preserve",
+    [
+        ("standard", "limited", False, 40, True, True),
+        ("standard", "LIMITED", False, 40, True, True),
+        ("standard", "limited", False, -1, True, False),
+        ("standard", "limited", False, 0, True, False),
+        ("standard", "disabled", False, 40, True, False),
+        ("standard", "revoked", False, 40, True, False),
+        ("standard", "active", True, 40, True, True),
+        ("trial", "active", True, 2, True, True),
+        ("trial", "limited", False, 2, True, False),
+        ("standard", "limited", False, 40, False, False),
+    ],
+)
+async def test_renewal_basis_preserves_only_current_entitlement(
+    tier, status, is_active, expiry_days, paid_renewal, preserve
+):
+    now = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    latest = SimpleNamespace(
+        id=10,
+        user_id=100,
+        tier=tier,
+        status=status,
+        is_active=is_active,
+        expires_at=now + timedelta(days=expiry_days),
+    )
+    repo = SimpleNamespace(list_subscriptions_by_user=AsyncMock(return_value=[latest]))
+
+    result = await _renewal_starts_at(repo, latest, now, paid_renewal=paid_renewal)
+
+    assert result == (latest.expires_at if preserve else now)
+    if not is_active and expiry_days > 0 and tier == "standard" and status.lower() == "limited" and paid_renewal:
+        repo.list_subscriptions_by_user.assert_awaited_once_with(100)
+    else:
+        repo.list_subscriptions_by_user.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("newer_tier,preserve", [("standard", False), ("trial", False), ("premium", True)])
+async def test_renewal_basis_does_not_restore_a_superseded_limited_row(newer_tier, preserve):
+    now = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    latest = SimpleNamespace(
+        id=10,
+        user_id=100,
+        tier="standard",
+        status="limited",
+        is_active=False,
+        expires_at=now + timedelta(days=100),
+    )
+    newer = SimpleNamespace(id=11, tier=newer_tier)
+    repo = SimpleNamespace(list_subscriptions_by_user=AsyncMock(return_value=[newer, latest]))
+
+    result = await _renewal_starts_at(repo, latest, now, paid_renewal=True)
+
+    assert result == (latest.expires_at if preserve else now)
+
+
+@pytest.mark.unit
+async def test_renewal_basis_handles_missing_subscription_and_naive_expiry():
+    now = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    repo = SimpleNamespace(list_subscriptions_by_user=AsyncMock(return_value=[]))
+    assert await _renewal_starts_at(repo, None, now, paid_renewal=True) == now
+
+    latest = SimpleNamespace(
+        id=10,
+        user_id=100,
+        tier="standard",
+        status="limited",
+        is_active=False,
+        expires_at=datetime(2026, 10, 9),
+    )
+    repo.list_subscriptions_by_user.return_value = [latest]
+    assert await _renewal_starts_at(repo, latest, now, paid_renewal=True) == datetime(
+        2026, 10, 9, tzinfo=timezone.utc
+    )
+
+
+@pytest.mark.integration
+async def test_paid_renewal_extends_future_traffic_limited_subscription(db_session):
+    repo = Repository(db_session)
+    user = await repo.create_user(telegram_id=6005)
+    old_expiry = datetime.now(timezone.utc) + timedelta(days=47)
+    old = await repo.create_subscription(
+        user_id=user.id,
+        plan="standard_3m",
+        tier="standard",
+        panel_username="tg_6005",
+        status="limited",
+        started_at=old_expiry - timedelta(days=90),
+        expires_at=old_expiry,
+        is_active=False,
+    )
+    gateway = FakeGenericPanelGateway(exists=True)
+
+    renewed = await activate_panel_subscription(db_session, user.id, "standard_1m", panel_gateway=gateway)
+    await db_session.refresh(old)
+
+    assert _aware(renewed.started_at) == old_expiry
+    assert _aware(renewed.expires_at) == old_expiry + timedelta(days=30)
+    assert gateway.modified[0]["expire_at"] == old_expiry + timedelta(days=30)
+    assert old.is_active is False
+    assert old.status == "limited"
+    assert _aware(old.expires_at) == old_expiry
+    assert gateway.reset_calls == ["tg_6005"]  # Existing purchase behavior, once.
+
+
+@pytest.mark.integration
+async def test_paid_renewal_does_not_revive_a_historical_limited_term(db_session):
+    repo = Repository(db_session)
+    user = await repo.create_user(telegram_id=6006)
+    now = datetime.now(timezone.utc)
+    old = await repo.create_subscription(
+        user_id=user.id,
+        plan="standard_12m",
+        tier="standard",
+        panel_username="tg_6006",
+        status="limited",
+        started_at=now - timedelta(days=10),
+        expires_at=now + timedelta(days=300),
+        is_active=False,
+    )
+    await repo.create_subscription(
+        user_id=user.id,
+        plan="standard_1m",
+        tier="standard",
+        panel_username="tg_6006",
+        status="disabled",
+        started_at=now - timedelta(days=5),
+        expires_at=now + timedelta(days=20),
+        is_active=False,
+    )
+    gateway = FakeGenericPanelGateway(exists=True)
+
+    renewed = await activate_panel_subscription(db_session, user.id, "standard_1m", panel_gateway=gateway)
+
+    assert now <= _aware(renewed.started_at) <= datetime.now(timezone.utc)
+    assert _aware(renewed.expires_at) == _aware(renewed.started_at) + timedelta(days=30)
+    assert _aware(renewed.expires_at) < _aware(old.expires_at)

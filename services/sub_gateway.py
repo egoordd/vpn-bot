@@ -699,6 +699,19 @@ DEVICE_LIMIT = int(os.environ.get("DEVICE_LIMIT", "0") or 0)
 DEVICE_ENFORCE = os.environ.get("DEVICE_ENFORCE", "1").lower() not in ("0", "false", "no", "")
 DEVICE_DB = os.environ.get("DEVICE_DB", "/var/lib/unlock-subgw/devices.sqlite3")
 DEVICE_IDLE_DAYS = int(os.environ.get("DEVICE_IDLE_DAYS", "14") or 14)
+# Цифра лимита у тарифов разная: пробник — два устройства (телефон и компьютер,
+# иначе человек упрётся в лимит ровно на знакомстве с сервисом), платные — три.
+# Панель этого не знает: в ответе `/sub/<token>/info` лимита устройств нет. Знает
+# бот, и его API живёт на этой же машине, поэтому шлюз спрашивает лимит у него.
+# Ответ живёт в памяти DEVICE_LIMIT_TTL секунд: подписка меняется редко, а
+# ходить в соседнюю службу на каждое обновление подписки незачем.
+DEVICE_LIMIT_API = os.environ.get("DEVICE_LIMIT_API", "")
+DEVICE_LIMIT_API_TOKEN = os.environ.get("DEVICE_LIMIT_API_TOKEN", "")
+DEVICE_LIMIT_TTL = int(os.environ.get("DEVICE_LIMIT_TTL", "600") or 600)
+# Неудачу помним недолго: если бот перезапускается, лимиты должны вернуться
+# сами, а не через десять минут.
+DEVICE_LIMIT_FAIL_TTL = 60
+_PLAN_LIMITS: dict[str, tuple[float, int]] = {}
 DEVICE_LIMIT_REMARK = "❗️ Лимит устройств — напишите в поддержку"
 DEVICE_LIMIT_ANNOUNCE = (
     "❗️ Достигнут лимит устройств по подписке.\n"
@@ -729,6 +742,41 @@ def _device_store() -> sqlite3.Connection | None:
         return None
 
 
+def plan_device_limit(username: str) -> int:
+    """Сколько устройств обещает тариф этой подписки. 0 — не ограничивать.
+
+    Без настроенного API (и при любой его ошибке) действует общая цифра
+    DEVICE_LIMIT: недоступность соседней службы не повод отключать человеку
+    устройство, которое он оплатил.
+    """
+
+    if not DEVICE_LIMIT_API:
+        return DEVICE_LIMIT
+    cached = _PLAN_LIMITS.get(username)
+    if cached is not None and cached[0] > time.time():
+        return cached[1]
+
+    limit = DEVICE_LIMIT
+    ttl = DEVICE_LIMIT_FAIL_TTL
+    try:
+        telegram_id = username.removeprefix("tg_")
+        req = urllib.request.Request(
+            DEVICE_LIMIT_API.format(telegram_id=urllib.parse.quote(telegram_id)),
+            headers={"Authorization": f"Bearer {DEVICE_LIMIT_API_TOKEN}", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        subscription = payload.get("subscription") or {}
+        stated = subscription.get("deviceLimit")
+        # null у тарифа означает «без ограничения», а не «ограничить общей цифрой».
+        limit = int(stated) if isinstance(stated, int) else 0
+        ttl = DEVICE_LIMIT_TTL
+    except Exception as exc:  # noqa: BLE001 — см. docstring: ошибка не отключает устройства
+        print(f"devices: лимит тарифа не узнать ({type(exc).__name__}), беру общий", flush=True)
+    _PLAN_LIMITS[username] = (time.time() + ttl, limit)
+    return limit
+
+
 def device_allowed(
     username: str | None, hwid: str | None, *, model: str | None = None, os_name: str | None = None
 ) -> bool:
@@ -738,6 +786,9 @@ def device_allowed(
         return True
     conn = _device_store()
     if conn is None:
+        return True
+    limit = plan_device_limit(username)
+    if limit <= 0:
         return True
     now = time.time()
     try:
@@ -750,10 +801,11 @@ def device_allowed(
                 used = conn.execute(
                     "SELECT COUNT(*) FROM devices WHERE username = ?", (username,)
                 ).fetchone()[0]
-                if used >= DEVICE_LIMIT:
+                if used >= limit:
                     mode = "отказ" if DEVICE_ENFORCE else "наблюдение"
                     print(
-                        f"device limit hit ({mode}) username={username} devices={used} hwid={hwid[:12]}",
+                        f"device limit hit ({mode}) username={username} devices={used}/{limit}"
+                        f" hwid={hwid[:12]}",
                         flush=True,
                     )
                     if DEVICE_ENFORCE:

@@ -1068,3 +1068,95 @@ def test_watching_mode_counts_devices_without_turning_anyone_away(device_store, 
 
     assert all(_allow(f"hw{i}") for i in range(6)), "в наблюдении никого не отключаем"
     assert len(sub_gateway.devices_of("tg_1")) == 6, "но считаем всех, чтобы увидеть раздачу"
+
+
+# --- лимит берётся из тарифа, а не один на всех ---------------------------------
+# У пробника два устройства, у платных три. Панель этого не знает, знает бот:
+# шлюз спрашивает у его API. Дороже всего здесь ошибиться в сторону отказа —
+# человек заплатил и не получил устройство, — поэтому любая неясность трактуется
+# в его пользу.
+
+@pytest.fixture
+def plan_api(device_store, monkeypatch):
+    """Подменяет ответ API бота и считает обращения к нему."""
+
+    calls: list[str] = []
+    answer: dict = {"subscription": {"deviceLimit": 2}}
+
+    class _Response:
+        def __init__(self, body: bytes):
+            self._body = body
+
+        def read(self) -> bytes:
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request.full_url)
+        if isinstance(answer, Exception):
+            raise answer
+        return _Response(json.dumps(answer).encode())
+
+    monkeypatch.setattr(
+        sub_gateway, "DEVICE_LIMIT_API", "http://127.0.0.1:8080/web/account/by-telegram/{telegram_id}"
+    )
+    monkeypatch.setattr(sub_gateway, "DEVICE_LIMIT_API_TOKEN", "секрет")
+    monkeypatch.setattr(sub_gateway.urllib.request, "urlopen", fake_urlopen)
+    sub_gateway._PLAN_LIMITS.clear()
+    yield calls, lambda value: answer.update(value) if isinstance(value, dict) else None, _Response
+    sub_gateway._PLAN_LIMITS.clear()
+
+
+def test_the_trial_gets_the_two_devices_its_tariff_promises(plan_api):
+    """Общая цифра — три; у пробника своя, и действовать должна она."""
+    assert _allow("hw1", username="tg_77") is True
+    assert _allow("hw2", username="tg_77") is True
+
+    assert _allow("hw3", username="tg_77") is False
+
+
+def test_the_api_is_asked_about_the_owner_of_this_subscription(plan_api):
+    calls, _, _ = plan_api
+    _allow("hw1", username="tg_-42")
+
+    assert calls[0].endswith("/web/account/by-telegram/-42"), "аккаунты сайта живут под минусом"
+
+
+def test_the_limit_is_remembered_rather_than_asked_every_time(plan_api):
+    calls, _, _ = plan_api
+    for hwid in ("hw1", "hw2", "hw3"):
+        _allow(hwid, username="tg_77")
+
+    assert len(calls) == 1, "подписка меняется редко, ходить в соседнюю службу каждый раз незачем"
+
+
+def test_a_tariff_without_a_limit_blocks_nobody(plan_api, monkeypatch):
+    """deviceLimit=null у тарифа означает «без ограничения»."""
+    _, set_answer, _ = plan_api
+    set_answer({"subscription": {"deviceLimit": None}})
+
+    assert all(_allow(f"hw{i}", username="tg_78") for i in range(8))
+
+
+def test_a_silent_api_leaves_the_paid_devices_working(plan_api, monkeypatch):
+    """Соседняя служба недоступна — действует общая цифра, а не отказ."""
+    monkeypatch.setattr(
+        sub_gateway.urllib.request,
+        "urlopen",
+        lambda *a, **kw: (_ for _ in ()).throw(OSError("connection refused")),
+    )
+
+    assert [_allow(f"hw{i}", username="tg_79") for i in range(3)] == [True, True, True]
+    assert _allow("hw4", username="tg_79") is False, "общая цифра всё ещё действует"
+
+
+def test_a_broken_answer_does_not_turn_the_limit_into_a_refusal(plan_api):
+    _, set_answer, _ = plan_api
+    set_answer({"subscription": {"deviceLimit": "три"}})
+
+    assert all(_allow(f"hw{i}", username="tg_80") for i in range(5)), "мусор в ответе — не повод отключать"
