@@ -10,46 +10,6 @@ from services.panel_gateway import PanelAccount
 
 
 @pytest.mark.integration
-async def test_admin_only_guard_rejects_non_admin(session_pool, monkeypatch):
-    monkeypatch.setattr(admin.settings, "ADMIN_IDS", "1")
-    message = SimpleNamespace(
-        from_user=SimpleNamespace(id=2, username="not_admin"),
-        answer=AsyncMock(),
-        answer_document=AsyncMock(),
-        answer_photo=AsyncMock(),
-    )
-
-    await admin.test_key_handler(message, session_pool)
-
-    message.answer.assert_awaited_once()
-    assert message.answer.await_args.args[0]
-    message.answer_document.assert_not_awaited()
-    message.answer_photo.assert_not_awaited()
-
-
-@pytest.mark.integration
-async def test_admin_test_key_handler_sends_key_for_admin(session_pool, monkeypatch):
-    monkeypatch.setattr(admin.settings, "ADMIN_IDS", "3")
-    activate_subscription = AsyncMock()
-    monkeypatch.setattr(admin, "activate_subscription", activate_subscription)
-    monkeypatch.setattr(admin, "ensure_user_peer", AsyncMock(return_value=(None, "client-config")))
-    monkeypatch.setattr(admin, "generate_qr_png_bytes", AsyncMock(return_value=b"png"))
-    message = SimpleNamespace(
-        from_user=SimpleNamespace(id=3, username="admin"),
-        answer=AsyncMock(),
-        answer_document=AsyncMock(),
-        answer_photo=AsyncMock(),
-    )
-
-    await admin.test_key_handler(message, session_pool)
-
-    message.answer.assert_not_awaited()
-    assert activate_subscription.await_args.kwargs["plan"] == "standard_1m"
-    message.answer_document.assert_awaited_once()
-    message.answer_photo.assert_awaited_once()
-
-
-@pytest.mark.integration
 async def test_sync_traffic_handler_runs_manual_sync_for_admin(session_pool, fake_bot, monkeypatch):
     monkeypatch.setattr(admin.settings, "ADMIN_IDS", "4")
     traffic_sync = AsyncMock(return_value=3)
@@ -94,7 +54,6 @@ class FakePanelGateway:
             traffic_limit_bytes=10 * 1024**3,
             used_traffic_bytes=2 * 1024**3,
             lifetime_used_traffic_bytes=2 * 1024**3,
-            device_limit=3,
             provider="test",
         )
 

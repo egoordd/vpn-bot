@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import BufferedInputFile, Message
+from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.texts import bq, format_msk
@@ -13,15 +13,9 @@ from database.repository import Repository
 from scheduler.tasks import traffic_sync
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.promo import PROMO_SUBSCRIPTION_GRANT, PromoTypeError, plan_for_days
-from services.qrcode import generate_qr_png_bytes
-from services.subscription import activate_subscription
-from services.wireguard import WireGuardError, ensure_user_peer
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-TEST_KEY_PLAN = "standard_1m"
-
 
 def _is_admin(message: Message) -> bool:
     return message.from_user.id in settings.admin_ids_list
@@ -45,41 +39,6 @@ def _parse_telegram_id_arg(message: Message) -> int:
     if len(parts) == 1:
         return message.from_user.id
     return int(parts[1].strip())
-
-
-@router.message(Command("test_key"))
-async def test_key_handler(
-    message: Message,
-    session_pool: async_sessionmaker[AsyncSession],
-) -> None:
-    if await _reject_non_admin(message):
-        return
-
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.get_or_create_user(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-        )
-        await activate_subscription(session=session, user_id=user.id, plan=TEST_KEY_PLAN)
-
-        try:
-            _, config_text = await ensure_user_peer(session=session, user_id=user.id)
-        except WireGuardError:
-            logger.exception("WireGuard provisioning failed for admin test_key user_id=%s", user.id)
-            await message.answer("Не удалось подготовить ключ. Напишите в поддержку.")
-            return
-
-    qr_bytes = await generate_qr_png_bytes(config_text)
-    filename = f"wireguard_{message.from_user.id}.conf"
-    await message.answer_document(
-        BufferedInputFile(config_text.encode("utf-8"), filename=filename),
-        caption="Ваш WireGuard-конфиг.",
-    )
-    await message.answer_photo(
-        BufferedInputFile(qr_bytes, filename="wireguard_qr.png"),
-        caption="QR-код для импорта в WireGuard.",
-    )
 
 
 @router.message(Command("sync_traffic"))
@@ -146,7 +105,7 @@ async def panel_user_handler(
         f"Panel username: {panel_user.username}\n"
         f"Status: {panel_user.status}\n"
         f"Traffic: {_format_gb(panel_user.used_traffic_bytes)} / {_format_gb(panel_user.traffic_limit_bytes)}\n"
-        f"Devices: {panel_user.device_limit or 'без лимита'}\n"
+        f"Devices: {subscription.device_limit or 'без лимита'}\n"
         f"Expires: {panel_user.expire_at}\n"
         f"Sub URL: {panel_user.subscription_url}"
     )
@@ -269,7 +228,7 @@ async def funnel_handler(message: Message, session_pool: async_sessionmaker[Asyn
         + "\n\n"
         + bq(
             "События пишутся один раз на пользователя; проценты — конверсия из предыдущего шага.",
-            "Ссылка кампании: unlockproject.site/go/ИМЯ — считает переходы и ведёт в бота.",
+            "Ссылка кампании: unlockvpn.site/go/ИМЯ — считает переходы и ведёт в бота.",
             "Прямая ссылка без счётчика переходов: t.me/unlkvpn_bot?start=src_ИМЯ.",
         )
     )
@@ -299,10 +258,7 @@ async def find_handler(message: Message, session_pool: async_sessionmaker[AsyncS
         f"👤 @{user.username}" if user.username else "👤 (без username)",
         f"👥 Рефералов: {referrals}",
     ]
-    sub_lines = [
-        f"{'💎 Premium' if s.tier == 'premium' else '🌐 ' + s.tier}: до {format_msk(s.expires_at)}"
-        for s in subs
-    ] or ["нет активных"]
+    sub_lines = [f"🌐 {s.tier}: до {format_msk(s.expires_at)}" for s in subs] or ["нет активных"]
     text = "👤 <b>Пользователь</b>\n" + bq(*lines) + "\n\n🔑 <b>Подписки</b>\n" + bq(*sub_lines)
     await message.answer(text)
 
