@@ -30,7 +30,7 @@ export function mockAccountOverview(): AccountOverview {
       plan: plan.code,
       planTitle: plan.title,
       tier: plan.tier,
-      subscriptionUrl: "https://144.172.101.217.sslip.io:8443/sub/demo-token",
+      subscriptionUrl: "https://sub.example.com/sub/demo-token",
       trafficLimitBytes: (plan.trafficGb ?? 0) * GB,
       trafficUsedBytes: Math.round(148 * GB),
       deviceLimit: plan.deviceLimit,
@@ -53,7 +53,7 @@ export function mockOrderStatus(): WebOrderStatus {
   return {
     status: "succeeded",
     subscription: {
-      subscriptionUrl: "https://144.172.101.217.sslip.io:8443/sub/demo-token",
+      subscriptionUrl: "https://sub.example.com/sub/demo-token",
       planTitle: TARIFFS.standard_1m.title,
       expiresAt: daysFromNow(30),
       isActive: true,

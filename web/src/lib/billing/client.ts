@@ -314,9 +314,13 @@ export type TrialActivationResult =
   | { ok: false; error: "has_active_subscription" | "trial_already_used" | "unavailable" };
 
 export async function activateWebTrial(telegramId: number): Promise<TrialActivationResult> {
-  // Standalone preview: pretend the trial activated so the UI flow is testable.
+  // Без настроенного биллинга пробник выдать нечем, и говорить обратное нельзя.
+  // Раньше здесь возвращалось «готово» с показательной ссылкой: в отдельном
+  // предпросмотре это удобно, но на живом сайте одна пустая переменная
+  // окружения превратила бы отказ в «подписка активирована» со ссылкой на
+  // сервер, которого больше нет.
   if (!API_URL) {
-    return { ok: true, subscriptionUrl: "https://sub.unlockvpn.site/sub/demo" };
+    return { ok: false, error: "unavailable" };
   }
   const res = await fetch(`${API_URL}/web/trial/activate`, {
     method: "POST",
