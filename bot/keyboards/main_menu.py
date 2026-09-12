@@ -5,6 +5,9 @@ from config import settings
 from services.payment import PLANS
 
 
+# Цвет кнопки Telegram понимает с Bot API: "primary" — синяя, "success" — зелёная,
+# "danger" — красная. Красим ровно одно главное действие на экран: когда цветные
+# все, цвет перестаёт что-либо значить и экран становится пёстрым.
 DURATION_EMOJI = {30: "🚀", 90: "💎", 180: "👑", 365: "🏆"}
 
 
@@ -14,9 +17,17 @@ def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = F
     rows: list[list[InlineKeyboardButton]] = []
     if trial_available:
         rows.append(
-            [InlineKeyboardButton(text=f"🎁 Активировать пробный период — {trial_days()}", callback_data="activate_trial")]
+            [
+                InlineKeyboardButton(
+                    text=f"🎁 Активировать пробный период — {trial_days()}",
+                    callback_data="activate_trial",
+                    style="success",
+                )
+            ]
         )
-    rows.append([InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_menu")])
+    rows.append(
+        [InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_menu", style="primary")]
+    )
     if not has_subscription:
         # Shown only to an empty account, which is exactly what a website buyer
         # sees when their purchase landed on a separate email-only user. Anyone
@@ -109,8 +120,12 @@ def renew_durations_keyboard(tier: str, *, back_callback: str = "main_menu") -> 
 def my_subs_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📱 Подключить устройство", callback_data="connect_device")],
-            [InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu")],
+            [
+                InlineKeyboardButton(
+                    text="📱 Подключить устройство", callback_data="connect_device", style="primary"
+                )
+            ],
+            [InlineKeyboardButton(text="🔄 Продлить", callback_data="renew_menu", style="success")],
             [InlineKeyboardButton(text="◀️ В меню", callback_data="main_menu")],
         ]
     )

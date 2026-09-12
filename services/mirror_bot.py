@@ -119,8 +119,17 @@ def is_payment_callback(data: str) -> bool:
     return data in PAYMENT_CALLBACKS or data.startswith(PAYMENT_CALLBACK_PREFIXES)
 
 
-def _button(text: str, *, callback: str | None = None, url: str | None = None) -> dict[str, str]:
+def _button(
+    text: str, *, callback: str | None = None, url: str | None = None, style: str | None = None
+) -> dict[str, str]:
+    """Кнопка; `style` — цвет Telegram: primary (синяя), success (зелёная), danger.
+
+    Красим одно главное действие на экран: если цветные все, цвет ничего не значит.
+    """
+
     result = {"text": text}
+    if style is not None:
+        result["style"] = style
     if callback is not None:
         result["callback_data"] = callback
     elif url is not None:
@@ -145,18 +154,24 @@ def main_menu_keyboard(*, has_subscription: bool, trial_available: bool) -> dict
     info_row = [_button("ℹ️ О сервисе", callback="about"), _button("❓ Помощь", callback="help")]
     if has_subscription:
         return _keyboard(
-            [_button("📱 Подключить устройство", callback="connect_device")],
-            [_button("🔄 Продлить", callback="tariffs"), _button("🎟 Промокод", callback="promo_enter")],
+            [_button("📱 Подключить устройство", callback="connect_device", style="primary")],
+            [
+                _button("🔄 Продлить", callback="tariffs", style="success"),
+                _button("🎟 Промокод", callback="promo_enter"),
+            ],
             info_row,
         )
     if trial_available:
         return _keyboard(
-            [_button("🎁 Попробовать бесплатно", callback="activate_trial")],
+            [_button("🎁 Попробовать бесплатно", callback="activate_trial", style="success")],
             [_button("💳 Тарифы", callback="tariffs")],
             info_row,
         )
     return _keyboard(
-        [_button("💳 Тарифы", callback="tariffs"), _button("🎟 Промокод", callback="promo_enter")],
+        [
+            _button("💳 Тарифы", callback="tariffs", style="primary"),
+            _button("🎟 Промокод", callback="promo_enter"),
+        ],
         info_row,
     )
 
