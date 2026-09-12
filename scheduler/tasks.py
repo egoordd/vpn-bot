@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
-from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,7 +16,6 @@ from services.panel_gateway import (
     PanelGateway,
     PanelGatewayError,
     PanelUserNotFoundError,
-    RemnawavePanelGateway,
     get_panel_gateway,
     is_panel_configured,
 )
@@ -24,15 +23,12 @@ from services import yookassa
 from services.alerts import send_alert
 from services.money import format_rub
 from services.payment import parse_invoice_payload_details
-from services.qrcode import generate_qr_png_bytes
 from services.subscription import (
     activate_panel_subscription,
-    activate_subscription,
     connect_page_url,
     to_gateway_subscription_url,
 )
 from services.tariffs import resolve_tariff
-from services.wireguard import WireGuardError, ensure_user_peer, remove_peer
 
 logger = logging.getLogger(__name__)
 PANEL_INACTIVE_STATUSES = {"DISABLED", "LIMITED", "EXPIRED"}
@@ -85,19 +81,6 @@ async def deactivate_expired_subscriptions(
         subscriptions = await repo.get_expired_active_subscriptions()
         panel = get_panel_gateway() if is_panel_configured() else None
         for subscription in subscriptions:
-            key = await repo.get_wireguard_key_by_user_id(subscription.user_id)
-            if key is not None:
-                try:
-                    await remove_peer(key.public_key)
-                except WireGuardError:
-                    logger.exception("Failed to remove WireGuard peer for user_id=%s", subscription.user_id)
-
-            if subscription.tier == "premium":
-                try:
-                    await release_subscription_nodes(session, subscription.id)
-                except Exception:
-                    logger.exception("Failed to release premium nodes for subscription_id=%s", subscription.id)
-
             await repo.deactivate_subscription(subscription.id)
             notify_chat_id = (
                 subscription.user.telegram_id if subscription.user.telegram_id > 0 else None
@@ -149,15 +132,12 @@ async def deactivate_expired_subscriptions(
 async def traffic_sync(
     bot: Bot,
     session_pool: async_sessionmaker[AsyncSession],
-    panel_client: object | None = None,
     panel_gateway: PanelGateway | None = None,
 ) -> int:
-    if panel_gateway is not None and panel_client is not None:
-        raise ValueError("panel_gateway and panel_client are mutually exclusive")
-    if panel_client is None and panel_gateway is None and not _remnawave_configured():
+    if panel_gateway is None and not is_panel_configured():
         return 0
 
-    client = panel_gateway or (RemnawavePanelGateway(panel_client) if panel_client is not None else get_panel_gateway())
+    client = panel_gateway or get_panel_gateway()
     synced_count = 0
     async with session_pool() as session:
         repo = Repository(session)
@@ -203,16 +183,24 @@ async def traffic_sync(
 
             had_no_traffic = (subscription.traffic_used_bytes or 0) == 0
             was_parked = not subscription.is_active
-            await repo.update_subscription(
-                subscription.id,
-                status=status.lower(),
-                is_active=not should_deactivate,
-                traffic_used_bytes=used_traffic_bytes,
-                traffic_limit_bytes=traffic_limit_bytes,
-                device_limit=panel_user.device_limit,
-                subscription_url=panel_user.subscription_url,
-                sub_token=panel_user.short_uuid,
-            )
+            # The panel mints a fresh token every time it is asked, so
+            # rewriting the stored URL here churned the one link a customer
+            # holds: an hour-old message from the bot and the cabinet page
+            # showed different addresses for the same subscription, and people
+            # reasonably asked which one was theirs. Every issued token keeps
+            # working, so the first one is kept for good and only a missing one
+            # is filled in.
+            changes = {
+                "status": status.lower(),
+                "is_active": not should_deactivate,
+                "traffic_used_bytes": used_traffic_bytes,
+                "traffic_limit_bytes": traffic_limit_bytes,
+            }
+            if not subscription.subscription_url:
+                changes["subscription_url"] = panel_user.subscription_url
+            if not subscription.sub_token:
+                changes["sub_token"] = panel_user.short_uuid
+            await repo.update_subscription(subscription.id, **changes)
             synced_count += 1
 
             # Funnel: the first bytes through the panel mean the user actually connected.
@@ -231,12 +219,7 @@ async def traffic_sync(
                 except Exception:
                     logger.exception("Failed to notify revived subscription_id=%s", subscription.id)
 
-            if should_deactivate:
-                if subscription.tier == "premium":
-                    try:
-                        await release_subscription_nodes(session, subscription.id)
-                    except Exception:
-                        logger.exception("Failed to release premium nodes for subscription_id=%s", subscription.id)
+            if should_deactivate and not was_parked:
                 try:
                     await bot.send_message(
                         chat_id=subscription.user.telegram_id,
@@ -256,49 +239,6 @@ def _aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
-
-
-def _access_text(expires_at: datetime) -> str:
-    return (
-        "✅ Оплата получена!\n"
-        f"Подписка активна до {_aware(expires_at):%d.%m.%Y %H:%M} UTC\n\n"
-        "🔑 Ваш WireGuard-ключ (.conf файл прикреплён ниже)\n"
-        "📸 QR-код для импорта — следующим сообщением\n\n"
-        "📖 Как подключиться:\n"
-        "1. Скачайте WireGuard:\n"
-        "   • iOS: App Store\n"
-        "   • Android: Google Play\n"
-        "   • Windows/Mac: wireguard.com/install\n"
-        "2. В приложении нажмите «+» → «Импорт из файла» или «Сканировать QR»\n"
-        "3. Включите туннель — готово\n\n"
-        f"Проблемы? {settings.support_contact}"
-    )
-
-
-def _remnawave_configured() -> bool:
-    return is_panel_configured()
-
-
-def _remnawave_api_configured() -> bool:
-    return bool(settings.REMNAWAVE_API_URL.strip() and settings.remnawave_api_token.strip())
-
-
-
-
-async def _send_access_bundle(bot: Bot, telegram_id: int, config_text: str, expires_at: datetime) -> None:
-    qr_bytes = await generate_qr_png_bytes(config_text)
-    await bot.send_message(chat_id=telegram_id, text=_access_text(expires_at))
-    await bot.send_document(
-        chat_id=telegram_id,
-        document=BufferedInputFile(config_text.encode("utf-8"), filename=f"wireguard_{telegram_id}.conf"),
-        caption="WireGuard-конфиг для UnLock.",
-    )
-    await bot.send_photo(
-        chat_id=telegram_id,
-        photo=BufferedInputFile(qr_bytes, filename="wireguard_qr.png"),
-        caption="QR-код для импорта в WireGuard.",
-        reply_markup=back_to_menu_keyboard(),
-    )
 
 
 def _subscription_access_text(subscription_url: str, expires_at: datetime) -> str:

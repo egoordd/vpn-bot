@@ -6,25 +6,22 @@ import pytest
 
 from database.repository import Repository
 from scheduler import tasks
-from services.panel_client import PanelUsage, PanelUser, RemnawaveNotFoundError
-from services.panel_gateway import PanelAccount
+from services.panel_gateway import PanelAccount, PanelUserNotFoundError
 from services.payment import create_invoice_payload
-from services.wireguard import WireGuardError
-
-
-class FakePanelClient:
-    def __init__(self, users: dict[str, PanelUser] | None = None, missing: set[str] | None = None):
-        self.users = users or {}
-        self.missing = missing or set()
-
-    async def get_user(self, username: str) -> PanelUser:
-        if username in self.missing:
-            raise RemnawaveNotFoundError("missing")
-        return self.users[username]
 
 
 class FakePanelGateway:
+    provider = "marzban"
+
+    def __init__(self, users: dict[str, PanelAccount] | None = None, missing: set[str] | None = None):
+        self.users = users or {}
+        self.missing = missing or set()
+
     async def get_user(self, username: str) -> PanelAccount:
+        if username in self.missing:
+            raise PanelUserNotFoundError("missing")
+        if username in self.users:
+            return self.users[username]
         return PanelAccount(
             username=username,
             short_uuid=username,
@@ -34,7 +31,6 @@ class FakePanelGateway:
             traffic_limit_bytes=10 * 1024**3,
             used_traffic_bytes=3 * 1024**3,
             lifetime_used_traffic_bytes=3 * 1024**3,
-            device_limit=None,
             provider="marzban",
         )
 
@@ -45,18 +41,17 @@ def _panel_user(
     *,
     limit: int | None = 10 * 1024**3,
     status: str = "ACTIVE",
-) -> PanelUser:
-    return PanelUser(
-        uuid=f"uuid-{username}",
+) -> PanelAccount:
+    return PanelAccount(
         username=username,
         short_uuid=f"short-{username}",
         subscription_url=f"https://sub.example/api/sub/{username}",
         status=status,
         expire_at="2026-07-03T00:00:00Z",
         traffic_limit_bytes=limit,
-        traffic_limit_strategy="NO_RESET",
-        hwid_device_limit=3,
-        usage=PanelUsage(used_traffic_bytes=used, lifetime_used_traffic_bytes=used),
+        used_traffic_bytes=used,
+        lifetime_used_traffic_bytes=used,
+        provider="marzban",
     )
 
 
@@ -74,6 +69,7 @@ async def test_traffic_sync_updates_panel_subscription_usage(fake_bot, session_p
             subscription_url="https://sub.example/old",
             traffic_limit_bytes=10 * 1024**3,
             traffic_used_bytes=0,
+            device_limit=3,
             started_at=datetime.now(timezone.utc),
             expires_at=datetime.now(timezone.utc) + timedelta(days=30),
             is_active=True,
@@ -82,7 +78,7 @@ async def test_traffic_sync_updates_panel_subscription_usage(fake_bot, session_p
     synced = await tasks.traffic_sync(
         fake_bot,
         session_pool,
-        panel_client=FakePanelClient({"tg_506": _panel_user("tg_506", used=2 * 1024**3)}),
+        panel_gateway=FakePanelGateway({"tg_506": _panel_user("tg_506", used=2 * 1024**3)}),
     )
 
     async with session_pool() as session:
@@ -93,8 +89,12 @@ async def test_traffic_sync_updates_panel_subscription_usage(fake_bot, session_p
     assert refreshed.status == "active"
     assert refreshed.traffic_used_bytes == 2 * 1024**3
     assert refreshed.device_limit == 3
-    assert refreshed.sub_token == "short-tg_506"
-    assert refreshed.subscription_url == "https://sub.example/api/sub/tg_506"
+    # The link a customer already holds must survive the sync. The panel hands
+    # out a new token on every call, and rewriting it here meant an older bot
+    # message and the cabinet page advertised different addresses for one
+    # subscription.
+    assert refreshed.sub_token == "old"
+    assert refreshed.subscription_url == "https://sub.example/old"
     fake_bot.send_message.assert_not_awaited()
 
 
@@ -149,7 +149,7 @@ async def test_traffic_sync_deactivates_when_traffic_limit_is_reached(fake_bot, 
     await tasks.traffic_sync(
         fake_bot,
         session_pool,
-        panel_client=FakePanelClient({"tg_507": _panel_user("tg_507", used=10 * 1024**3)}),
+        panel_gateway=FakePanelGateway({"tg_507": _panel_user("tg_507", used=10 * 1024**3)}),
     )
 
     async with session_pool() as session:
@@ -175,7 +175,9 @@ async def test_traffic_sync_deactivates_missing_panel_user(fake_bot, session_poo
             is_active=True,
         )
 
-    synced = await tasks.traffic_sync(fake_bot, session_pool, panel_client=FakePanelClient(missing={"tg_508"}))
+    synced = await tasks.traffic_sync(
+        fake_bot, session_pool, panel_gateway=FakePanelGateway(missing={"tg_508"})
+    )
 
     async with session_pool() as session:
         refreshed = await Repository(session).get_subscription(subscription.id)
@@ -230,9 +232,7 @@ async def test_check_expiring_subscriptions_catches_send_errors(session_pool):
 
 
 @pytest.mark.integration
-async def test_deactivate_expired_subscriptions_removes_peer_and_notifies(fake_bot, session_pool, monkeypatch):
-    remove_peer = AsyncMock()
-    monkeypatch.setattr(tasks, "remove_peer", remove_peer)
+async def test_deactivate_expired_subscriptions_notifies(fake_bot, session_pool):
     async with session_pool() as session:
         repo = Repository(session)
         user = await repo.create_user(telegram_id=700)
@@ -243,55 +243,13 @@ async def test_deactivate_expired_subscriptions_removes_peer_and_notifies(fake_b
             datetime.now(timezone.utc) - timedelta(days=1),
             True,
         )
-        await repo.create_wireguard_key(user.id, "PUB", "PRIV", "10.9.0.2", "/client.conf")
 
     await tasks.deactivate_expired_subscriptions(fake_bot, session_pool)
 
-    remove_peer.assert_awaited_once_with("PUB")
     fake_bot.send_photo.assert_awaited_once()
     async with session_pool() as session:
         refreshed = await Repository(session).get_subscription(subscription.id)
         assert refreshed.is_active is False
-
-
-@pytest.mark.integration
-async def test_deactivate_expired_subscriptions_catches_remove_peer_errors(fake_bot, session_pool, monkeypatch):
-    remove_peer = AsyncMock(side_effect=WireGuardError("cannot remove"))
-    monkeypatch.setattr(tasks, "remove_peer", remove_peer)
-    async with session_pool() as session:
-        repo = Repository(session)
-        user = await repo.create_user(telegram_id=701)
-        subscription = await repo.create_subscription(
-            user.id,
-            "1m",
-            datetime.now(timezone.utc) - timedelta(days=31),
-            datetime.now(timezone.utc) - timedelta(days=1),
-            True,
-        )
-        await repo.create_wireguard_key(user.id, "PUBERR", "PRIV", "10.9.0.2", "/client.conf")
-
-    await tasks.deactivate_expired_subscriptions(fake_bot, session_pool)
-
-    remove_peer.assert_awaited_once_with("PUBERR")
-    fake_bot.send_photo.assert_awaited_once()
-    async with session_pool() as session:
-        refreshed = await Repository(session).get_subscription(subscription.id)
-        assert refreshed.is_active is False
-
-
-
-
-
-
-
-
-@pytest.mark.unit
-def test_access_text_and_aware_helpers():
-    naive = datetime(2026, 1, 1, 12, 0, 0)
-    aware = tasks._aware(naive)
-
-    assert aware.tzinfo == timezone.utc
-    assert "01.01.2026 12:00 UTC" in tasks._access_text(naive)
 
 
 # --- deactivate_expired_subscriptions: panel enforcement ---------------------
@@ -608,7 +566,7 @@ async def test_traffic_sync_revives_a_subscription_after_the_allowance_refills(f
     synced = await tasks.traffic_sync(
         fake_bot,
         session_pool,
-        panel_client=FakePanelClient({"tg_531": _panel_user("tg_531", used=0, limit=150 * 1024**3)}),
+        panel_gateway=FakePanelGateway({"tg_531": _panel_user("tg_531", used=0, limit=150 * 1024**3)}),
     )
 
     async with session_pool() as session:
@@ -642,7 +600,9 @@ async def test_traffic_sync_leaves_a_parked_subscription_alone_while_still_over(
     await tasks.traffic_sync(
         fake_bot,
         session_pool,
-        panel_client=FakePanelClient({"tg_532": _panel_user("tg_532", used=150 * 1024**3, limit=150 * 1024**3)}),
+        panel_gateway=FakePanelGateway(
+            {"tg_532": _panel_user("tg_532", used=150 * 1024**3, limit=150 * 1024**3)}
+        ),
     )
 
     async with session_pool() as session:
@@ -650,6 +610,7 @@ async def test_traffic_sync_leaves_a_parked_subscription_alone_while_still_over(
 
     assert refreshed.is_active is False
     assert refreshed.status == "limited"
+    fake_bot.send_message.assert_not_awaited()
 
 
 # --- reconcile_stale_payments -------------------------------------------------
@@ -770,3 +731,37 @@ async def test_reconcile_keeps_going_after_one_payment_fails_to_look_up(session_
     async with session_pool() as session:
         payment = await Repository(session).get_payment(second_id)
     assert payment.status == "canceled"
+
+
+@pytest.mark.integration
+async def test_traffic_sync_fills_a_missing_link_but_never_replaces_one(fake_bot, session_pool):
+    """Older rows predate the column; they still need a link once."""
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=507)
+        subscription = await repo.create_subscription(
+            user_id=user.id,
+            plan="standard_1m",
+            tier="standard",
+            panel_username="tg_507",
+            sub_token=None,
+            subscription_url=None,
+            traffic_limit_bytes=10 * 1024**3,
+            traffic_used_bytes=0,
+            device_limit=3,
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            is_active=True,
+        )
+
+    await tasks.traffic_sync(
+        fake_bot,
+        session_pool,
+        panel_gateway=FakePanelGateway({"tg_507": _panel_user("tg_507", used=1024)}),
+    )
+
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+
+    assert refreshed.subscription_url == "https://sub.example/api/sub/tg_507"
+    assert refreshed.sub_token == "short-tg_507"
