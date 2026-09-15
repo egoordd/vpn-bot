@@ -28,7 +28,7 @@ from bot.texts import MONTHS_RU, aware, format_gb, format_msk, trial_days
 from config import settings
 from database.models import Payment, Subscription, User
 from database.repository import Repository
-from services import billing_api, mirror_legal, mirror_platega, promo
+from services import billing_api, mirror_legal, mirror_platega, mirror_stats, promo
 from services.alerts import send_alert
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.referral import (
@@ -529,6 +529,13 @@ class MirrorBot:
             payload["show_alert"] = alert
         await self.api.call("answerCallbackQuery", payload)
 
+    async def show_stats(self, chat_id: int) -> None:
+        """Сводка по зеркалу для админов. Считает только аккаунты зеркала."""
+
+        async with self.session_pool() as session:
+            stats = await mirror_stats.collect(session, account_ceiling=mirror_account_id(0))
+        await self.render(chat_id, mirror_stats.render(stats), _back_keyboard())
+
     async def menu_state(
         self,
         telegram_id: int,
@@ -631,6 +638,11 @@ class MirrorBot:
                 "🎟 <b>Промокод</b>\n\nОтправьте промокод одним сообщением.",
                 _back_keyboard(),
             )
+            return
+        # Только для админов основного бота. Остальным команда ничем не
+        # отличается от любого текста — меню, без намёка, что она существует.
+        if command == "/stats" and telegram_id in settings.admin_ids_list:
+            await self.show_stats(chat_id)
             return
 
         waiting_since = self._promo_waiting.get(telegram_id)
