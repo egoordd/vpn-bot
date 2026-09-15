@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import os
 import time
 from collections.abc import Mapping
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -28,7 +30,7 @@ from bot.texts import MONTHS_RU, aware, format_gb, format_msk, trial_days
 from config import settings
 from database.models import Payment, Subscription, User
 from database.repository import Repository
-from services import billing_api, mirror_legal, mirror_platega, mirror_stats, promo
+from services import billing_api, mirror_banners, mirror_legal, mirror_platega, mirror_stats, promo
 from services.alerts import send_alert
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.referral import (
@@ -467,10 +469,29 @@ class TelegramAPI:
             f"{self._base_url}/{method}",
             json=dict(payload or {}),
         ) as response:
-            try:
-                body = await response.json(content_type=None)
-            except Exception as exc:  # noqa: BLE001
-                raise TelegramAPIError(method, f"HTTP {response.status}") from exc
+            return await self._unwrap(method, response)
+
+    async def upload_photo(self, payload: Mapping[str, Any], path: Path) -> Any:
+        """sendPhoto с загрузкой файла: картинка едет частями, остальное — строками.
+
+        Загрузка нужна ровно один раз на картинку: дальше зеркало отправляет её
+        по file_id обычным JSON-вызовом.
+        """
+
+        if self._session is None:  # pragma: no cover - lifecycle guard
+            raise RuntimeError("TelegramAPI must be used as an async context manager")
+        form = aiohttp.FormData()
+        for key, value in payload.items():
+            form.add_field(key, value if isinstance(value, str) else json.dumps(value, ensure_ascii=False))
+        form.add_field("photo", path.read_bytes(), filename=path.name, content_type="image/png")
+        async with self._session.post(f"{self._base_url}/sendPhoto", data=form) as response:
+            return await self._unwrap("sendPhoto", response)
+
+    async def _unwrap(self, method: str, response: aiohttp.ClientResponse) -> Any:
+        try:
+            body = await response.json(content_type=None)
+        except Exception as exc:  # noqa: BLE001
+            raise TelegramAPIError(method, f"HTTP {response.status}") from exc
         if not body.get("ok"):
             raise TelegramAPIError(
                 method,
@@ -536,6 +557,19 @@ class MirrorBot:
             stats = await mirror_stats.collect(session, account_ceiling=mirror_account_id(0))
         await self.render(chat_id, mirror_stats.render(stats), _back_keyboard())
 
+    async def drop_screen(self, chat_id: int, message_id: int) -> None:
+        """Убрать экран с картинкой перед тем, как нарисовать текстовый.
+
+        Telegram позволяет боту удалять свои сообщения двое суток. Если не вышло
+        (экран старше), ничего страшного: следующий экран придёт новым
+        сообщением, картинка просто останется выше в переписке.
+        """
+
+        try:
+            await self.api.call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+        except TelegramAPIError:
+            logger.info("Не удалось убрать экран с картинкой %s", message_id)
+
     async def menu_state(
         self,
         telegram_id: int,
@@ -565,6 +599,13 @@ class MirrorBot:
         message_id: int | None = None,
     ) -> None:
         text, keyboard = await self.menu_state(telegram_id, username, display_name)
+        # Картинка — только на свежем экране. Переписать сообщение с фото чужим
+        # текстом Telegram не даёт, а слать баннер на каждое нажатие — засыпать
+        # человеку переписку одинаковыми картинками.
+        if message_id is None and await mirror_banners.send(
+            self.api, chat_id, mirror_banners.pick(keyboard), text, keyboard
+        ):
+            return
         await self.render(chat_id, text, keyboard, message_id=message_id)
 
     async def record_start(self, user: Mapping[str, Any], payload: str | None) -> None:
@@ -670,6 +711,11 @@ class MirrorBot:
         telegram_id = int(user["id"])
         chat_id = int(chat["id"])
         message_id = int(message["message_id"]) if message.get("message_id") else None
+        if message.get("photo") and message_id is not None:
+            # У сообщения с фото правится только подпись, и картинка осталась бы
+            # висеть над текстом чужого экрана. Убираем её и рисуем заново.
+            await self.drop_screen(chat_id, message_id)
+            message_id = None
         username = user.get("username")
         display_name = " ".join(
             part for part in (user.get("first_name"), user.get("last_name")) if part
