@@ -1183,3 +1183,23 @@ def test_an_empty_setting_leaves_everyone_on_the_plain_subscription():
     """Пустая настройка не должна означать «отдавать JSON всем»."""
     assert sub_gateway._json_clients("") == ()
     assert sub_gateway._json_clients(" , ") == ()
+
+
+# --- ручное снятие лимита устройств ---------------------------------------------
+# Лимит берётся из тарифа, поэтому снять его конкретному человеку можно только
+# явным списком в настройках шлюза.
+
+def test_the_owner_can_lift_the_device_limit_for_one_person(plan_api, monkeypatch):
+    calls, _, _ = plan_api
+    monkeypatch.setattr(sub_gateway, "DEVICE_LIMIT_EXEMPT", frozenset({"tg_900"}))
+
+    assert all(_allow(f"hw{i}", username="tg_900") for i in range(12))
+    assert not any(url.endswith("/900") for url in calls), "тариф освобождённого спрашивать незачем"
+    assert [_allow(f"hw{i}", username="tg_901") for i in range(3)] == [True, True, False], (
+        "остальные по-прежнему живут по своему тарифу"
+    )
+
+
+def test_the_exemption_list_is_read_forgivingly():
+    assert sub_gateway._names("tg_1, tg_2 ,,") == frozenset({"tg_1", "tg_2"})
+    assert sub_gateway._names("") == frozenset(), "пустая настройка — никаких исключений"

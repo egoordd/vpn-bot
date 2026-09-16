@@ -726,6 +726,18 @@ DEVICE_LIMIT_TTL = int(os.environ.get("DEVICE_LIMIT_TTL", "600") or 600)
 # сами, а не через десять минут.
 DEVICE_LIMIT_FAIL_TTL = 60
 _PLAN_LIMITS: dict[str, tuple[float, int]] = {}
+
+
+def _names(raw: str) -> frozenset[str]:
+    """Панельные имена из настройки: «tg_1, tg_2» → {"tg_1", "tg_2"}."""
+
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
+# Люди, которым владелец снял лимит устройств вручную. Цифру лимита называет
+# тариф, и правкой в базе её не перебить — нужен явный список, который видно
+# в настройках шлюза и который так же легко убрать.
+DEVICE_LIMIT_EXEMPT = _names(os.environ.get("DEVICE_LIMIT_EXEMPT", ""))
 DEVICE_LIMIT_REMARK = "❗️ Лимит устройств — напишите в поддержку"
 DEVICE_LIMIT_ANNOUNCE = (
     "❗️ Достигнут лимит устройств по подписке.\n"
@@ -797,6 +809,8 @@ def device_allowed(
     """Запомнить устройство и сказать, помещается ли оно в лимит подписки."""
 
     if DEVICE_LIMIT <= 0 or not username or not hwid:
+        return True
+    if username in DEVICE_LIMIT_EXEMPT:
         return True
     conn = _device_store()
     if conn is None:
