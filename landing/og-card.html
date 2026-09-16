@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>UnLock VPN — превью ссылки</title>
+<!-- Источник картинки og.png (1200×630), которую мессенджеры показывают при
+     отправке ссылки на визитку. Отрисовывается безголовым Chrome:
+     chrome --headless --screenshot=og.png --window-size=1200,630 og-card.html -->
+<style>
+@font-face { font-family: "Manrope"; src: url("fonts/manrope-cyrillic.woff2") format("woff2"); font-weight: 200 800; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Manrope"; src: url("fonts/manrope-latin-ext.woff2") format("woff2"); font-weight: 200 800; unicode-range: U+0100-02BA, U+20A0-20AB, U+20AD-20C0; }
+@font-face { font-family: "Manrope"; src: url("fonts/manrope-latin.woff2") format("woff2"); font-weight: 200 800; unicode-range: U+0000-00FF, U+2000-206F; }
+html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+body {
+  font-family: "Manrope", system-ui, sans-serif;
+  color: #f3f1ee;
+  background:
+    radial-gradient(55% 60% at 50% -10%, rgb(255 255 255 / 0.16), transparent 70%),
+    radial-gradient(40% 50% at 100% 100%, rgb(255 255 255 / 0.06), transparent 70%),
+    linear-gradient(180deg, #171615 0%, #0f0e0d 100%);
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+.mark { width: 92px; height: 92px; margin: 0 auto; filter: drop-shadow(0 0 28px rgb(255 255 255 / 0.35)); }
+h1 {
+  margin: 26px 0 0;
+  font-size: 104px;
+  line-height: 0.92;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+}
+h1 span {
+  display: block;
+  background: linear-gradient(100deg, #ffffff 0%, #d6d3ce 48%, #9d9993 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.chips { margin-top: 34px; display: flex; gap: 14px; justify-content: center; }
+.chip {
+  padding: 13px 24px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.06);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  font-size: 24px;
+  font-weight: 600;
+  color: rgb(243 241 238 / 0.86);
+}
+</style>
+</head>
+<body>
+<div>
+  <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="#f3f1ee" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+    <rect x="7" y="2.5" width="10" height="19" rx="5"/>
+    <path d="M10 8.5v4.5a2 2 0 0 0 4 0V8.5"/>
+  </svg>
+  <h1>Включил<span>и забыл</span></h1>
+  <div class="chips">
+    <span class="chip">Германия · Польша · Нидерланды · США</span>
+    <span class="chip">7 дней бесплатно</span>
+  </div>
+</div>
+</body>
+</html>
