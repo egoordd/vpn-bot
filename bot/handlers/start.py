@@ -23,6 +23,7 @@ from services.subscription import (
     connect_page_url,
     to_gateway_subscription_url,
 )
+from services import utm_links
 from services.payment import normalize_payment_plan_code
 from services.tariffs import resolve_tariff
 
@@ -158,15 +159,22 @@ async def _record_start_event(
 ) -> None:
     """Best-effort funnel telemetry; must never break /start."""
     parts = (getattr(message, "text", None) or "").split(maxsplit=1)
-    source = parse_source_start_payload(parts[1] if len(parts) > 1 else None)
+    payload = parts[1] if len(parts) > 1 else None
+    source = parse_source_start_payload(payload)
+    utm_code = utm_links.parse_start_payload(payload)
     try:
         async with session_pool() as session:
             repo = Repository(session)
+            is_new_user = await repo.get_user_by_telegram_id(message.from_user.id) is None
             user = await repo.get_or_create_user(
                 telegram_id=message.from_user.id,
                 username=message.from_user.username,
             )
-            if source:
+            if utm_code and await utm_links.register_start(
+                session, user=user, code=utm_code, is_new_user=is_new_user
+            ):
+                source = utm_links.source_of(utm_code) if is_new_user else None
+            elif source:
                 await repo.set_user_source_if_unset(user.id, source)
             await repo.record_funnel_event(user.id, "start", meta={"source": source} if source else None)
     except Exception:  # noqa: BLE001 - telemetry only

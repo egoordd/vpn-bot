@@ -367,3 +367,47 @@ class LinkClick(Base):
         index=True,
         nullable=False,
     )
+
+
+class UtmLink(Base):
+    """Рекламная ссылка `t.me/<бот>?start=utm_<code>`, выпущенная админом через /utm.
+
+    Код случайный, а не придуманный руками (`src_ИМЯ`): под каждую закупку
+    рекламы — своя ссылка, и по записи видно, что её действительно выпускали.
+    Пришедший по ней новый человек получает ``users.source = "utm_<code>"``.
+    """
+
+    __tablename__ = "utm_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class UtmVisit(Base):
+    """Каждый /start по рекламной ссылке — и новичка, и уже знакомого человека.
+
+    ``is_new_user`` отделяет тех, кого привела реклама, от тех, кто просто снова
+    нажал ссылку: засчитываются рекламе только первые.
+    """
+
+    __tablename__ = "utm_visits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    is_new_user: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=func.now(),
+        index=True,
+        nullable=False,
+    )

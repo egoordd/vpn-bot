@@ -13,6 +13,7 @@ from database.repository import Repository
 from scheduler.tasks import traffic_sync
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services import channel_stats
+from services import utm_links
 from services.promo import PROMO_SUBSCRIPTION_GRANT, PromoTypeError, plan_for_days
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,7 @@ async def admin_help_handler(message: Message) -> None:
         + bq(
             "/stats — сводка по проекту",
             "/channels — бот / сайт / зеркало по отдельности",
+            "/utm &lt;название&gt; — рекламная ссылка в бота; /utm — все ссылки",
             "/find &lt;tg_id&gt; — карточка пользователя",
             "/gift_promo &lt;КОД&gt; &lt;дней&gt; [исп.] — промокод на подписку",
             "/sync_traffic — синхронизировать трафик",
@@ -216,6 +218,23 @@ async def channels_handler(message: Message, session_pool: async_sessionmaker[As
     async with session_pool() as session:
         stats = await channel_stats.collect(session)
     await message.answer(channel_stats.render(stats))
+
+
+@router.message(Command("utm"))
+async def utm_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    if await _reject_non_admin(message):
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    title = parts[1].strip() if len(parts) > 1 else ""
+    bot_username = (await message.bot.me()).username
+    async with session_pool() as session:
+        if title:
+            link = await utm_links.create(session, title=title, created_by=message.from_user.id)
+            text = utm_links.render_created(link, bot_username)
+        else:
+            stats, total = await utm_links.collect(session)
+            text = utm_links.render_list(stats, total, bot_username)
+    await message.answer(text)
 
 
 @router.message(Command("funnel"))
