@@ -244,3 +244,61 @@ async def test_an_unknown_link_is_refused_rather_than_silently_creating_an_accou
     link = "https://sub.unlockvpn.site/sub/" + base64.b64encode(b"tg_999999,1785").decode()
     with pytest.raises(ValueError, match="unknown_subscription"):
         await build_web_payment_intent(db_session, plan="1m", subscription_link=link)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("holds", ["password", "paid", "subscription"])
+async def test_existing_email_requires_authentication_for_checkout(db_session, holds):
+    from datetime import datetime, timedelta, timezone
+
+    from services.billing_api import build_web_payment_intent
+
+    repo = Repository(db_session)
+    owner = await repo.create_user(telegram_id=-7307, username="owner")
+    password_hash = "existing-password-fixture" if holds == "password" else None
+    await repo.update_user(owner.id, email="existing@example.test", web_password_hash=password_hash)
+    if holds == "paid":
+        await repo.create_yookassa_payment(owner.id, 14900, "yk-owner-paid", "unlock:owner", "standard_1m")
+        await repo.complete_payment_by_external_id("yk-owner-paid")
+    if holds == "subscription":
+        await repo.create_subscription(
+            user_id=owner.id,
+            plan="standard_1m",
+            started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+
+    with pytest.raises(ValueError, match="^authentication_required$"):
+        await build_web_payment_intent(
+            db_session, plan="1m", email="  EXISTING@example.test  "
+        )
+    await db_session.refresh(owner)
+    assert owner.email == "existing@example.test"
+    assert owner.web_password_hash == password_hash
+    assert len(await repo.list_users()) == 1
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("left_behind", ["pending", "canceled", "nothing"])
+async def test_unpaid_checkout_does_not_lock_the_email(db_session, left_behind):
+    # 17.09.2026: a buyer walked away from the payment page, came back the same
+    # day and was told the address already had an account. It held nothing.
+    from services.billing_api import build_web_payment_intent
+
+    repo = Repository(db_session)
+    guest = await repo.create_user(telegram_id=-7308)
+    await repo.update_user(guest.id, email="walked-away@example.test")
+    if left_behind != "nothing":
+        payment = await repo.create_yookassa_payment(
+            guest.id, 39900, "yk-walked-away", "unlock:guest", "standard_3m"
+        )
+        if left_behind == "canceled":
+            await repo.update_payment_status(payment.id, "canceled")
+
+    intent = await build_web_payment_intent(
+        db_session, plan="1m", email=" Walked-Away@example.test "
+    )
+
+    assert intent.user_id == guest.id
+    assert intent.telegram_id == guest.telegram_id
+    assert len(await repo.list_users()) == 1

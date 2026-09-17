@@ -44,19 +44,103 @@ async def test_register_creates_account_and_login(session_pool):
 
 
 @pytest.mark.integration
-async def test_register_claims_existing_guest_email_account(session_pool):
-    # A prior email purchase created a passwordless account; registering claims it.
+async def test_register_does_not_claim_existing_guest_email_account(session_pool):
+    # A guest's email is not proof of ownership. Recovery needs a separately
+    # verified process and public registration must leave purchases untouched.
     async with session_pool() as session:
         repo = Repository(session)
         guest = await repo.create_user(telegram_id=-555001)
         await repo.update_user(guest.id, email="guest@mail.ru")
+        await repo.create_yookassa_payment(guest.id, 14900, "yk-guest-paid", "unlock:guest", "standard_1m")
+        await repo.complete_payment_by_external_id("yk-guest-paid")
 
     async with session_pool() as session:
-        tid = await register_web_account(session, email="guest@mail.ru", password="supersecret1")
-        assert tid == -555001  # same account, now with a password
+        with pytest.raises(WebAuthError) as exc:
+            await register_web_account(session, email="guest@mail.ru", password="supersecret1")
+        assert exc.value.code == "already_registered"
 
     async with session_pool() as session:
-        assert await authenticate_web_account(session, email="guest@mail.ru", password="supersecret1") == -555001
+        guest = await Repository(session).get_user_by_email("guest@mail.ru")
+        assert guest.telegram_id == -555001
+        assert guest.web_password_hash is None
+        assert await authenticate_web_account(session, email="guest@mail.ru", password="supersecret1") is None
+
+
+async def _walked_away_guest(session_pool, email: str, *, payment_status: str | None) -> int:
+    """A guest a checkout left behind: email, no password, nothing bought."""
+    async with session_pool() as session:
+        repo = Repository(session)
+        guest = await repo.create_user(telegram_id=-555100 - len(email))
+        await repo.update_user(guest.id, email=email)
+        if payment_status is not None:
+            payment = await repo.create_yookassa_payment(
+                guest.id, 39900, f"yk-{email}", "unlock:guest", "standard_3m"
+            )
+            if payment_status != "pending":
+                await repo.update_payment_status(payment.id, payment_status)
+        return guest.telegram_id
+
+
+def _yookassa_says(monkeypatch, status: str | Exception):
+    from services import yookassa
+
+    async def get_payment(payment_id: str):
+        if isinstance(status, Exception):
+            raise status
+        return {"id": payment_id, "status": status}
+
+    monkeypatch.setattr(yookassa, "get_payment", get_payment)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("payment_status", [None, "canceled"])
+async def test_register_takes_over_account_an_unpaid_checkout_left(session_pool, payment_status):
+    email = f"left-{payment_status}@mail.ru"
+    guest_id = await _walked_away_guest(session_pool, email, payment_status=payment_status)
+
+    async with session_pool() as session:
+        tid = await register_web_account(session, email=email.upper(), password="supersecret1")
+    assert tid == guest_id
+
+    async with session_pool() as session:
+        assert await authenticate_web_account(session, email=email, password="supersecret1") == guest_id
+        assert len(await Repository(session).list_users()) == 1
+
+
+@pytest.mark.integration
+async def test_register_closes_checkout_yookassa_already_canceled(session_pool, monkeypatch):
+    guest_id = await _walked_away_guest(session_pool, "expired@mail.ru", payment_status="pending")
+    _yookassa_says(monkeypatch, "canceled")
+
+    async with session_pool() as session:
+        assert await register_web_account(session, email="expired@mail.ru", password="supersecret1") == guest_id
+
+    async with session_pool() as session:
+        payment = await Repository(session).get_payment_by_external_id("yk-expired@mail.ru")
+        assert payment.status == "canceled"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "remote", ["pending", "waiting_for_capture", "succeeded", RuntimeError("yookassa down")]
+)
+async def test_register_waits_while_checkout_may_still_pay(session_pool, monkeypatch, remote):
+    # The money may still arrive. Whoever sets a password now would own the
+    # subscription it buys, and knowing the address proves nothing.
+    email = "paying-now@mail.ru"
+    await _walked_away_guest(session_pool, email, payment_status="pending")
+    _yookassa_says(monkeypatch, remote)
+
+    async with session_pool() as session:
+        with pytest.raises(WebAuthError) as exc:
+            await register_web_account(session, email=email, password="supersecret1")
+        assert exc.value.code == "payment_in_progress"
+
+    async with session_pool() as session:
+        guest = await Repository(session).get_user_by_email(email)
+        assert guest.web_password_hash is None
+        payment = await Repository(session).get_payment_by_external_id(f"yk-{email}")
+        assert payment.status == "pending"
 
 
 @pytest.mark.integration

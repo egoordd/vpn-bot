@@ -6,9 +6,10 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime
 
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import Payment, User
+from database.models import Payment, Subscription, User, WalletTransaction
 from database.repository import Repository
 from services import promo, referral
 from services.money import format_rub
@@ -267,11 +268,14 @@ async def build_web_payment_intent(
     created_guest = False
     if telegram_id is None:
         user = await repo.get_user_by_email(clean_email)
-        if user is not None:
+        if user is None:
+            user = await repo.create_user(telegram_id=-(secrets.randbits(52) + 1))
+            created_guest = True
+        elif not await _is_unpaid_guest(session, user):
             raise ValueError("authentication_required")
-        user = await repo.create_user(telegram_id=-(secrets.randbits(52) + 1))
+        # An unpaid guest is this address's own earlier attempt: buying onto it
+        # hands over nothing but what the buyer is paying for right now.
         telegram_id = user.telegram_id
-        created_guest = True
     else:
         existing = await repo.get_user_by_telegram_id(telegram_id)
         if existing is not None and username is None:
@@ -297,6 +301,53 @@ class WebAuthError(Exception):
         super().__init__(code)
 
 
+async def _is_unpaid_guest(session: AsyncSession, user: User) -> bool:
+    """A site guest whose checkout never went through.
+
+    Checkout creates the account before the buyer pays, so walking away from the
+    payment page leaves one behind: an address, no password, nothing bought.
+    It holds nothing an address could be used to claim, so it must not lock that
+    address out of buying again or registering (17.09.2026 a buyer was).
+    """
+    if user.telegram_id >= 0 or user.web_password_hash or user.balance:
+        return False
+    holds_anything = await session.scalar(
+        select(
+            exists().where(Subscription.user_id == user.id)
+            | exists().where(
+                Payment.user_id == user.id, Payment.status.notin_(("pending", "canceled"))
+            )
+            | exists().where(WalletTransaction.user_id == user.id)
+        )
+    )
+    return not holds_anything
+
+
+async def _checkout_may_still_pay(session: AsyncSession, user: User) -> bool:
+    """Whether a pending checkout of this account can still bring money in.
+
+    Providers cancel abandoned checkouts without telling us, so a pending row
+    proves nothing; YooKassa is asked directly. Anything unclear counts as live.
+    """
+    from services import yookassa
+
+    pending = await session.scalars(
+        select(Payment).where(Payment.user_id == user.id, Payment.status == "pending")
+    )
+    repo = Repository(session)
+    for payment in list(pending):
+        if payment.provider != "yookassa" or not payment.external_invoice_id:
+            return True
+        try:
+            remote = await yookassa.get_payment(str(payment.external_invoice_id))
+        except Exception:  # noqa: BLE001 - unreachable provider: assume it may pay
+            return True
+        if str(remote.get("status") or "").strip().lower() != "canceled":
+            return True
+        await repo.update_payment_status(payment.id, "canceled")
+    return False
+
+
 async def _email_account_telegram_id() -> int:
     # Email accounts have no Telegram chat: a synthetic negative id marks them so
     # delivery code never DMs them (real Telegram ids are positive).
@@ -309,6 +360,9 @@ async def register_web_account(session: AsyncSession, *, email: str, password: s
     An existing passwordless guest account requires verified recovery; knowing
     its email is not sufficient to attach a password or claim past purchases.
     Raises WebAuthError without modifying an existing account.
+
+    The one exception is a guest an unpaid checkout left behind: there is nothing
+    to claim, so registration takes it over — once no checkout of it can still pay.
     """
     from services import webauth
 
@@ -321,7 +375,12 @@ async def register_web_account(session: AsyncSession, *, email: str, password: s
     repo = Repository(session)
     existing = await repo.get_user_by_email(clean_email)
     if existing is not None:
-        raise WebAuthError("already_registered")
+        if not await _is_unpaid_guest(session, existing):
+            raise WebAuthError("already_registered")
+        if await _checkout_may_still_pay(session, existing):
+            raise WebAuthError("payment_in_progress")
+        await repo.update_user(existing.id, web_password_hash=webauth.hash_password(password))
+        return existing.telegram_id
 
     password_hash = webauth.hash_password(password)
     user = await repo.create_user(telegram_id=await _email_account_telegram_id())
