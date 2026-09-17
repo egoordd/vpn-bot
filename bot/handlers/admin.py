@@ -12,6 +12,7 @@ from config import settings
 from database.repository import Repository
 from scheduler.tasks import traffic_sync
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
+from services import channel_stats
 from services.promo import PROMO_SUBSCRIPTION_GRANT, PromoTypeError, plan_for_days
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ async def admin_help_handler(message: Message) -> None:
         "🛠 <b>Админ-команды</b>\n"
         + bq(
             "/stats — сводка по проекту",
+            "/channels — бот / сайт / зеркало по отдельности",
             "/find &lt;tg_id&gt; — карточка пользователя",
             "/gift_promo &lt;КОД&gt; &lt;дней&gt; [исп.] — промокод на подписку",
             "/sync_traffic — синхронизировать трафик",
@@ -205,6 +207,15 @@ def _source_report(
         head = f"{clicks[source]} переход → " if source in clicks else ""
         lines.append(f"{source}: {head}{starts} старт → {trials} триал → {paid} оплат")
     return "<b>По источникам</b>\n" + bq(*lines)
+
+
+@router.message(Command("channels"))
+async def channels_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    if await _reject_non_admin(message):
+        return
+    async with session_pool() as session:
+        stats = await channel_stats.collect(session)
+    await message.answer(channel_stats.render(stats))
 
 
 @router.message(Command("funnel"))
