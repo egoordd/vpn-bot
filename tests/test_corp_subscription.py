@@ -7,6 +7,8 @@
 """
 
 import base64
+import json
+import urllib.parse
 
 import pytest
 
@@ -89,3 +91,46 @@ def test_corporate_links_get_their_own_device_limit(monkeypatch):
     sub_gateway._PLAN_LIMITS.clear()
 
     assert sub_gateway.plan_device_limit("corp_fi_1") == 3
+
+
+# --- Hysteria2 на корпоративных серверах (18.09.2026) --------------------------
+# У каждой корпоративной ссылки свой логин и пароль: общий пароль, как на
+# польском узле, не отозвать у одного клиента, когда кончится его срок.
+
+
+@pytest.fixture
+def corp_hy2(corp, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "CORP_HY2", {"corp_fi_1": "s3cret-1", "corp_fi_2": "s3cret-2"})
+    monkeypatch.setattr(sub_gateway, "CORP_HY2_PORT", 443)
+
+
+def test_corporate_user_gets_its_own_hysteria_on_every_corporate_server(corp_hy2):
+    links, _ = sub_gateway.resolve_links(_token("corp_fi_1"))
+
+    hy2 = [link for link in links if link.startswith("hysteria2://")]
+    assert {sub_gateway._uri_host(link) for link in hy2} == {FI1, FI2}
+    assert all(link.startswith("hysteria2://corp_fi_1:s3cret-1@") for link in hy2)
+    assert f"#{urllib.parse.quote('FI1 · Hysteria2')}" in hy2[0] or f"#{urllib.parse.quote('FI2 · Hysteria2')}" in hy2[0]
+
+
+def test_nobody_else_ever_sees_corporate_hysteria(corp_hy2):
+    regular, _ = sub_gateway.resolve_links(_token("tg_1"))
+    other, _ = sub_gateway.resolve_links(_token("corp_fi_2"))
+
+    assert not any("corp_fi_1" in link for link in regular + other)
+    assert all(FI1 not in link and FI2 not in link for link in regular)
+
+
+def test_corporate_hysteria_is_in_the_auto_mode(corp_hy2):
+    body, _, _ = sub_gateway.build_auto_json(_token("corp_fi_1"))
+
+    auto = json.loads(body)[0]
+    assert "hysteria" in {outbound.get("protocol") for outbound in auto["outbounds"]}
+
+
+def test_corporate_user_without_a_hysteria_login_gets_none(corp_hy2, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "CORP_USERS", frozenset({"corp_fi_1", "corp_fi_3"}))
+
+    links, _ = sub_gateway.resolve_links(_token("corp_fi_3"))
+
+    assert links and not any(link.startswith("hysteria2://") for link in links)

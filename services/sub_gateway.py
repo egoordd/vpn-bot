@@ -751,12 +751,48 @@ CORP_USERS = _names(os.environ.get("CORP_USERS", ""))
 CORP_DEVICE_LIMIT = int(os.environ.get("CORP_DEVICE_LIMIT", "3") or 3)
 
 
+def _logins(raw: str) -> dict[str, str]:
+    """Логины из настройки: «corp_fi_1:пароль, corp_fi_2:пароль» → {имя: пароль}."""
+
+    pairs = (part.strip().partition(":") for part in raw.split(","))
+    return {name: secret for name, sep, secret in pairs if name and sep and secret}
+
+
+# Hysteria2 на корпоративных серверах — у каждой учётной записи свой логин
+# (userpass на сервере), а не общий пароль, как на польском узле: общий не
+# отозвать у одного клиента, когда закончится его срок.
+CORP_HY2 = _logins(os.environ.get("CORP_HY2", ""))
+CORP_HY2_PORT = int(os.environ.get("CORP_HY2_PORT", "443") or 443)
+
+
 def corp_filter(links: list[str], *, corporate: bool) -> list[str]:
     """Корпоративной ссылке — только её серверы, всем остальным — всё, кроме них."""
 
     if not CORP_HOSTS:
         return links
     return [link for link in links if (_uri_host(link) in CORP_HOSTS) == corporate]
+
+
+def build_corp_hy2_links(username: str | None, links: list[str]) -> list[str]:
+    """Hysteria2 на каждый корпоративный сервер из подписки — со своим логином."""
+
+    secret = CORP_HY2.get(username or "")
+    if not secret:
+        return []
+    extras: list[str] = []
+    seen: set[str] = set()
+    for link in links:
+        host = _uri_host(link)
+        if host not in CORP_HOSTS or host in seen:
+            continue
+        seen.add(host)
+        # «🇫🇮 Финляндия 1 · XHTTP» → «🇫🇮 Финляндия 1 · Hysteria2»
+        name = urllib.parse.unquote(link.partition("#")[2]).split(" · ", 1)[0] or host
+        extras.append(
+            f"hysteria2://{username}:{secret}@{host}:{CORP_HY2_PORT}"
+            f"?sni={host}&insecure=0#{urllib.parse.quote(f'{name} · Hysteria2')}"
+        )
+    return extras
 
 
 DEVICE_LIMIT_REMARK = "❗️ Лимит устройств — напишите в поддержку"
@@ -1040,11 +1076,14 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     decoded, userinfo = fetched
     if _userinfo_expired(userinfo) or not _marzban_sub_active(token):
         return [], userinfo
-    corporate = _token_username(token) in CORP_USERS
+    username = _token_username(token)
+    corporate = username in CORP_USERS
     combined = corp_filter(combine_links(decoded), corporate=corporate)
     if not combined:
         return [], userinfo
-    if not corporate:
+    if corporate:
+        combined = combined + build_corp_hy2_links(username, combined)
+    else:
         combined = combined + build_cascade_links(combined) + build_mobile_links(combined)
     _register_probe_targets(combined)
     return reorder_by_proximity(filter_alive(combined)), userinfo
