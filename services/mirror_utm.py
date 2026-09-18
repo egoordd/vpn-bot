@@ -26,18 +26,28 @@ from services.utm_links import new_code, parse_start_payload, source_of, start_l
 
 __all__ = [
     "LinkStats", "MirrorUtmLink", "MirrorUtmVisit", "collect", "create", "get",
-    "parse_start_payload", "register_start", "render_created", "render_list", "source_of",
+    "TooManyLinks", "parse_start_payload", "register_start", "render_created", "render_list",
+    "render_too_many", "source_of",
 ]
 
 TITLE_MAX = 64
 LIST_LIMIT = 20
+# С 18.09.2026 /utm открыт всем пользователям зеркала — потолок, чтобы один
+# человек не завалил таблицу ссылками. На админов не действует.
+MAX_LINKS_PER_USER = 20
+
+
+class TooManyLinks(Exception):
+    """У пользователя уже MAX_LINKS_PER_USER ссылок."""
+
+
 # mirror_account_id(0): аккаунты зеркала лежат ниже этой границы. Число, а не
 # импорт из mirror_bot — тот сам импортирует этот модуль.
 MIRROR_CEILING = -9_000_000_000_000_000
 
 
 class MirrorUtmLink(Base):
-    """Рекламная ссылка в зеркало, выпущенная админом через /utm."""
+    """Рекламная ссылка в зеркало, выпущенная через /utm (админом или пользователем)."""
 
     __tablename__ = "mirror_utm_links"
 
@@ -68,10 +78,18 @@ async def get(session: AsyncSession, code: str) -> MirrorUtmLink | None:
     return await session.scalar(select(MirrorUtmLink).where(MirrorUtmLink.code == code))
 
 
-async def create(session: AsyncSession, *, title: str, created_by: int | None) -> MirrorUtmLink:
+async def create(
+    session: AsyncSession, *, title: str, created_by: int | None, limited: bool = False
+) -> MirrorUtmLink:
     clean = " ".join((title or "").split())[:TITLE_MAX]
     if not clean:
         raise ValueError("title_required")
+    if limited:
+        owned = await session.scalar(
+            select(func.count(MirrorUtmLink.id)).where(MirrorUtmLink.created_by == created_by)
+        )
+        if int(owned or 0) >= MAX_LINKS_PER_USER:
+            raise TooManyLinks()
     for _ in range(5):
         code = new_code()
         if await get(session, code) is None:
@@ -106,12 +124,18 @@ class LinkStats:
     revenue_rub: int = 0
 
 
-async def collect(session: AsyncSession, *, limit: int = LIST_LIMIT) -> tuple[list[LinkStats], int]:
-    """Свежие ссылки зеркала со статистикой и общее число выпущенных."""
-    total = int(await session.scalar(select(func.count(MirrorUtmLink.id))) or 0)
+async def collect(
+    session: AsyncSession, *, created_by: int | None = None, limit: int = LIST_LIMIT
+) -> tuple[list[LinkStats], int]:
+    """Свежие ссылки со статистикой и их общее число: все или одного автора."""
+    own = (MirrorUtmLink.created_by == created_by,) if created_by is not None else ()
+    total = int(await session.scalar(select(func.count(MirrorUtmLink.id)).where(*own)) or 0)
     links = (
         await session.scalars(
-            select(MirrorUtmLink).order_by(MirrorUtmLink.created_at.desc(), MirrorUtmLink.id.desc()).limit(limit)
+            select(MirrorUtmLink)
+            .where(*own)
+            .order_by(MirrorUtmLink.created_at.desc(), MirrorUtmLink.id.desc())
+            .limit(limit)
         )
     ).all()
     if not links:
@@ -165,8 +189,15 @@ def _rub(amount: int) -> str:
 
 USAGE = (
     "/utm &lt;название&gt; — выпустить новую ссылку\n"
-    "/utm — все ссылки и что они принесли"
+    "/utm — ваши ссылки и что они принесли"
 )
+
+
+def render_too_many() -> str:
+    return (
+        "🔗 <b>Рекламные ссылки</b>\n\n"
+        + bq(f"Можно создать не больше {MAX_LINKS_PER_USER} ссылок.", "Все ваши ссылки: /utm")
+    )
 
 
 def render_created(link: MirrorUtmLink, bot_username: str) -> str:
@@ -180,7 +211,7 @@ def render_created(link: MirrorUtmLink, bot_username: str) -> str:
 
 def render_list(stats: list[LinkStats], total: int, bot_username: str) -> str:
     if not stats:
-        return "🔗 <b>Рекламные ссылки зеркала</b>\n\n" + bq("Пока ни одной.") + "\n\n" + USAGE
+        return "🔗 <b>Рекламные ссылки</b>\n\n" + bq("Пока ни одной.") + "\n\n" + USAGE
     cards = [
         f"<b>{html.escape(item.link.title)}</b>\n"
         f"<code>{start_link(bot_username, item.link.code)}</code>\n"
@@ -193,7 +224,7 @@ def render_list(stats: list[LinkStats], total: int, bot_username: str) -> str:
     ]
     shown = f"Показаны последние {len(stats)} из {total}." if total > len(stats) else f"Всего ссылок: {total}."
     return (
-        "🔗 <b>Рекламные ссылки зеркала</b>\n\n"
+        "🔗 <b>Рекламные ссылки</b>\n\n"
         + "\n\n".join(cards)
         + "\n\n"
         + bq(shown, "Ссылке засчитываются только новые люди: их пробный период и оплаты.")

@@ -564,12 +564,20 @@ class MirrorBot:
 
         if not self.username:
             self.username = (await self.api.call("getMe") or {}).get("username")
+        is_admin = telegram_id in settings.admin_ids_list
         async with self.session_pool() as session:
             if title:
-                link = await mirror_utm.create(session, title=title, created_by=telegram_id)
-                text = mirror_utm.render_created(link, self.username or "")
+                try:
+                    link = await mirror_utm.create(
+                        session, title=title, created_by=telegram_id, limited=not is_admin
+                    )
+                    text = mirror_utm.render_created(link, self.username or "")
+                except mirror_utm.TooManyLinks:
+                    text = mirror_utm.render_too_many()
             else:
-                stats, total = await mirror_utm.collect(session)
+                stats, total = await mirror_utm.collect(
+                    session, created_by=None if is_admin else telegram_id
+                )
                 text = mirror_utm.render_list(stats, total, self.username or "")
         await self.render(chat_id, text, _back_keyboard())
 
@@ -705,7 +713,9 @@ class MirrorBot:
         if command == "/stats" and telegram_id in settings.admin_ids_list:
             await self.show_stats(chat_id)
             return
-        if command == "/utm" and telegram_id in settings.admin_ids_list:
+        # С 18.09.2026 — для всех: каждый выпускает свои ссылки и видит только их,
+        # админ видит все.
+        if command == "/utm":
             await self.show_utm(chat_id, telegram_id, payload.strip())
             return
 

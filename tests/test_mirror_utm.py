@@ -52,16 +52,38 @@ async def test_admin_issues_a_link_into_the_mirror(session_pool, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_someone_else_gets_the_menu_and_no_link(session_pool, monkeypatch):
+async def test_any_user_issues_links_and_sees_only_their_own(session_pool, monkeypatch):
+    """18.09.2026: владелец открыл /utm всем пользователям зеркала. Каждый видит
+    только свои ссылки — чужие названия и оплаты ему знать незачем."""
     monkeypatch.setattr(mirror_bot.settings, "ADMIN_IDS", str(ADMIN))
     bot, telegram = _bot(session_pool)
 
-    await bot.handle_message(_message(STRANGER, "/utm Чужая"))
+    await bot.handle_message(_message(ADMIN, "/utm Ссылка админа"))
+    await bot.handle_message(_message(STRANGER, "/utm Моя ссылка"))
+    assert re.search(rf"t\.me/{MIRROR}\?start=utm_[a-z0-9]{{8}}", _texts(telegram)[-1])
 
-    assert not any("start=utm_" in t for t in _texts(telegram))
+    await bot.handle_message(_message(STRANGER, "/utm"))
+    mine = _texts(telegram)[-1]
+    assert "Моя ссылка" in mine and "Ссылка админа" not in mine
+
+    await bot.handle_message(_message(ADMIN, "/utm"))
+    everything = _texts(telegram)[-1]
+    assert "Моя ссылка" in everything and "Ссылка админа" in everything
+
+
+@pytest.mark.asyncio
+async def test_a_user_cannot_flood_the_table(session_pool, monkeypatch):
+    monkeypatch.setattr(mirror_bot.settings, "ADMIN_IDS", str(ADMIN))
+    monkeypatch.setattr(mirror_utm, "MAX_LINKS_PER_USER", 2)
+    bot, telegram = _bot(session_pool)
+
+    for n in range(3):
+        await bot.handle_message(_message(STRANGER, f"/utm Ссылка {n}"))
+
+    assert "не больше 2" in _texts(telegram)[-1]
     async with session_pool() as session:
-        _, total = await mirror_utm.collect(session)
-    assert total == 0
+        _, total = await mirror_utm.collect(session, created_by=STRANGER)
+    assert total == 2
 
 
 @pytest.mark.asyncio
@@ -132,6 +154,7 @@ def test_admin_texts_keep_to_the_mirror_vocabulary():
         mirror_utm.render_created(link, MIRROR),
         mirror_utm.render_list([mirror_utm.LinkStats(link=link)], 1, MIRROR),
         mirror_utm.render_list([], 0, MIRROR),
+        mirror_utm.render_too_many(),
     ]
     offenders = {word for text in texts for word in RESTRICTED_VOCABULARY if word in text.lower()}
     assert not offenders
