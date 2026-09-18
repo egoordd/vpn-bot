@@ -765,3 +765,34 @@ async def test_traffic_sync_fills_a_missing_link_but_never_replaces_one(fake_bot
 
     assert refreshed.subscription_url == "https://sub.example/api/sub/tg_507"
     assert refreshed.sub_token == "short-tg_507"
+
+
+@pytest.mark.integration
+async def test_drift_check_leaves_private_inbounds_and_their_accounts_alone(monkeypatch):
+    """18.09.2026: finnish inbounds were added for one corporate order. Their
+    absence from the defaults is the whole point — the alert used to tell the
+    owner to add them to .env, which would hand them to every new customer."""
+    gateway = SimpleNamespace(
+        provider="marzban",
+        client=SimpleNamespace(
+            get_inbounds=AsyncMock(
+                return_value={"vless": [{"tag": "A"}, {"tag": "VLESS Reality FI1"}]}
+            ),
+            list_users=AsyncMock(
+                return_value=[
+                    {"username": "corp_fi_1", "status": "active",
+                     "inbounds": {"vless": ["VLESS Reality FI1"]}},
+                    {"username": "tg_1", "status": "active", "inbounds": {"vless": ["A"]}},
+                ]
+            ),
+        ),
+    )
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: gateway)
+    monkeypatch.setattr(tasks.settings, "MARZBAN_DEFAULT_INBOUNDS", '{"vless": ["A"]}')
+    monkeypatch.setattr(tasks.settings, "MARZBAN_PRIVATE_INBOUNDS", "VLESS Reality FI1, VLESS XHTTP FI1")
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr(tasks, "send_alert", alert)
+
+    await tasks.check_inbound_drift()
+
+    alert.assert_not_awaited()

@@ -307,9 +307,17 @@ async def check_inbound_drift() -> None:
         logger.exception("Inbound drift check failed to read the panel")
         return
 
+    # Inbounds kept for a single order (the finnish corporate servers,
+    # 18.09.2026). Adding them to the defaults would hand them to every new
+    # customer, so their absence is intended — and so is an account holding
+    # nothing else.
+    private = {
+        tag.strip() for tag in settings.MARZBAN_PRIVATE_INBOUNDS.split(",") if tag.strip()
+    }
+
     missing: list[str] = []
     for protocol, configured in defaults.items():
-        known = set(configured)
+        known = set(configured) | private
         for inbound in panel_inbounds.get(protocol) or []:
             tag = inbound.get("tag")
             if tag and tag not in known:
@@ -328,6 +336,8 @@ async def check_inbound_drift() -> None:
             if user.get("status") != "active":
                 continue
             held = {tag for tags in (user.get("inbounds") or {}).values() for tag in tags}
+            if held and held <= private:
+                continue
             if any(set(tags) - held for tags in defaults.values()):
                 short.append(str(user.get("username")))
     except Exception:

@@ -193,7 +193,9 @@ def _token_username(token: str) -> str | None:
         except Exception:
             continue
         name = decoded.decode("utf-8", "replace").split(",", 1)[0].strip()
-        if re.fullmatch(r"tg_-?\d{1,20}", name):
+        # corp_… — корпоративные учётные записи (см. CORP_USERS), заведены в панели
+        # вручную, без аккаунта в боте.
+        if re.fullmatch(r"tg_-?\d{1,20}|corp_[a-z0-9_]{1,24}", name):
             return name
     return None
 
@@ -738,6 +740,25 @@ def _names(raw: str) -> frozenset[str]:
 # тариф, и правкой в базе её не перебить — нужен явный список, который видно
 # в настройках шлюза и который так же легко убрать.
 DEVICE_LIMIT_EXEMPT = _names(os.environ.get("DEVICE_LIMIT_EXEMPT", ""))
+
+# Корпоративные подписки (18.09.2026, заказ на финские серверы). Marzban сам
+# включает новый вход всем пользователям, поэтому граница проходит здесь:
+# серверы из CORP_HOSTS видят только учётные записи из CORP_USERS — и видят
+# только их. Каскад, вход для белых списков и Hy2/Trojan с общим ключом им не
+# выдаются: у заказа свои серверы и своё число устройств.
+CORP_HOSTS = _names(os.environ.get("CORP_HOSTS", ""))
+CORP_USERS = _names(os.environ.get("CORP_USERS", ""))
+CORP_DEVICE_LIMIT = int(os.environ.get("CORP_DEVICE_LIMIT", "3") or 3)
+
+
+def corp_filter(links: list[str], *, corporate: bool) -> list[str]:
+    """Корпоративной ссылке — только её серверы, всем остальным — всё, кроме них."""
+
+    if not CORP_HOSTS:
+        return links
+    return [link for link in links if (_uri_host(link) in CORP_HOSTS) == corporate]
+
+
 DEVICE_LIMIT_REMARK = "❗️ Лимит устройств — напишите в поддержку"
 DEVICE_LIMIT_ANNOUNCE = (
     "❗️ Достигнут лимит устройств по подписке.\n"
@@ -776,6 +797,8 @@ def plan_device_limit(username: str) -> int:
     устройство, которое он оплатил.
     """
 
+    if username in CORP_USERS:
+        return CORP_DEVICE_LIMIT
     if not DEVICE_LIMIT_API:
         return DEVICE_LIMIT
     cached = _PLAN_LIMITS.get(username)
@@ -1017,10 +1040,12 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     decoded, userinfo = fetched
     if _userinfo_expired(userinfo) or not _marzban_sub_active(token):
         return [], userinfo
-    combined = combine_links(decoded)
+    corporate = _token_username(token) in CORP_USERS
+    combined = corp_filter(combine_links(decoded), corporate=corporate)
     if not combined:
         return [], userinfo
-    combined = combined + build_cascade_links(combined) + build_mobile_links(combined)
+    if not corporate:
+        combined = combined + build_cascade_links(combined) + build_mobile_links(combined)
     _register_probe_targets(combined)
     return reorder_by_proximity(filter_alive(combined)), userinfo
 

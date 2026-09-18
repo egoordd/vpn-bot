@@ -130,6 +130,10 @@ class Settings(BaseSettings):
     MARZBAN_USERNAME_PREFIX: str = "tg"
     MARZBAN_DEFAULT_PROXIES: str = "{}"
     MARZBAN_DEFAULT_INBOUNDS: str = "{}"
+    # Inbounds reserved for one order and deliberately never issued to regular
+    # accounts (comma-separated tags). The drift check skips them and the
+    # accounts that hold only them — see scheduler.tasks.check_inbound_drift.
+    MARZBAN_PRIVATE_INBOUNDS: str = ""
     # Per-region Marzban inbounds for static premium nodes (region -> inbounds
     # dict). Premium users for a configured region are created with that
     # region's inbound so their traffic routes through that node.
