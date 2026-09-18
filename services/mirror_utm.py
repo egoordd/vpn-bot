@@ -209,22 +209,30 @@ def render_created(link: MirrorUtmLink, bot_username: str) -> str:
     )
 
 
-def render_list(stats: list[LinkStats], total: int, bot_username: str) -> str:
+def render_list(
+    stats: list[LinkStats], total: int, bot_username: str, *, everyone: bool = False
+) -> str:
+    """Список ссылок. everyone — админский обзор (/utm_all): все авторы, с подписью автора."""
+    title = "🔗 <b>Все рекламные ссылки</b>" if everyone else "🔗 <b>Рекламные ссылки</b>"
     if not stats:
-        return "🔗 <b>Рекламные ссылки</b>\n\n" + bq("Пока ни одной.") + "\n\n" + USAGE
-    cards = [
-        f"<b>{html.escape(item.link.title)}</b>\n"
-        f"<code>{start_link(bot_username, item.link.code)}</code>\n"
-        + bq(
+        return f"{title}\n\n" + bq("Пока ни одной.") + "\n\n" + USAGE
+    cards = []
+    for item in stats:
+        lines = [
             f"Переходов: {item.visits}, из них новых: {item.new_users}",
             f"Пробный период: {item.trials}",
             f"Оплатили: {item.paid_users} на {_rub(item.revenue_rub)}",
+        ]
+        if everyone:
+            lines.append(f"Автор: <code>{item.link.created_by}</code>")
+        cards.append(
+            f"<b>{html.escape(item.link.title)}</b>\n"
+            f"<code>{start_link(bot_username, item.link.code)}</code>\n"
+            + bq(*lines)
         )
-        for item in stats
-    ]
     shown = f"Показаны последние {len(stats)} из {total}." if total > len(stats) else f"Всего ссылок: {total}."
     return (
-        "🔗 <b>Рекламные ссылки</b>\n\n"
+        f"{title}\n\n"
         + "\n\n".join(cards)
         + "\n\n"
         + bq(shown, "Ссылке засчитываются только новые люди: их пробный период и оплаты.")

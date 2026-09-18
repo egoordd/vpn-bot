@@ -67,8 +67,24 @@ async def test_any_user_issues_links_and_sees_only_their_own(session_pool, monke
     assert "Моя ссылка" in mine and "Ссылка админа" not in mine
 
     await bot.handle_message(_message(ADMIN, "/utm"))
+    admins_own = _texts(telegram)[-1]
+    assert "Ссылка админа" in admins_own and "Моя ссылка" not in admins_own, "у админа /utm — тоже только свои"
+
+
+@pytest.mark.asyncio
+async def test_utm_all_shows_everyone_to_admins_only(session_pool, monkeypatch):
+    monkeypatch.setattr(mirror_bot.settings, "ADMIN_IDS", str(ADMIN))
+    bot, telegram = _bot(session_pool)
+    await bot.handle_message(_message(ADMIN, "/utm Ссылка админа"))
+    await bot.handle_message(_message(STRANGER, "/utm Моя ссылка"))
+
+    await bot.handle_message(_message(ADMIN, "/utm_all"))
     everything = _texts(telegram)[-1]
     assert "Моя ссылка" in everything and "Ссылка админа" in everything
+    assert f"<code>{STRANGER}</code>" in everything, "админу видно, чья ссылка"
+
+    await bot.handle_message(_message(STRANGER, "/utm_all"))
+    assert "Ссылка админа" not in _texts(telegram)[-1], "остальным — меню, без намёка на команду"
 
 
 @pytest.mark.asyncio
@@ -155,6 +171,7 @@ def test_admin_texts_keep_to_the_mirror_vocabulary():
         mirror_utm.render_list([mirror_utm.LinkStats(link=link)], 1, MIRROR),
         mirror_utm.render_list([], 0, MIRROR),
         mirror_utm.render_too_many(),
+        mirror_utm.render_list([mirror_utm.LinkStats(link=link)], 1, MIRROR, everyone=True),
     ]
     offenders = {word for text in texts for word in RESTRICTED_VOCABULARY if word in text.lower()}
     assert not offenders

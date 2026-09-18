@@ -575,11 +575,20 @@ class MirrorBot:
                 except mirror_utm.TooManyLinks:
                     text = mirror_utm.render_too_many()
             else:
-                stats, total = await mirror_utm.collect(
-                    session, created_by=None if is_admin else telegram_id
-                )
+                stats, total = await mirror_utm.collect(session, created_by=telegram_id)
                 text = mirror_utm.render_list(stats, total, self.username or "")
         await self.render(chat_id, text, _back_keyboard())
+
+    async def show_utm_all(self, chat_id: int) -> None:
+        """Админский обзор: рекламные ссылки всех пользователей, с автором."""
+
+        if not self.username:
+            self.username = (await self.api.call("getMe") or {}).get("username")
+        async with self.session_pool() as session:
+            stats, total = await mirror_utm.collect(session)
+        await self.render(
+            chat_id, mirror_utm.render_list(stats, total, self.username or "", everyone=True), _back_keyboard()
+        )
 
     async def drop_screen(self, chat_id: int, message_id: int) -> None:
         """Убрать экран с картинкой перед тем, как нарисовать текстовый.
@@ -713,10 +722,13 @@ class MirrorBot:
         if command == "/stats" and telegram_id in settings.admin_ids_list:
             await self.show_stats(chat_id)
             return
-        # С 18.09.2026 — для всех: каждый выпускает свои ссылки и видит только их,
-        # админ видит все.
+        # С 18.09.2026 — для всех: каждый выпускает свои ссылки и видит только их
+        # (админ тоже). Все ссылки всех авторов — отдельной админской /utm_all.
         if command == "/utm":
             await self.show_utm(chat_id, telegram_id, payload.strip())
+            return
+        if command == "/utm_all" and telegram_id in settings.admin_ids_list:
+            await self.show_utm_all(chat_id)
             return
 
         waiting_since = self._promo_waiting.get(telegram_id)
