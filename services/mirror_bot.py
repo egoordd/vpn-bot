@@ -30,7 +30,7 @@ from bot.texts import MONTHS_RU, aware, format_gb, format_msk, trial_days
 from config import settings
 from database.models import Payment, Subscription, User
 from database.repository import Repository
-from services import billing_api, mirror_banners, mirror_legal, mirror_platega, mirror_stats, promo
+from services import billing_api, mirror_banners, mirror_legal, mirror_platega, mirror_stats, mirror_utm, promo
 from services.alerts import send_alert
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services.referral import (
@@ -512,6 +512,8 @@ class MirrorBot:
         self._promo_waiting: dict[int, float] = {}
         self._user_locks: dict[int, asyncio.Lock] = {}
         self.platega = mirror_platega.PlategaClient() if mirror_platega.is_configured() else None
+        # Имя бота для рекламных ссылок /utm; main() берёт его из getMe.
+        self.username: str | None = None
 
     def _lock_for(self, telegram_id: int) -> asyncio.Lock:
         return self._user_locks.setdefault(telegram_id, asyncio.Lock())
@@ -556,6 +558,20 @@ class MirrorBot:
         async with self.session_pool() as session:
             stats = await mirror_stats.collect(session, account_ceiling=mirror_account_id(0))
         await self.render(chat_id, mirror_stats.render(stats), _back_keyboard())
+
+    async def show_utm(self, chat_id: int, telegram_id: int, title: str) -> None:
+        """Рекламные ссылки зеркала: с названием — выпустить новую, без — список."""
+
+        if not self.username:
+            self.username = (await self.api.call("getMe") or {}).get("username")
+        async with self.session_pool() as session:
+            if title:
+                link = await mirror_utm.create(session, title=title, created_by=telegram_id)
+                text = mirror_utm.render_created(link, self.username or "")
+            else:
+                stats, total = await mirror_utm.collect(session)
+                text = mirror_utm.render_list(stats, total, self.username or "")
+        await self.render(chat_id, text, _back_keyboard())
 
     async def drop_screen(self, chat_id: int, message_id: int) -> None:
         """Убрать экран с картинкой перед тем, как нарисовать текстовый.
@@ -614,10 +630,9 @@ class MirrorBot:
         try:
             async with self.session_pool() as session:
                 repo = Repository(session)
-                account = await repo.get_or_create_user(
-                    mirror_account_id(int(user["id"])),
-                    user.get("username"),
-                )
+                account_id = mirror_account_id(int(user["id"]))
+                is_new_user = await repo.get_user_by_telegram_id(account_id) is None
+                account = await repo.get_or_create_user(account_id, user.get("username"))
                 ref_code = parse_referral_start_payload(payload)
                 if ref_code:
                     try:
@@ -625,7 +640,12 @@ class MirrorBot:
                     except ReferralError:
                         pass
                 source = parse_source_start_payload(payload)
-                if source:
+                utm_code = mirror_utm.parse_start_payload(payload)
+                if utm_code and await mirror_utm.register_start(
+                    session, user=account, code=utm_code, is_new_user=is_new_user
+                ):
+                    source = mirror_utm.source_of(utm_code) if is_new_user else None
+                elif source:
                     await repo.set_user_source_if_unset(account.id, source)
                 await repo.record_funnel_event(
                     account.id,
@@ -684,6 +704,9 @@ class MirrorBot:
         # отличается от любого текста — меню, без намёка, что она существует.
         if command == "/stats" and telegram_id in settings.admin_ids_list:
             await self.show_stats(chat_id)
+            return
+        if command == "/utm" and telegram_id in settings.admin_ids_list:
+            await self.show_utm(chat_id, telegram_id, payload.strip())
             return
 
         waiting_since = self._promo_waiting.get(telegram_id)
@@ -1272,6 +1295,7 @@ async def main() -> None:
             )
             await api.call("setMyDescription", {"description": mirror_legal.bot_description()})
             bot = MirrorBot(api, session_pool)
+            bot.username = me.get("username")
             if bot.platega is not None:
                 logger.info(
                     "Mirror started: @%s (%s), payments: Platega %s",
