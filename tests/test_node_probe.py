@@ -403,3 +403,34 @@ def test_traffic_window_covers_a_whole_panel_bucket():
     gave 0 MB across the board while 120 gave 2235 MB, and the veto could never
     fire — Poland was dropped again with 154 MB flowing through it."""
     assert node_probe.PROBE_TRAFFIC_WINDOW_MINUTES >= 120
+
+
+def test_notify_reaches_every_staff_chat(monkeypatch):
+    """19.09.2026: сбои серверов видит и помощник владельца, не только владелец."""
+    sent = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(request, timeout=0):
+        sent.append(json.loads(request.data)["chat_id"])
+        return Response()
+
+    monkeypatch.setattr(node_probe, "ALERTS_BOT_TOKEN", "tok")
+    monkeypatch.setattr(node_probe, "ALERTS_CHAT_IDS", ["740484324", "8563480666"])
+    monkeypatch.setattr(node_probe.urllib.request, "urlopen", fake_urlopen)
+
+    assert node_probe.notify("🔴 упал") is True
+    assert sent == ["740484324", "8563480666"]
+
+
+def test_staff_chats_come_from_the_environment():
+    chats = node_probe.alert_chats({"ALERTS_CHAT_ID": "740484324", "ALERTS_EXTRA_CHAT_IDS": "8563480666,740484324"})
+    assert chats == ["740484324", "8563480666"]
+    assert node_probe.alert_chats({"ADMIN_IDS": "1,2"}) == ["1"]

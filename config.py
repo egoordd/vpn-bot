@@ -170,6 +170,11 @@ class Settings(BaseSettings):
     # notifications; admin replies here are relayed back to users. Empty -> off.
     ALERTS_BOT_TOKEN: str = ""
     ALERTS_CHAT_ID: str = ""
+    # Staff who get every alert besides ALERTS_CHAT_ID, and staff who answer
+    # support tickets (comma-separated Telegram ids). Each must /start the
+    # alerts bot once, or Telegram refuses to message them.
+    ALERTS_EXTRA_CHAT_IDS: str = ""
+    SUPPORT_AGENT_IDS: str = ""
     # Support bot: users open tickets here; the support relay forwards them to the
     # reports bot and routes the admin's replies back. Username = for the deep link.
     SUPPORT_BOT_TOKEN: str = ""
@@ -201,6 +206,18 @@ class Settings(BaseSettings):
             return []
         raw = self.ADMIN_IDS.strip().strip("[]")
         return [int(item.strip()) for item in raw.split(",") if item.strip()]
+
+    @property
+    def alerts_chat_ids(self) -> list[str]:
+        """Every chat that receives alerts: the main one first, then staff."""
+        chats = [self.alerts_chat_id] + [
+            item.strip() for item in self.ALERTS_EXTRA_CHAT_IDS.split(",") if item.strip()
+        ]
+        return list(dict.fromkeys(chat for chat in chats if chat))
+
+    @property
+    def support_agent_ids(self) -> list[int]:
+        return [int(item.strip()) for item in self.SUPPORT_AGENT_IDS.split(",") if item.strip()]
 
     @property
     def alerts_chat_id(self) -> str:

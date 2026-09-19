@@ -23,8 +23,8 @@ async def send_alert(text: str, *, throttle_key: str | None = None, cooldown: fl
     When throttle_key is given, repeat alerts with the same key are suppressed
     for `cooldown` seconds (default 5 min) to avoid flooding."""
     token = settings.ALERTS_BOT_TOKEN.strip()
-    chat_id = settings.alerts_chat_id
-    if not token or not chat_id:
+    chats = settings.alerts_chat_ids
+    if not token or not chats:
         return False
 
     if throttle_key is not None:
@@ -35,16 +35,21 @@ async def send_alert(text: str, *, throttle_key: str | None = None, cooldown: fl
         _last_sent[throttle_key] = now
 
     url = f"{_API}/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
-    try:
-        status = await _post(url, payload)
-    except Exception:
-        logger.exception("Failed to send alert")
-        return False
-    if status != 200:
-        logger.warning("Alert send failed: HTTP %s", status)
-        return False
-    return True
+    delivered = False
+    # Every staff chat gets its own copy; one that never opened the bot (403)
+    # must not keep the rest from hearing about it.
+    for chat_id in chats:
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+        try:
+            status = await _post(url, payload)
+        except Exception:
+            logger.exception("Failed to send alert to %s", chat_id)
+            continue
+        if status != 200:
+            logger.warning("Alert send to %s failed: HTTP %s", chat_id, status)
+            continue
+        delivered = True
+    return delivered
 
 
 async def _post(url: str, payload: dict) -> int:

@@ -110,10 +110,17 @@ PASSES_TO_RESTORE = int(os.environ.get("PASSES_TO_RESTORE", "2"))
 # prober is the first thing in the system that *knows*, so it is the thing that
 # should say so. Uses the separate alerts bot, never the customer-facing one.
 ALERTS_BOT_TOKEN = os.environ.get("ALERTS_BOT_TOKEN", "").strip()
-ALERTS_CHAT_ID = (
-    os.environ.get("ALERTS_CHAT_ID", "").strip()
-    or os.environ.get("ADMIN_IDS", "").split(",")[0].strip()
-)
+
+
+def alert_chats(env) -> list[str]:
+    """The owner's chat first, then staff (ALERTS_EXTRA_CHAT_IDS), no repeats."""
+    main = env.get("ALERTS_CHAT_ID", "").strip() or env.get("ADMIN_IDS", "").split(",")[0].strip()
+    extra = [item.strip() for item in env.get("ALERTS_EXTRA_CHAT_IDS", "").split(",") if item.strip()]
+    return list(dict.fromkeys(chat for chat in [main, *extra] if chat))
+
+
+ALERTS_CHAT_IDS = alert_chats(os.environ)
+ALERTS_CHAT_ID = ALERTS_CHAT_IDS[0] if ALERTS_CHAT_IDS else ""
 # A node that stays dead stops being news after the first message, so it is
 # re-announced on this interval instead — otherwise a location quietly missing
 # from everyone's list for a week is something nobody is looking at any more.
@@ -509,25 +516,27 @@ def compose_alert(previous: dict, verdicts: dict[str, bool], now: float) -> tupl
 def notify(text: str) -> bool:
     """Best-effort message to the alerts bot. Never raises: a Telegram outage
     must not fail a probe run or hold up the health file."""
-    if not ALERTS_BOT_TOKEN or not ALERTS_CHAT_ID:
+    if not ALERTS_BOT_TOKEN or not ALERTS_CHAT_IDS:
         return False
-    payload = json.dumps({
-        "chat_id": ALERTS_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }).encode()
-    request = urllib.request.Request(
-        f"https://api.telegram.org/bot{ALERTS_BOT_TOKEN}/sendMessage",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return response.status == 200
-    except Exception as exc:
-        print(f"alert delivery failed: {exc}", file=sys.stderr)
-        return False
+    delivered = False
+    for chat_id in ALERTS_CHAT_IDS:
+        payload = json.dumps({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }).encode()
+        request = urllib.request.Request(
+            f"https://api.telegram.org/bot{ALERTS_BOT_TOKEN}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                delivered = delivered or response.status == 200
+        except Exception as exc:
+            print(f"alert delivery to {chat_id} failed: {exc}", file=sys.stderr)
+    return delivered
 
 
 def report_probe_broken(reason: str) -> None:
