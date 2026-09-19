@@ -259,3 +259,34 @@
   opacity: 0.5;
   text-align: center;
 }
+
+/* «Забыли пароль?» и «← Ко входу»: тихие текстовые кнопки под формой входа. */
+.cab__login-link {
+  justify-self: center;
+  padding: 0.25rem 0.5rem;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.cab__login-link:hover {
+  color: var(--text);
+}
+
+.cab__login-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.cab__login-sent {
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}

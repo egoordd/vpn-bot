@@ -61,9 +61,20 @@ export interface WebOrderSubscription {
   isActive: boolean;
 }
 
+/** Аккаунт, на который легла оплата по почте. */
+export interface WebOrderAccount {
+  email: string;
+  /** Аккаунт создан этим заказом — тогда страница показывает ссылку. */
+  isNew: boolean;
+  /** Можно заменить временный пароль из письма своим прямо на странице оплаты. */
+  canSetPassword: boolean;
+}
+
 export interface WebOrderStatus {
   status: "pending" | "succeeded";
   subscription?: WebOrderSubscription;
+  /** Только у заказов по почте без входа. */
+  account?: WebOrderAccount;
 }
 
 /** What redeeming a promo actually did. */

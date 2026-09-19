@@ -17,6 +17,7 @@ from config import settings
 from database.models import Payment
 from database.repository import Repository
 from services import billing_api, moynalog, promo, tribute, web_delivery, yookassa
+from services import web_checkout as email_orders  # в create_app `web_checkout` — имя маршрута
 from services.billing_api import AccountOverview, BillingPlan, SubscriptionSnapshot
 from services.payment import parse_invoice_payload_details
 from services.referral import normalize_source_slug, ReferralStats
@@ -121,6 +122,8 @@ class WebCheckoutRequest(BaseModel):
     # the link already in their VPN app is how they say which account is theirs.
     subscription: str | None = Field(default=None, max_length=512)
     source: str | None = Field(default=None, max_length=64)
+    # На почте уже есть аккаунт, и покупатель согласился оплатить его продление.
+    confirm_existing: bool = Field(default=False, alias="confirmExisting")
 
     _validate_account_id = field_validator("telegram_id")(_nonzero_web_account_id)
 
@@ -572,6 +575,10 @@ def create_app() -> FastAPI:
         if not yookassa.is_configured():
             raise HTTPException(status_code=503, detail="payments_unavailable")
 
+        if body.telegram_id is None and linked is None:
+            # Только почта: аккаунт появится после оплаты (services/web_checkout.py).
+            return await _email_checkout(session, body, email=email, plan_code=tariff.code)
+
         try:
             intent = await billing_api.build_web_payment_intent(
                 session,
@@ -622,6 +629,9 @@ def create_app() -> FastAPI:
 
     @application.get("/web/order/{order_id}")
     async def web_order(order_id: str, session: SessionDep) -> dict[str, Any]:
+        checkout = await email_orders.find(session, order_id)
+        if checkout is not None:
+            return await _email_order_status(session, checkout)
         repo = Repository(session)
         payment = await repo.get_payment_by_external_id(order_id)
         if payment is None and _ORDER_TOKEN_RE.fullmatch(order_id):
@@ -880,6 +890,19 @@ def create_app() -> FastAPI:
 
         repo = Repository(session)
         completed = await repo.complete_payment_by_external_id(str(payment_id), provider="yookassa")
+        # Заказ по почте: платежа в базе нет, пока не появился аккаунт.
+        email_order = None
+        if completed is None:
+            try:
+                email_order = await email_orders.fulfill(session, str(payment_id))
+            except Exception as exc:
+                # Сбой до выдачи: снимаем отметку о дубле, чтобы повтор вебхука
+                # от ЮKassa прошёл, а не потерялся как «уже обработан».
+                log.exception("Email order %s: fulfilment failed", payment_id)
+                if redis is not None:
+                    await redis.delete(f"yookassa:evt:{payment_id}")
+                raise HTTPException(status_code=500, detail="fulfilment failed") from exc
+            completed = email_order.payment if email_order is not None else None
         if completed is None:
             # Unknown id or already completed (a lost dedupe) — nothing to deliver.
             return {"ok": True, "already": True}
@@ -931,15 +954,20 @@ def create_app() -> FastAPI:
         sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
         if int(user.telegram_id) > 0:
             await tribute.deliver_subscription(int(user.telegram_id), sub_url)
-        elif (user.email or "").strip():
+        if (user.email or "").strip() and (email_order is not None or int(user.telegram_id) <= 0):
             # Email-only buyers (synthetic negative id) have no chat. The success
             # page alone missed them whenever the payment returned in another
             # browser, so the link also goes by letter. Best effort by design.
+            # Заказ по почте ждёт письма, даже если почта принадлежит аккаунту с
+            # Telegram; новому аккаунту письмо несёт и временный пароль.
+            created = email_order is not None and email_order.created_account
             await web_delivery.send_subscription_letter(
                 user.email.strip(),
                 sub_url,
                 billing_api.get_billing_plan(details.plan).title,
                 getattr(subscription, "expires_at", None),
+                login_email=user.email.strip() if created else None,
+                temporary_password=email_order.temporary_password if created else None,
             )
 
         # Auto-issue the self-employed чек in «Мой налог» and hand its link to the
@@ -960,7 +988,82 @@ def create_app() -> FastAPI:
 
         return {"ok": True, "plan": details.plan}
 
+    from services.web_account_routes import router as web_account_router
+
+    application.include_router(web_account_router)
     return application
+
+
+async def _email_checkout(
+    session: AsyncSession, body: WebCheckoutRequest, *, email: str, plan_code: str
+) -> dict[str, Any]:
+    """Оплата по почте без входа: до оплаты заводится только заказ.
+
+    Если почта уже принадлежит аккаунту, сначала спрашиваем покупателя: войти
+    или оплатить продление этого аккаунта. Ссылку подписки он всё равно увидит
+    только в письме или в кабинете.
+    """
+    from config import get_settings
+
+    if not body.confirm_existing and await email_orders.existing_account(session, email) is not None:
+        raise HTTPException(status_code=409, detail="account_exists")
+
+    plan = billing_api.get_billing_plan(plan_code)
+    checkout = await email_orders.start(
+        session,
+        email=email,
+        plan=plan.code,
+        amount_kopecks=plan.price_rub * 100,
+        source=normalize_source_slug(body.source),
+    )
+    web_base = get_settings().WEB_BASE_URL.strip().rstrip("/")
+    try:
+        payment = await yookassa.create_payment(
+            amount_kopecks=checkout.amount,
+            description=plan.description,
+            metadata={"checkout": checkout.token, "plan": plan.code, "source": "web"},
+            return_url=f"{web_base}/pay/success?order={checkout.token}" if web_base else None,
+            receipt_email=email,
+        )
+    except yookassa.YooKassaError as exc:
+        logging.getLogger("yookassa").exception("Web checkout: create payment failed")
+        await email_orders.cancel(session, checkout)
+        raise HTTPException(status_code=502, detail="payment_create_failed") from exc
+
+    payment_id = payment.get("id")
+    pay_url = yookassa.confirmation_url(payment)
+    if not payment_id or not pay_url:
+        await email_orders.cancel(session, checkout)
+        raise HTTPException(status_code=502, detail="payment_create_failed")
+    await email_orders.attach_payment(session, checkout, str(payment_id))
+    return {"orderId": str(payment_id), "payUrl": pay_url, "plan": _plan_payload(plan)}
+
+
+async def _email_order_status(session: AsyncSession, checkout: email_orders.WebCheckout) -> dict[str, Any]:
+    """Статус заказа по почте для страницы оплаты.
+
+    Ссылка подписки — только если аккаунт создан этим заказом. Оплата на уже
+    существующую почту продлевает чужой для страницы аккаунт: его ссылку
+    владелец получит письмом.
+    """
+    if checkout.status != email_orders.COMPLETED or checkout.user_id is None:
+        return {"status": "pending"}
+    snapshot = await billing_api.get_subscription_snapshot(session, checkout.user_id)
+    link = to_gateway_subscription_url(snapshot.subscription_url) if checkout.created_account else None
+    return {
+        "status": "succeeded",
+        "subscription": {
+            "subscriptionUrl": link,
+            "planTitle": snapshot.plan_title,
+            "expiresAt": _iso(snapshot.expires_at),
+            "isActive": snapshot.is_active,
+        },
+        "account": {
+            "email": checkout.email,
+            "isNew": checkout.created_account,
+            "canSetPassword": await email_orders.can_set_password(session, checkout),
+        },
+    }
 
 
 app = create_app()

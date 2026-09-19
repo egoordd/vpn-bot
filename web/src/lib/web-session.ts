@@ -2,6 +2,8 @@ import "server-only";
 
 import crypto from "node:crypto";
 
+import { NextResponse } from "next/server";
+
 /**
  * Cabinet session for site visitors who logged in via Telegram.
  * Token: `<telegramId>.<expiresAtMs>.<nonce>.<hmac>` — HMAC-SHA256 over the
@@ -60,4 +62,19 @@ export function verifyUserSession(token: string | undefined): number | null {
 
   const telegramId = Number(telegramIdRaw);
   return Number.isInteger(telegramId) && telegramId !== 0 ? telegramId : null;
+}
+
+/** JSON-ответ, который заодно входит в кабинет: ставит куку сессии. */
+export function signedInResponse(telegramId: number, body: Record<string, unknown> = { ok: true }) {
+  const session = createUserSession(telegramId);
+  if (!session) return NextResponse.json({ error: "auth_not_configured" }, { status: 503 });
+  const response = NextResponse.json(body);
+  response.cookies.set(USER_SESSION_COOKIE, session, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: USER_SESSION_TTL_SECONDS,
+  });
+  return response;
 }

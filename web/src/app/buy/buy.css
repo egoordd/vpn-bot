@@ -139,3 +139,47 @@
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
+
+/* На почте уже есть аккаунт: не запрет, а выбор — войти или оплатить продление. */
+.buy__existing {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem 1.1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.buy__existing-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.buy__existing-text {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.buy__existing-login {
+  justify-self: center;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-underline-offset: 0.2em;
+}
+
+.buy__existing-login:hover {
+  color: var(--text-muted);
+}
+
+.buy__existing-login:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.buy__spam {
+  margin-top: -1rem;
+  font-size: 0.78rem;
+  opacity: 0.6;
+}

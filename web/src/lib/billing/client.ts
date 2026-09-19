@@ -119,9 +119,15 @@ export async function createWebCheckout(input: {
   subscription?: string;
   /** Кампания из куки unlock_src — канал, который привёл покупателя. */
   source?: string;
+  /** На почте уже есть аккаунт, и покупатель согласился продлить его подписку. */
+  confirmExisting?: boolean;
   clientIp?: string;
 }): Promise<CheckoutResult> {
-  if (!API_URL) return mockCheckout();
+  if (!API_URL) {
+    // Демо: почта с «+exists» ведёт себя как занятая, чтобы было видно выбор «войти или продлить».
+    if (input.email?.includes("+exists") && !input.confirmExisting) throw new CheckoutError("account_exists");
+    return mockCheckout();
+  }
   const { clientIp, ...payload } = input;
   const res = await fetch(`${API_URL}/web/checkout`, {
     method: "POST",
@@ -149,7 +155,7 @@ export async function createWebCheckout(input: {
 }
 
 export async function getWebOrder(orderId: string): Promise<WebOrderStatus | null> {
-  if (!API_URL) return mockOrderStatus();
+  if (!API_URL) return mockOrderStatus(orderId);
   return callOrNull<WebOrderStatus>(`/web/order/${encodeURIComponent(orderId)}`);
 }
 
@@ -245,6 +251,62 @@ export async function recoverWebAccount(
     throw new WebAuthError(code);
   }
   const body = (await res.json()) as { telegramId: number };
+  return body.telegramId;
+}
+
+/** POST на биллинг от имени сайта: ошибка — WebAuthError с кодом из detail. */
+async function postForAuth<T>(path: string, payload: unknown, clientIp?: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {}),
+      ...(clientIp ? { "x-client-ip": clientIp } : {}),
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    let code = `auth_failed_${res.status}`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (typeof body.detail === "string" && body.detail) code = body.detail;
+    } catch {
+      // keep status-based code
+    }
+    throw new WebAuthError(code);
+  }
+  return (await res.json()) as T;
+}
+
+/** «Забыли пароль?»: биллинг отправит письмо, если аккаунт с этой почтой есть. */
+export async function requestPasswordReset(email: string, clientIp?: string): Promise<void> {
+  if (!API_URL) return;
+  await postForAuth("/web/auth/forgot", { email }, clientIp);
+}
+
+/** Новый пароль по ссылке из письма → telegram_id аккаунта. */
+export async function resetWebPassword(token: string, password: string, clientIp?: string): Promise<number> {
+  if (!API_URL) return -1;
+  const body = await postForAuth<{ telegramId: number }>("/web/auth/reset", { token, password }, clientIp);
+  return body.telegramId;
+}
+
+/** Смена пароля в кабинете — нужен текущий. */
+export async function changeWebPassword(
+  telegramId: number, currentPassword: string, newPassword: string, clientIp?: string,
+): Promise<void> {
+  if (!API_URL) return;
+  await postForAuth("/web/auth/password", { telegramId, currentPassword, newPassword }, clientIp);
+}
+
+/** Свой пароль вместо временного — со страницы оплаты, по номеру заказа. */
+export async function setOrderPassword(orderId: string, password: string, clientIp?: string): Promise<number> {
+  if (!API_URL) return -1;
+  const body = await postForAuth<{ telegramId: number }>(
+    `/web/order/${encodeURIComponent(orderId)}/password`, { password }, clientIp,
+  );
   return body.telegramId;
 }
 

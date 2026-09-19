@@ -6,17 +6,18 @@ import { TelegramLoginButton } from "@/components/auth/TelegramLoginButton";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-type Mode = "login" | "register" | "recover";
+type Mode = "login" | "register" | "recover" | "forgot";
 
 const ERRORS: Record<string, string> = {
   invalid_email: "Проверьте email — он выглядит некорректно.",
   weak_password: "Пароль должен быть не короче 8 символов.",
-  already_registered: "На эту почту уже оформлена подписка. Ссылку на неё мы отправили вам письмом после оплаты — вставьте её на вкладке «По ссылке». Письма нет? Загляните в «Спам» или напишите в поддержку.",
+  already_registered: "На эту почту уже есть аккаунт. Войдите на вкладке «Вход», а если не знаете пароль — нажмите «Забыли пароль?»: ссылка придёт на почту.",
   invalid_subscription: "Ссылка не подошла. Скопируйте её целиком из приложения или из письма о выдаче.",
-  password_already_set: "У этого аккаунта уже есть пароль. Войдите с ним, а если забыли — напишите в поддержку.",
+  password_already_set: "У этого аккаунта уже есть пароль. Войдите с ним, а если забыли — нажмите «Забыли пароль?» на вкладке «Вход».",
   email_taken: "Этот email занят другим аккаунтом. Оставьте поле пустым или укажите другой.",
   payment_in_progress: "По этой почте ещё не завершена оплата. Если вы закрыли страницу оплаты, попробуйте зарегистрироваться немного позже или просто оформите подписку заново.",
-  invalid_credentials: "Неверный email или пароль.",
+  invalid_credentials: "Неверный email или пароль. Не помните пароль — нажмите «Забыли пароль?».",
+  mail_unavailable: "Отправка писем временно не работает. Попробуйте позже или напишите в поддержку.",
   rate_limited: "Слишком много попыток. Подождите несколько минут.",
 };
 
@@ -33,8 +34,45 @@ export function CabinetLogin({ telegramLoginHref, note }: CabinetLoginProps) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
+
+  function switchTo(next: Mode) {
+    setMode(next);
+    setError(null);
+    setResetSent(false);
+  }
+
+  async function sendResetLink() {
+    setError(null);
+    if (!EMAIL_RE.test(email.trim())) {
+      setError(ERRORS.invalid_email);
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/auth/forgot", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(ERRORS[body.error ?? ""] ?? "Не удалось отправить письмо. Попробуйте ещё раз.");
+      } else {
+        setResetSent(true);
+      }
+    } catch {
+      setError("Сеть недоступна. Попробуйте ещё раз.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit() {
+    if (mode === "forgot") {
+      await sendResetLink();
+      return;
+    }
     setError(null);
     // Recovery identifies the account by the link, so an address there is
     // optional — a guest who never gave one can still set a password.
@@ -97,10 +135,7 @@ export function CabinetLogin({ telegramLoginHref, note }: CabinetLoginProps) {
           role="tab"
           aria-selected={mode === "login"}
           className={`cab__login-tab${mode === "login" ? " is-active" : ""}`}
-          onClick={() => {
-            setMode("login");
-            setError(null);
-          }}
+          onClick={() => switchTo("login")}
         >
           Вход
         </button>
@@ -108,10 +143,7 @@ export function CabinetLogin({ telegramLoginHref, note }: CabinetLoginProps) {
           role="tab"
           aria-selected={mode === "register"}
           className={`cab__login-tab${mode === "register" ? " is-active" : ""}`}
-          onClick={() => {
-            setMode("register");
-            setError(null);
-          }}
+          onClick={() => switchTo("register")}
         >
           Регистрация
         </button>
@@ -119,15 +151,46 @@ export function CabinetLogin({ telegramLoginHref, note }: CabinetLoginProps) {
           role="tab"
           aria-selected={mode === "recover"}
           className={`cab__login-tab${mode === "recover" ? " is-active" : ""}`}
-          onClick={() => {
-            setMode("recover");
-            setError(null);
-          }}
+          onClick={() => switchTo("recover")}
         >
           По ссылке
         </button>
       </div>
 
+      {mode === "forgot" ? (
+        <div className="cab__login-form">
+          <p className="cab__login-note">
+            Укажите почту аккаунта — пришлём ссылку, по которой можно задать новый пароль.
+          </p>
+          {resetSent ? (
+            <p className="cab__login-sent" role="status">
+              Если аккаунт с этой почтой есть, письмо уже в пути. Ссылка действует 1 час. Письма
+              нет — загляните в папку «Спам».
+            </p>
+          ) : (
+            <>
+              <input
+                className="cab__login-input"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
+                disabled={busy}
+              />
+              {error && <p className="cab__login-error">{error}</p>}
+              <button className="cab__login-submit" onClick={submit} disabled={busy}>
+                {busy ? "Отправляем…" : "Прислать ссылку"}
+              </button>
+            </>
+          )}
+          <button type="button" className="cab__login-link" onClick={() => switchTo("login")}>
+            ← Ко входу
+          </button>
+        </div>
+      ) : (
       <div className="cab__login-form">
         {mode === "recover" && (
           <>
@@ -178,14 +241,20 @@ export function CabinetLogin({ telegramLoginHref, note }: CabinetLoginProps) {
                 ? "Задать пароль и войти"
                 : "Войти"}
         </button>
+        {mode === "login" && (
+          <button type="button" className="cab__login-link" onClick={() => switchTo("forgot")}>
+            Забыли пароль?
+          </button>
+        )}
       </div>
+      )}
 
       <div className="cab__login-or mono">или</div>
       <TelegramLoginButton href={telegramLoginHref} />
 
       <p className="cab__login-alt mono">
-        Покупали по email без пароля? Откройте вкладку «По ссылке» — задайте пароль,
-        подтвердив владение ссылкой подписки. Если ссылки под рукой нет, напишите в{" "}
+        Покупали на сайте? Логин — ваша почта, временный пароль пришёл письмом вместе со
+        ссылкой (письма нет — проверьте «Спам»). Не помните пароль — «Забыли пароль?». Вопросы —{" "}
         <a href="https://t.me/unlock_support_bot">@unlock_support_bot</a>.
       </p>
     </div>

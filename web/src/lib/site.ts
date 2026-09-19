@@ -3,7 +3,7 @@ export const SITE = {
   tagline: "Интернет без границ — просто и надёжно",
   description:
     "UnLock — надёжный VPN с подпиской. Подключение за минуту, работает на телефоне и компьютере, не обрывается. Оплата удобными способами.",
-  botUsername: process.env.NEXT_PUBLIC_TELEGRAM_BOT ?? "unlock_bot",
+  botUsername: process.env.NEXT_PUBLIC_TELEGRAM_BOT ?? "unlkvpn_bot",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://unlock.example",
   // Support mailbox shown on the site: the inbox our letters are sent from, so
   // a reply to a purchase letter and a message from the site land together.

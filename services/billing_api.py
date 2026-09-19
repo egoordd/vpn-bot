@@ -372,11 +372,17 @@ async def register_web_account(session: AsyncSession, *, email: str, password: s
     if not webauth.is_password_acceptable(password or ""):
         raise WebAuthError("weak_password")
 
+    from services import web_checkout
+
     repo = Repository(session)
     existing = await repo.get_user_by_email(clean_email)
+    if existing is not None and not await _is_unpaid_guest(session, existing):
+        raise WebAuthError("already_registered")
+    if await web_checkout.may_still_pay(session, clean_email):
+        # Оплата по этой почте ещё идёт: аккаунт создаст она сама, а чужая
+        # регистрация на эту почту иначе перехватила бы её.
+        raise WebAuthError("payment_in_progress")
     if existing is not None:
-        if not await _is_unpaid_guest(session, existing):
-            raise WebAuthError("already_registered")
         if await _checkout_may_still_pay(session, existing):
             raise WebAuthError("payment_in_progress")
         await repo.update_user(existing.id, web_password_hash=webauth.hash_password(password))

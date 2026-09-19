@@ -77,9 +77,11 @@ async def test_the_return_address_names_the_order(api_client, session_pool, monk
     return_url = captured["return_url"]
     assert return_url.startswith("https://unlockproject.site/pay/success?order=")
     token = return_url.rsplit("=", 1)[1]
+    from services import web_checkout
+
     async with session_pool() as session:
-        payment = await Repository(session).get_payment_by_external_id("yk-ret-1")
-    assert payment.invoice_payload.endswith(f":{token}")
+        checkout = await web_checkout.find(session, token)
+    assert checkout is not None and checkout.payment_id == "yk-ret-1"
 
 
 @pytest.mark.asyncio

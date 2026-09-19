@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { CheckoutError, createWebCheckout } from "@/lib/billing/client";
 import { SOURCE_COOKIE } from "@/lib/site";
 import { USER_SESSION_COOKIE, verifyUserSession } from "@/lib/web-session";
+import { clientIpFrom } from "@/lib/client-ip";
 
 export const dynamic = "force-dynamic";
 
@@ -11,14 +12,15 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 /**
  * Start a card payment from the site. Identity: the signed Telegram session
- * cookie when present, otherwise a buyer email (delivery happens on the
- * /pay/success page). The billing API is called server-side with the shared
+ * cookie when present, otherwise a buyer email. An email-only order creates no
+ * account up front: the billing API makes one once the payment succeeds, and
+ * delivery happens on /pay/success and by letter. The billing API is called server-side with the shared
  * bearer token — the browser never sees it.
  */
 export async function POST(request: Request) {
-  let body: { plan?: unknown; email?: unknown; subscription?: unknown };
+  let body: { plan?: unknown; email?: unknown; subscription?: unknown; confirmExisting?: unknown };
   try {
-    body = (await request.json()) as { plan?: unknown; email?: unknown; subscription?: unknown };
+    body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
@@ -44,20 +46,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_email" }, { status: 400 });
   }
 
-  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
+  const clientIp = clientIpFrom(request);
   // Канал, по ссылке которого пришёл покупатель. Читаем на сервере, а не в
   // браузере: форма не должна знать про атрибуцию, чтобы её нельзя было забыть.
   const source = cookies().get(SOURCE_COOKIE)?.value || undefined;
 
   try {
-    const result = await createWebCheckout({ plan, telegramId, email, subscription, source, clientIp });
+    // На почте уже есть аккаунт: покупатель сам решил оплатить его продление.
+    const confirmExisting = body.confirmExisting === true;
+    const result = await createWebCheckout({
+      plan, telegramId, email, subscription, source, confirmExisting, clientIp,
+    });
     return NextResponse.json(result);
   } catch (error: unknown) {
     if (error instanceof CheckoutError) {
       if (error.code === "rate_limited") {
         return NextResponse.json({ error: "rate_limited" }, { status: 429 });
       }
-      const status = error.code === "unknown_plan" ? 404 : 502;
+      const invalidIdentity = [
+        "identity_required", "invalid_email", "invalid_subscription",
+        "unknown_subscription", "subscription_account_mismatch",
+      ].includes(error.code);
+      const status = error.code === "authentication_required" ? 401
+        : error.code === "account_exists" ? 409
+        : invalidIdentity ? 400
+        : error.code === "unknown_plan" ? 404 : 502;
       return NextResponse.json({ error: error.code }, { status });
     }
     return NextResponse.json({ error: "checkout_failed" }, { status: 502 });

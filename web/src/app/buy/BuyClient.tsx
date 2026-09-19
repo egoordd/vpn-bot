@@ -45,6 +45,8 @@ export function BuyClient({
   const [subLink, setSubLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // На эту почту уже есть аккаунт: спрашиваем, войти или оплатить его продление.
+  const [existingEmail, setExistingEmail] = useState<string | null>(null);
 
   const refreshAuth = useCallback(async () => {
     try {
@@ -69,7 +71,7 @@ export function BuyClient({
   const canSubmit =
     !submitting && (telegramId !== null || (renewing ? subLinkFilled : emailValid));
 
-  async function submit() {
+  async function submit(confirmExisting = false) {
     setError(null);
     setSubmitting(true);
     try {
@@ -80,9 +82,15 @@ export function BuyClient({
           plan: planCode,
           email: email.trim() || undefined,
           subscription: renewing ? subLink.trim() || undefined : undefined,
+          confirmExisting: confirmExisting || undefined,
         }),
       });
       const body = (await res.json()) as { orderId?: string; payUrl?: string; error?: string };
+      if (body.error === "account_exists") {
+        setExistingEmail(email.trim().toLowerCase());
+        setSubmitting(false);
+        return;
+      }
       if (!res.ok || !body.payUrl || !body.orderId) {
         setError(CHECKOUT_ERRORS[body.error ?? ""] ?? "Не удалось создать платёж. Попробуйте ещё раз.");
         setSubmitting(false);
@@ -159,7 +167,10 @@ export function BuyClient({
               autoComplete="email"
               placeholder="name@mail.ru"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setExistingEmail(null);
+              }}
             />
             <button type="button" className="buy__switch" onClick={() => setRenewing(true)}>
               У меня уже есть подписка, продлить её
@@ -170,14 +181,40 @@ export function BuyClient({
 
       {error && <p className="buy__error">{error}</p>}
 
-      <Button size="lg" className="buy__submit" disabled={!canSubmit} onClick={submit}>
-        {submitting ? "Оформляем…" : `Купить · ${formatRubFromRubles(priceRub)}`}
-      </Button>
+      {existingEmail ? (
+        <div className="buy__existing" role="status">
+          <p className="buy__existing-title">На {existingEmail} уже есть аккаунт</p>
+          <p className="buy__existing-text">
+            Войдите в личный кабинет и продлите подписку оттуда — или оплатите сейчас: подписка
+            этого аккаунта продлится автоматически, а ссылка придёт на почту.
+          </p>
+          <Button
+            size="lg"
+            className="buy__submit"
+            disabled={submitting}
+            onClick={() => void submit(true)}
+          >
+            {submitting ? "Оформляем…" : `Оплатить и продлить · ${formatRubFromRubles(priceRub)}`}
+          </Button>
+          <a className="buy__existing-login" href="/cabinet">
+            Войти в личный кабинет
+          </a>
+        </div>
+      ) : (
+        <Button size="lg" className="buy__submit" disabled={!canSubmit} onClick={() => void submit()}>
+          {submitting ? "Оформляем…" : `Купить · ${formatRubFromRubles(priceRub)}`}
+        </Button>
+      )}
 
       <p className="buy__note mono">
         Оплата проходит на защищённой странице. После оплаты вы вернётесь на сайт и получите
-        ссылку-подписку.
+        ссылку-подписку{telegramId === null && !renewing ? " — она же придёт письмом на почту" : ""}.
       </p>
+      {telegramId === null && (
+        <p className="buy__spam mono">
+          Письма нет? Загляните в папку «Спам» — иногда оно попадает туда.
+        </p>
+      )}
     </div>
   );
 }

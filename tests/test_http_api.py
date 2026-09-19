@@ -465,8 +465,9 @@ async def test_web_checkout_keeps_existing_username(api_client, session_pool, mo
 
 
 @pytest.mark.asyncio
-async def test_web_checkout_with_email_creates_synthetic_user(api_client, session_pool, monkeypatch):
+async def test_web_checkout_with_email_creates_no_account_before_payment(api_client, session_pool, monkeypatch):
     from services import http_api as api_mod
+    from services import web_checkout
 
     monkeypatch.setattr(api_mod.yookassa, "is_configured", lambda: True)
     create = _yk_payment_mock("yk-web-3")
@@ -477,41 +478,22 @@ async def test_web_checkout_with_email_creates_synthetic_user(api_client, sessio
     )
 
     assert response.status_code == 200
+    assert response.json()["orderId"] == "yk-web-3"
     assert create.await_args.kwargs["receipt_email"] == "buyer@mail.ru"
-
+    # 19.09.2026: до оплаты есть только заказ, аккаунт создаёт сама оплата.
     async with session_pool() as session:
         repo = Repository(session)
-        user = await repo.get_user_by_email("buyer@mail.ru")
-        assert user is not None
-        assert user.telegram_id < 0
-        assert user.email == "buyer@mail.ru"
+        assert await repo.get_user_by_email("buyer@mail.ru") is None
+        assert await repo.get_payment_by_external_id("yk-web-3") is None
+        checkout = await web_checkout.find(session, "yk-web-3")
+        assert checkout.email == "buyer@mail.ru" and checkout.status == "pending"
 
-    # The first attempt was never paid, so the address holds nothing yet: a
-    # second try goes onto the same account instead of being turned away.
-    retry_create = _yk_payment_mock("yk-web-4")
-    monkeypatch.setattr(api_mod.yookassa, "create_payment", retry_create)
+    # Брошенная оплата ничего не оставляет — второй раз оформляется так же.
+    monkeypatch.setattr(api_mod.yookassa, "create_payment", _yk_payment_mock("yk-web-4"))
     retry = await api_client.post(
         "/web/checkout", json={"plan": "standard_1m", "email": "buyer@mail.ru"}
     )
     assert retry.status_code == 200
-    async with session_pool() as session:
-        repo = Repository(session)
-        retry_payment = await repo.get_payment_by_external_id("yk-web-4")
-        assert retry_payment is not None and retry_payment.user_id == user.id
-        await repo.complete_payment_by_external_id("yk-web-4")
-
-    # Once something is bought, email alone is not proof of ownership.
-    third_create = _yk_payment_mock("yk-web-5")
-    monkeypatch.setattr(api_mod.yookassa, "create_payment", third_create)
-    third = await api_client.post(
-        "/web/checkout", json={"plan": "standard_1m", "email": "buyer@mail.ru"}
-    )
-    assert third.status_code == 400
-    assert third.json()["detail"] == "authentication_required"
-    third_create.assert_not_awaited()
-    async with session_pool() as session:
-        repo = Repository(session)
-        assert await repo.get_payment_by_external_id("yk-web-5") is None
 
 
 @pytest.mark.asyncio

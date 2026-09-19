@@ -49,16 +49,22 @@ export function mockCheckout(): CheckoutResult {
   return { orderId: "mock-order-1", payUrl: "/pay/success" };
 }
 
-export function mockOrderStatus(): WebOrderStatus {
-  return {
+/** Демо-заказ. Номер «mock-new…» — оплата создала кабинет, «mock-renew…» — продлила чужой. */
+export function mockOrderStatus(orderId = ""): WebOrderStatus {
+  const renewal = orderId.startsWith("mock-renew");
+  const order: WebOrderStatus = {
     status: "succeeded",
     subscription: {
-      subscriptionUrl: "https://sub.example.com/sub/demo-token",
+      subscriptionUrl: renewal ? null : "https://sub.example.com/sub/demo-token",
       planTitle: TARIFFS.standard_1m.title,
       expiresAt: daysFromNow(30),
       isActive: true,
     },
   };
+  if (renewal || orderId.startsWith("mock-new")) {
+    order.account = { email: "demo@mail.ru", isNew: !renewal, canSetPassword: !renewal };
+  }
+  return order;
 }
 
 const MOCK_PROMOS: Record<string, { kind: "percent" | "fixed"; value: number }> = {
