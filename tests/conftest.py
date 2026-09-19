@@ -27,6 +27,12 @@ os.environ["SUB_GATEWAY_URL"] = ""
 os.environ["CRYPTOBOT_TOKEN"] = ""
 # The owner's alerts bot: a test that settles a payment must not tell him about it.
 os.environ["ALERTS_BOT_TOKEN"] = ""
+# Живой SMTP из .env: тест вебхука слал настоящие письма «Спасибо за оплату» на
+# buyer@example.com, и Gmail засыпал ящик сервиса отбойниками (19.09.2026).
+# Тест, которому нужна почта, подставляет свой SMTP сам (см. test_mailer.py).
+os.environ["SMTP_HOST"] = ""
+os.environ["SMTP_USER"] = ""
+os.environ["SMTP_PASSWORD"] = ""
 os.environ["VULTR_API_TOKEN"] = ""
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

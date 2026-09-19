@@ -113,3 +113,12 @@ async def test_send_email_failure_is_swallowed(smtp_settings, monkeypatch):
     monkeypatch.setattr(smtplib, "SMTP_SSL", _boom)
 
     assert await mailer.send_email("buyer@example.com", "s", "t") is False
+
+
+@pytest.mark.unit
+def test_the_suite_never_has_a_live_mail_server():
+    # conftest гасит SMTP из .env: иначе тесты шлют настоящие письма (19.09.2026
+    # ящик сервиса засыпало отбойниками на buyer@example.com).
+    from config import Settings
+
+    assert Settings().SMTP_HOST == ""
