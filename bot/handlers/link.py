@@ -24,6 +24,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
+from bot.navigation import show_screen
 from bot.texts import format_msk
 from services.account_link import ClaimStatus, claim_subscription_by_link
 from services.tariffs import resolve_tariff
@@ -65,8 +66,8 @@ def _plan_title(plan: str) -> str:
 @router.callback_query(F.data == "link_subscription")
 async def link_enter_handler(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(LinkInput.subscription)
-    if callback.message is not None:
-        await callback.message.edit_text(PROMPT, reply_markup=back_to_menu_keyboard())
+    # Главное меню после /start — картинка с подписью, её как текст не отредактировать.
+    await show_screen(callback, PROMPT, reply_markup=back_to_menu_keyboard())
     await callback.answer()
 
 

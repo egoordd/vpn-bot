@@ -17,6 +17,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
 from bot.keyboards.main_menu import back_to_menu_keyboard
+from bot.navigation import show_screen
 from database.repository import Repository
 from services import billing_api, promo
 
@@ -50,8 +51,8 @@ def _promo_error_text(exc: promo.PromoError) -> str:
 @router.callback_query(F.data == "promo_enter")
 async def promo_enter_handler(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PromoInput.code)
-    if callback.message is not None:
-        await callback.message.edit_text(PROMPT, reply_markup=back_to_menu_keyboard())
+    # Кнопка живёт и на старых меню-картинках — их как текст не отредактировать.
+    await show_screen(callback, PROMPT, reply_markup=back_to_menu_keyboard())
     await callback.answer()
 
 
