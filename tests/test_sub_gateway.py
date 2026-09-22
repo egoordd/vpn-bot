@@ -1203,3 +1203,92 @@ def test_the_owner_can_lift_the_device_limit_for_one_person(plan_api, monkeypatc
 def test_the_exemption_list_is_read_forgivingly():
     assert sub_gateway._names("tg_1, tg_2 ,,") == frozenset({"tg_1", "tg_2"})
     assert sub_gateway._names("") == frozenset(), "пустая настройка — никаких исключений"
+
+
+# --- аудит 22.09.2026, GW-01: устройство учитывается только по настоящей ссылке --
+
+
+def _request(token: str, hwid: str, monkeypatch, *, valid: bool, path: str | None = None):
+    import io
+
+    class _Probe(sub_gateway.Handler):
+        def __init__(self):
+            self.path = path or f"/sub/{token}"
+            self.headers = {"User-Agent": "Happ/5.6.0/ios", "x-hwid": hwid, "x-device-os": "ios"}
+            self.code = None
+            self.wfile = io.BytesIO()
+
+        def send_response(self, code):
+            self.code = code
+
+        def send_header(self, key, value):
+            pass
+
+        def end_headers(self):
+            pass
+
+    answer = ("[{}]", "upload=0; download=0; total=0; expire=0", True) if valid else None
+    monkeypatch.setattr(sub_gateway, "build_auto_json", lambda token: answer)
+    monkeypatch.setattr(sub_gateway, "build_combined", lambda token: None)
+    probe = _Probe()
+    probe.do_GET()
+    return probe.code
+
+
+def test_a_forged_link_does_not_take_the_customers_device_slots(device_store, monkeypatch):
+    """Имя в ссылке не подписано: подделать его может любой, кто знает Telegram ID.
+    До 22.09 шлюз записывал устройство раньше проверки ссылки, и три поддельных
+    запроса запирали клиенту подключение новых устройств."""
+    token = _panel_token("tg_557")
+
+    for hwid in ("evil-1", "evil-2", "evil-3"):
+        assert _request(token, hwid, monkeypatch, valid=False) == 404
+
+    assert sub_gateway.devices_of("tg_557") == []
+    assert _request(token, "owner-phone", monkeypatch, valid=True) == 200
+    assert [d["hwid"] for d in sub_gateway.devices_of("tg_557")] == ["owner-phone"]
+
+
+def test_device_fields_are_capped(device_store):
+    """Идентификатор и модель присылает приложение; огромные строки не должны
+    раздувать базу учёта."""
+    assert _allow("h" * 5000)
+    stored = sub_gateway.devices_of("tg_1")[0]
+    assert len(stored["hwid"]) == sub_gateway.DEVICE_FIELD_MAX
+    assert _allow("h" * 5000), "то же устройство узнаётся по обрезанному идентификатору"
+    assert len(sub_gateway.devices_of("tg_1")) == 1
+
+
+
+# --- аудит 22.09.2026, GW-02/GW-03 ------------------------------------------------
+
+
+def test_the_panel_certificate_is_verified_by_default():
+    import ssl
+
+    assert sub_gateway._SSL.verify_mode == ssl.CERT_REQUIRED
+    assert sub_gateway._SSL.check_hostname is True
+
+
+def test_a_malformed_link_never_reaches_the_panel(monkeypatch):
+    called = []
+    monkeypatch.setattr(sub_gateway, "build_auto_json", lambda token: called.append(token))
+    monkeypatch.setattr(sub_gateway, "build_combined", lambda token: called.append(token))
+
+    code = _request("x", "hw", monkeypatch, valid=False, path="/sub/не-токен%20с%20пробелом")
+
+    assert code == 404
+    assert called == []
+
+
+def test_a_flood_gets_busy_instead_of_piling_onto_the_panel(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(sub_gateway, "UPSTREAM_SLOTS", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(sub_gateway, "UPSTREAM_SLOT_WAIT", 0.05)
+    sub_gateway.UPSTREAM_SLOTS.acquire()
+    try:
+        assert _request(_panel_token("tg_558"), "hw", monkeypatch, valid=True) == 503
+    finally:
+        sub_gateway.UPSTREAM_SLOTS.release()
+    assert _request(_panel_token("tg_558"), "hw", monkeypatch, valid=True) == 200

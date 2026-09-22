@@ -335,8 +335,17 @@ CASCADE_COUNTRIES = (
 # The gateway calls our own Marzban panel (same host in prod), so TLS
 # verification is unnecessary here and trips on the own-domain sslip cert.
 _SSL = ssl.create_default_context()
-_SSL.check_hostname = False
-_SSL.verify_mode = ssl.CERT_NONE
+# Сертификат панели проверяется (аудит 22.09.2026, GW-02). На сервере шлюз ходит к
+# панели по http://127.0.0.1, так что это страховка на случай внешнего адреса;
+# самоподписанный сертификат можно разрешить явно через SUB_UPSTREAM_INSECURE=1.
+if os.environ.get("SUB_UPSTREAM_INSECURE") == "1":
+    _SSL.check_hostname = False
+    _SSL.verify_mode = ssl.CERT_NONE
+
+# Сколько подписок шлюз собирает одновременно. Каждая — поход в панель; без
+# потолка поток запросов душит и шлюз, и панель (аудит 22.09.2026, GW-03).
+UPSTREAM_SLOTS = threading.BoundedSemaphore(int(os.environ.get("SUB_MAX_CONCURRENT", "32")))
+UPSTREAM_SLOT_WAIT = float(os.environ.get("SUB_SLOT_WAIT", "10"))
 
 
 # --- node health --------------------------------------------------------------
@@ -714,6 +723,7 @@ def build_cascade_links(links: list[str]) -> list[str]:
 DEVICE_LIMIT = int(os.environ.get("DEVICE_LIMIT", "0") or 0)
 DEVICE_ENFORCE = os.environ.get("DEVICE_ENFORCE", "1").lower() not in ("0", "false", "no", "")
 DEVICE_DB = os.environ.get("DEVICE_DB", "/var/lib/unlock-subgw/devices.sqlite3")
+DEVICE_FIELD_MAX = 128
 DEVICE_IDLE_DAYS = int(os.environ.get("DEVICE_IDLE_DAYS", "14") or 14)
 # Цифра лимита у тарифов разная: пробник — два устройства (телефон и компьютер,
 # иначе человек упрётся в лимит ровно на знакомстве с сервисом), платные — три.
@@ -871,6 +881,11 @@ def device_allowed(
         return True
     if username in DEVICE_LIMIT_EXEMPT:
         return True
+    # Поля приходят от приложения как есть: длину режем, чтобы запросы не
+    # раздували базу учёта (аудит 22.09.2026, GW-01).
+    hwid = hwid[:DEVICE_FIELD_MAX]
+    model = model[:DEVICE_FIELD_MAX] if model else model
+    os_name = os_name[:DEVICE_FIELD_MAX] if os_name else os_name
     conn = _device_store()
     if conn is None:
         return True
@@ -1203,7 +1218,9 @@ class Handler(BaseHTTPRequestHandler):
         # foreign TLDs leave the tunnel too. Handed out by link only, so it is
         # opt-in and comparable against the ordinary subscription.
         is_split = flavor == "split"
-        if not token:
+        if not token or not _TOKEN_RE.match(token):
+            # Настоящие ссылки всегда подходят под шаблон: мусор отсекаем, не
+            # тревожа панель (аудит 22.09.2026, GW-03).
             self._send(404, b"not found", "text/plain")
             return
         # A browser gets the connect landing; VPN clients get the raw config.
@@ -1229,6 +1246,23 @@ class Handler(BaseHTTPRequestHandler):
         # that is what the /hy2 flavor above exists to hand over. Other clients
         # keep the base64 URI list, Hysteria2 included.
         ua = self.headers.get("User-Agent", "")
+        wants_json = not force_plain and (
+            is_auto or is_split or (AUTO_IN_SUB and _supports_xray_json(ua))
+        )
+        # Сначала панель проверяет ссылку, и только потом устройство попадает в
+        # учёт. Имя в ссылке не подписано: до 22.09.2026 поддельная ссылка с
+        # чужим Telegram ID записывала устройства и запирала клиенту новые
+        # подключения (аудит, GW-01).
+        if not UPSTREAM_SLOTS.acquire(timeout=UPSTREAM_SLOT_WAIT):
+            self._send(503, b"busy, retry later", "text/plain")
+            return
+        try:
+            built = build_auto_json(token) if wants_json else build_combined(token)
+        finally:
+            UPSTREAM_SLOTS.release()
+        if built is None:
+            self._send(404, b"invalid subscription", "text/plain")
+            return
         blocked = device_gate(token, self.headers)
         if blocked is not None:
             _log_served(token, ua, "device-limit", blocked)
@@ -1243,15 +1277,8 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
-        wants_json = not force_plain and (
-            is_auto or is_split or (AUTO_IN_SUB and _supports_xray_json(ua))
-        )
         if wants_json:
-            auto = build_auto_json(token)
-            if auto is None:
-                self._send(404, b"invalid subscription", "text/plain")
-                return
-            body, userinfo, is_json = auto
+            body, userinfo, is_json = built
             extra = _client_headers(token, flavor)
             # Autoconnect/1h-refresh headers stay exclusive to the explicit /auto
             # link: the plain subscription must not start dialling on its own.
@@ -1264,11 +1291,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, body.encode("utf-8"), ctype, extra)
             return
 
-        result = build_combined(token)
-        if result is None:
-            self._send(404, b"invalid subscription", "text/plain")
-            return
-        payload, userinfo = result
+        payload, userinfo = built
         extra = _client_headers(token, flavor)
         if userinfo:
             extra["subscription-userinfo"] = _normalise_userinfo(userinfo)
