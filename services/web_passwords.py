@@ -1,8 +1,13 @@
-"""Пароль аккаунта на сайте: «Забыли пароль?» и смена пароля в кабинете.
+"""Пароль аккаунта на сайте: «Забыли пароль?», смена пароля, выход на всех устройствах.
 
 Восстановление идёт через почту аккаунта: на неё уходит одноразовая ссылка,
 которая живёт час. В базе лежит только хеш ссылки — утечка таблицы не даёт
 войти ни в один аккаунт.
+
+Сессия сайта несёт отметку состояния входа (``session_stamp``), и сайт сверяет
+её с базой на каждом запросе. Отметка меняется со сменой пароля и с «выйти на
+всех устройствах», поэтому украденная сессия перестаёт работать, как только
+владелец восстановил пароль (аудит 22.09.2026, SEC-04).
 """
 
 from __future__ import annotations
@@ -19,6 +24,15 @@ from database.models import Base, User, utcnow
 from database.repository import Repository
 
 RESET_TTL = timedelta(hours=1)
+
+
+class WebSessionEpoch(Base):
+    """Когда аккаунт последний раз выходил на всех устройствах."""
+
+    __tablename__ = "web_session_epochs"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class WebPasswordReset(Base):
@@ -100,3 +114,32 @@ async def change_password(
         raise WebAuthError("weak_password")
     user.web_password_hash = webauth.hash_password(new_password)
     await session.commit()
+
+
+def _stamp(user: User, revoked_at: datetime | None) -> str:
+    revoked = int(_aware(revoked_at).timestamp() * 1_000_000) if revoked_at is not None else 0
+    material = f"unlock-web-session:{user.id}:{user.telegram_id}:{user.web_password_hash or ''}:{revoked}"
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
+
+
+async def session_stamp(session: AsyncSession, telegram_id: int) -> str | None:
+    """Отметка входа для сессии сайта. None — аккаунта больше нет."""
+    user = await Repository(session).get_user_by_telegram_id(telegram_id)
+    if user is None:
+        return None
+    epoch = await session.get(WebSessionEpoch, user.id)
+    return _stamp(user, epoch.revoked_at if epoch is not None else None)
+
+
+async def sign_out_everywhere(session: AsyncSession, telegram_id: int) -> bool:
+    """Все выданные сессии этого аккаунта перестают действовать."""
+    user = await Repository(session).get_user_by_telegram_id(telegram_id)
+    if user is None:
+        return False
+    epoch = await session.get(WebSessionEpoch, user.id)
+    if epoch is None:
+        session.add(WebSessionEpoch(user_id=user.id, revoked_at=utcnow()))
+    else:
+        epoch.revoked_at = utcnow()
+    await session.commit()
+    return True

@@ -10,7 +10,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 /** Change the receipt email for the logged-in (session cookie) account. */
 export async function POST(request: Request) {
-  const telegramId = verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const telegramId = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
   if (!telegramId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

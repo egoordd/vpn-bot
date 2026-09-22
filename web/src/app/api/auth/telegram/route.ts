@@ -40,14 +40,14 @@ export async function POST(request: Request) {
   // that is what lets the two accounts become one. Without this the login
   // merely swapped the session and the purchase stayed behind, which is how a
   // buyer ended up staring at an empty cabinet.
-  const current = verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const current = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
   const username = typeof payload.username === "string" ? payload.username : undefined;
   const finalId =
     current !== null && current < 0
       ? await attachTelegramToWebAccount(current, telegramId, username)
       : telegramId;
 
-  const session = createUserSession(finalId);
+  const session = await createUserSession(finalId);
   if (!session) {
     return NextResponse.json({ error: "auth_not_configured" }, { status: 503 });
   }
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
 
 /** Who am I — session state for client components. */
 export async function GET() {
-  const telegramId = verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const telegramId = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
   if (!telegramId) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }

@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_plan" }, { status: 400 });
   }
 
-  const telegramId = verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value) ?? undefined;
+  const telegramId = (await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value)) ?? undefined;
   const email =
     typeof body.email === "string" && body.email.trim() ? body.email.trim().toLowerCase() : undefined;
 

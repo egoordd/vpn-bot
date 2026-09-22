@@ -112,8 +112,14 @@
   opacity: 0.6;
 }
 
-.cab__logout {
+.cab__logouts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   margin-top: 0.4rem;
+}
+
+.cab__logout {
   padding: 0.3rem 0.8rem;
   border-radius: 999px;
   border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));

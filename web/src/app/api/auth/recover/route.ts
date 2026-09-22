@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "recover_failed" }, { status: 502 });
   }
 
-  const session = createUserSession(telegramId);
+  const session = await createUserSession(telegramId);
   if (!session) return NextResponse.json({ error: "auth_not_configured" }, { status: 503 });
 
   const response = NextResponse.json({ ok: true });

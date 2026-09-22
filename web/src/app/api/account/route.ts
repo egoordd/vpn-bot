@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     "";
 
   const telegramId =
-    verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value) ??
+    (await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value)) ??
     verifyTelegramInitData(initData);
   if (!telegramId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });

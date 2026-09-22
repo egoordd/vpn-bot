@@ -3,13 +3,13 @@ import { cookies } from "next/headers";
 
 import { WebAuthError, changeWebPassword } from "@/lib/billing/client";
 import { clientIpFrom } from "@/lib/client-ip";
-import { USER_SESSION_COOKIE, verifyUserSession } from "@/lib/web-session";
+import { USER_SESSION_COOKIE, signedInResponse, verifyUserSession } from "@/lib/web-session";
 
 export const dynamic = "force-dynamic";
 
 /** Смена пароля в кабинете. Аккаунт — из подписанной сессии, не из запроса. */
 export async function POST(request: Request) {
-  const telegramId = verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const telegramId = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
   if (!telegramId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let body: { currentPassword?: unknown; newPassword?: unknown };
@@ -34,5 +34,6 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: "password_failed" }, { status: 502 });
   }
-  return NextResponse.json({ ok: true });
+  // Новый пароль гасит все сессии аккаунта, эту — тоже; выдаём ей новую.
+  return signedInResponse(telegramId);
 }

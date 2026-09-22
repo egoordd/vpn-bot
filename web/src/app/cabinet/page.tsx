@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 const DEMO_USER_ID = 1;
 
 export default async function CabinetPage() {
-  const telegramId = verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const telegramId = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
   // Taken from the request, not from NEXT_PUBLIC_SITE_URL: Telegram rejects the
   // login when `origin` does not match the domain the person is actually on,
   // and that variable is currently set to a domain that does not resolve.

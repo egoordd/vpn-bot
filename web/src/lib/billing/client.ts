@@ -320,6 +320,32 @@ export async function loginWebAccount(email: string, password: string, clientIp?
   return authCall("/web/auth/login", email, password, undefined, clientIp);
 }
 
+/**
+ * Отметка входа аккаунта для сессии сайта. null — аккаунта нет или биллинг не
+ * ответил: тогда сессия не принимается.
+ */
+export async function getSessionStamp(telegramId: number): Promise<string | null> {
+  if (!API_URL) return "demo";
+  try {
+    const body = await callOrNull<{ stamp?: unknown }>(`/web/auth/stamp/${telegramId}`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    return typeof body?.stamp === "string" && /^[0-9a-f]{32}$/.test(body.stamp) ? body.stamp : null;
+  } catch {
+    return null;
+  }
+}
+
+/** «Выйти на всех устройствах»: все сессии аккаунта перестают действовать. */
+export async function signOutEverywhere(telegramId: number): Promise<boolean> {
+  if (!API_URL) return true;
+  const result = await callOrNull<{ ok: boolean }>("/web/auth/sign-out-everywhere", {
+    method: "POST",
+    body: JSON.stringify({ telegramId }),
+  });
+  return result?.ok ?? false;
+}
+
 export async function updateAccountEmail(telegramId: number, email: string): Promise<boolean> {
   if (!API_URL) return true;
   const result = await callOrNull<{ ok: boolean }>(`/web/account/email`, {

@@ -51,6 +51,13 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(alias="newPassword", min_length=1, max_length=200)
 
 
+class SignOutRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    # Из подписанной сессии сайта.
+    telegram_id: int = Field(alias="telegramId")
+
+
 class OrderPasswordRequest(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
@@ -137,3 +144,19 @@ async def web_order_password(
     except billing_api.WebAuthError as exc:
         raise _auth_error(exc) from exc
     return {"ok": True, "telegramId": telegram_id}
+
+
+@router.get("/web/auth/stamp/{telegram_id}")
+async def web_auth_stamp(telegram_id: int, session: SessionDep) -> dict[str, Any]:
+    """Текущая отметка входа: сайт сверяет с ней свою сессию на каждом запросе."""
+    stamp = await web_passwords.session_stamp(session, telegram_id)
+    if stamp is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    return {"stamp": stamp}
+
+
+@router.post("/web/auth/sign-out-everywhere")
+async def web_auth_sign_out_everywhere(body: SignOutRequest, session: SessionDep) -> dict[str, Any]:
+    if not await web_passwords.sign_out_everywhere(session, body.telegram_id):
+        raise HTTPException(status_code=404, detail="not_found")
+    return {"ok": True}
