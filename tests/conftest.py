@@ -47,6 +47,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from database.models import Base
+# Таблицы, объявленные вне database/models.py, должны попасть в Base.metadata до
+# create_all, иначе тест, запущенный отдельно, не находит их.
+import services.web_checkout  # noqa: E402,F401
+import services.web_passwords  # noqa: E402,F401
 
 
 @pytest_asyncio.fixture

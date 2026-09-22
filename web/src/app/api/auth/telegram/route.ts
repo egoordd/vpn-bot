@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
 import { attachTelegramToWebAccount } from "@/lib/billing/client";
-import { verifyTelegramLoginWidget } from "@/lib/telegram-auth";
+import { TELEGRAM_LOGIN_COOKIE, verifyTelegramLoginWidget } from "@/lib/telegram-auth";
 import {
   USER_SESSION_COOKIE,
   USER_SESSION_TTL_SECONDS,
@@ -19,6 +19,15 @@ export async function POST(request: Request) {
     payload = (await request.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  // Вход принимается, только если его начали в этом браузере: подпись Telegram
+  // доказывает, чей это аккаунт, но не то, что входит сам владелец страницы.
+  // Без отметки чужая ссылка с подписанным входом привязывала бы подписку жертвы
+  // к Telegram атакующего (аудит 22.09.2026, SEC-01).
+  const started = cookies().get(TELEGRAM_LOGIN_COOKIE)?.value ?? "";
+  if (!/^[0-9a-f]{32}$/.test(started)) {
+    return NextResponse.json({ error: "login_not_started" }, { status: 400 });
   }
 
   const telegramId = verifyTelegramLoginWidget(payload);
@@ -44,6 +53,8 @@ export async function POST(request: Request) {
   }
 
   const response = NextResponse.json({ ok: true, telegramId: finalId });
+  // Отметка одноразовая.
+  response.cookies.set(TELEGRAM_LOGIN_COOKIE, "", { httpOnly: true, secure: true, path: "/", maxAge: 0 });
   response.cookies.set(USER_SESSION_COOKIE, session, {
     httpOnly: true,
     secure: true,

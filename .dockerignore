@@ -1,0 +1,26 @@
+# Секреты и данные не попадают в образ (аудит 22.09.2026, OPS-01): контекст
+# сборки — весь каталог, а в нём живой .env и резервные копии базы.
+.env
+.env.*
+!.env.example
+backups/
+*.sql
+*.sql.gz
+*.sqlite3
+*.sqlite3.gz
+*.pem
+*.key
+
+# Не нужно боту в контейнере.
+.git/
+.claude/
+web/
+landing/
+assets/marketing/
+docs/
+tests/
+HANDOFF*.md
+**/__pycache__/
+*.log
+.venv/
+node_modules/

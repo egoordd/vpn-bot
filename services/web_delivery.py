@@ -127,6 +127,39 @@ def build_letter(
     return subject, text, body
 
 
+def build_link_notice(telegram_username: str | None) -> tuple[str, str, str]:
+    """Письмо владельцу почты: подписку с сайта привязали к Telegram."""
+    who = f"@{telegram_username}" if telegram_username else "Telegram-аккаунту"
+    subject = "UnLock VPN: подписка привязана к Telegram"
+    text = (
+        f"Ваша подписка UnLock VPN, купленная на сайте, привязана к {who}.\n"
+        "Теперь она видна в Telegram-боте, а VPN работает как раньше — ссылка не изменилась.\n\n"
+        f"Если это были не вы, напишите в поддержку: {SUPPORT_URL}"
+    )
+    body = (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;'
+        'line-height:1.55;color:#1a1a1a;max-width:560px">'
+        f"<p>Ваша подписка UnLock VPN, купленная на сайте, привязана к <b>{html.escape(who)}</b>.</p>"
+        "<p>Теперь она видна в Telegram-боте, а VPN работает как раньше — ссылка не изменилась.</p>"
+        f'<p style="color:#555;font-size:14px">Если это были не вы, напишите в поддержку: '
+        f'<a href="{SUPPORT_URL}">@unlock_support_bot</a></p>'
+        "</div>"
+    )
+    return subject, text, body
+
+
+async def send_link_notice(email: str, telegram_username: str | None) -> bool:
+    """Best effort: письмо не должно ломать привязку."""
+    if not email or not mailer.is_configured():
+        return False
+    subject, text, body = build_link_notice(telegram_username)
+    try:
+        return await mailer.send_email(email, subject, text, html=body)
+    except Exception:  # noqa: BLE001
+        logger.exception("Link notice letter failed")
+        return False
+
+
 def build_reset_letter(reset_url: str) -> tuple[str, str, str]:
     """Письмо «Забыли пароль?»: subject, текст, HTML."""
     subject = "UnLock VPN: восстановление пароля"

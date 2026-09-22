@@ -42,6 +42,9 @@ class ClaimStatus(str, Enum):
 class ClaimResult:
     status: ClaimStatus
     subscription: Subscription | None = None
+    # Почта аккаунта сайта, с которого ушла подписка: владельцу пишем, что её
+    # привязали к Telegram — ссылку пересылают родным (аудит 22.09.2026, SEC-02).
+    previous_owner_email: str | None = None
 
 
 async def claim_subscription_by_link(
@@ -84,11 +87,12 @@ async def claim_subscription_by_link(
         # follow from that.
         return ClaimResult(ClaimStatus.OTHER_TELEGRAM_OWNER, subscription)
 
+    previous_email = (owner.email or "").strip() or None
     claimant = await repo.get_or_create_user(telegram_id, username)
     subscription.user_id = claimant.id
     await session.commit()
     await session.refresh(subscription)
-    return ClaimResult(ClaimStatus.CLAIMED, subscription)
+    return ClaimResult(ClaimStatus.CLAIMED, subscription, previous_owner_email=previous_email)
 
 
 async def attach_telegram_to_web_account(

@@ -391,3 +391,75 @@ async def test_a_failed_delivery_can_be_retried_by_yookassa(api_client, monkeypa
     assert response.status_code == 500
     # Отметки о дубле нет — повтор вебхука будет обработан, а не отброшен.
     assert "yookassa:evt:yk-retry-1" not in redis.store
+
+
+# --- аудит 22.09.2026: SEC-03 и SEC-05 -------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_receipt_email_on_a_telegram_account_does_not_capture_a_purchase(api_client, session_pool, monkeypatch):  # noqa: F811
+    """Почту для чеков человек вписывает в боте сам, без подтверждения. Вписав
+    чужой адрес, он не должен получать чужие оплаты по этой почте."""
+    async with session_pool() as session:
+        repo = Repository(session)
+        squatter = await repo.create_user(telegram_id=777001)
+        await repo.update_user(squatter.id, email="victim@mail.ru")
+
+    response, _ = await _checkout(api_client, monkeypatch, "victim@mail.ru", "yk-sq-1")
+    assert response.status_code == 200, "это не «аккаунт уже есть» — у почты нет аккаунта сайта"
+    await _pay(api_client, monkeypatch, "yk-sq-1")
+
+    async with session_pool() as session:
+        payment = await Repository(session).get_payment_by_external_id("yk-sq-1")
+        owner = await Repository(session).get_user(payment.user_id)
+    assert owner.telegram_id < 0 and owner.id != squatter.id
+
+
+@pytest.mark.asyncio
+async def test_login_by_email_finds_the_site_account_first(api_client, session_pool):  # noqa: F811
+    from services import webauth
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        older = await repo.create_user(telegram_id=777002)
+        await repo.update_user(older.id, email="shared@mail.ru", web_password_hash=webauth.hash_password("tg-pass-11"))
+        site = await repo.create_user(telegram_id=-777002)
+        await repo.update_user(site.id, email="shared@mail.ru", web_password_hash=webauth.hash_password("site-pass-1"))
+
+    ok = await api_client.post("/web/auth/login", json={"email": "shared@mail.ru", "password": "site-pass-1"})
+    assert ok.status_code == 200 and ok.json()["telegramId"] == -777002
+
+
+@pytest.mark.asyncio
+async def test_a_telegram_account_with_its_own_site_password_still_logs_in(api_client, session_pool):  # noqa: F811
+    from services import webauth
+
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=777003)
+        await repo.update_user(user.id, email="solo@mail.ru", web_password_hash=webauth.hash_password("solo-pass-1"))
+
+    ok = await api_client.post("/web/auth/login", json={"email": "solo@mail.ru", "password": "solo-pass-1"})
+    assert ok.status_code == 200 and ok.json()["telegramId"] == 777003
+
+
+@pytest.mark.asyncio
+async def test_the_yookassa_payment_id_cannot_set_the_password(api_client, session_pool, monkeypatch):  # noqa: F811
+    """Номер платежа ЮKassa виден в квитанциях и переписке; пароль задаётся только
+    по номеру заказа из адреса возврата, который есть лишь у браузера покупателя."""
+    await _checkout(api_client, monkeypatch, "pid@mail.ru", "yk-pid-1")
+    await _pay(api_client, monkeypatch, "yk-pid-1")
+
+    by_payment = await api_client.get("/web/order/yk-pid-1")
+    assert by_payment.json()["account"]["canSetPassword"] is False
+    denied = await api_client.post("/web/order/yk-pid-1/password", json={"password": "stolen-pass1"})
+    assert denied.status_code == 409
+
+    token = await _order_token(session_pool, "yk-pid-1")
+    assert (await api_client.post(f"/web/order/{token}/password", json={"password": "own-pass-12"})).status_code == 200
+
+
+def test_the_link_notice_names_the_telegram_account_and_support():
+    _, text, body = web_delivery.build_link_notice("new_owner")
+    for part in (text, body):
+        assert "@new_owner" in part and "unlock_support_bot" in part

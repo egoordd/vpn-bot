@@ -128,3 +128,7 @@ async def link_message_handler(
         "ссылка в приложении осталась прежней.",
         reply_markup=back_to_menu_keyboard(),
     )
+    if result.previous_owner_email:
+        from services import web_delivery
+
+        await web_delivery.send_link_notice(result.previous_owner_email, message.from_user.username)

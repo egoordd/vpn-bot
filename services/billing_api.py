@@ -267,7 +267,9 @@ async def build_web_payment_intent(
         username = owner.username
     created_guest = False
     if telegram_id is None:
-        user = await repo.get_user_by_email(clean_email)
+        from services.web_accounts import site_account_by_email
+
+        user = await site_account_by_email(session, clean_email)
         if user is None:
             user = await repo.create_user(telegram_id=-(secrets.randbits(52) + 1))
             created_guest = True
@@ -373,9 +375,11 @@ async def register_web_account(session: AsyncSession, *, email: str, password: s
         raise WebAuthError("weak_password")
 
     from services import web_checkout
+    from services.web_accounts import site_account_by_email
 
     repo = Repository(session)
-    existing = await repo.get_user_by_email(clean_email)
+    # Почта для чеков у Telegram-аккаунта не занимает логин (аудит 22.09, SEC-03).
+    existing = await site_account_by_email(session, clean_email)
     if existing is not None and not await _is_unpaid_guest(session, existing):
         raise WebAuthError("already_registered")
     if await web_checkout.may_still_pay(session, clean_email):
@@ -436,13 +440,20 @@ async def set_web_password_by_subscription(
     user = await repo.get_user(subscription.user_id)
     if user is None:
         raise WebAuthError("invalid_subscription")
+    if user.telegram_id > 0:
+        # Ссылку подписки пересылают родным, а Telegram-аккаунт входит через
+        # Telegram: пересланная ссылка не должна открывать чужой кабинет
+        # (аудит 22.09.2026, SEC-02).
+        raise WebAuthError("telegram_account")
     if user.web_password_hash:
         raise WebAuthError("password_already_set")
 
     clean_email = (email or "").strip().lower() or None
     if clean_email and clean_email != (user.email or "").strip().lower():
         # A second account already holding that address would collide on login.
-        other = await repo.get_user_by_email(clean_email)
+        from services.web_accounts import site_account_by_email
+
+        other = await site_account_by_email(session, clean_email)
         if other is not None and other.id != user.id:
             raise WebAuthError("email_taken")
 
@@ -461,8 +472,9 @@ async def authenticate_web_account(session: AsyncSession, *, email: str, passwor
     clean_email = (email or "").strip().lower()
     if not clean_email or not password:
         return None
-    repo = Repository(session)
-    user = await repo.get_user_by_email(clean_email)
+    from services.web_accounts import login_account_by_email
+
+    user = await login_account_by_email(session, clean_email)
     if user is None or not webauth.verify_password(password, user.web_password_hash):
         return None
     return user.telegram_id

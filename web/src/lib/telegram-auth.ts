@@ -109,6 +109,10 @@ export function verifyTelegramInitData(
  * The bot id is the numeric half of the token and is public — it travels in
  * every widget on every site that uses one. The secret half never leaves here.
  */
+/** Отметка «вход через Telegram начат в этом браузере» — см. /api/auth/telegram/start. */
+export const TELEGRAM_LOGIN_COOKIE = "ulk_tg_login";
+export const TELEGRAM_LOGIN_TTL_SECONDS = 10 * 60;
+
 export function telegramLoginUrl(returnTo: string, botToken = process.env.BOT_TOKEN ?? ""): string | null {
   const botId = botToken.split(":")[0];
   if (!botId || !/^\d+$/.test(botId)) return null;

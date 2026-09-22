@@ -631,7 +631,7 @@ def create_app() -> FastAPI:
     async def web_order(order_id: str, session: SessionDep) -> dict[str, Any]:
         checkout = await email_orders.find(session, order_id)
         if checkout is not None:
-            return await _email_order_status(session, checkout)
+            return await _email_order_status(session, checkout, by_token=checkout.token == order_id)
         repo = Repository(session)
         payment = await repo.get_payment_by_external_id(order_id)
         if payment is None and _ORDER_TOKEN_RE.fullmatch(order_id):
@@ -1039,7 +1039,9 @@ async def _email_checkout(
     return {"orderId": str(payment_id), "payUrl": pay_url, "plan": _plan_payload(plan)}
 
 
-async def _email_order_status(session: AsyncSession, checkout: email_orders.WebCheckout) -> dict[str, Any]:
+async def _email_order_status(
+    session: AsyncSession, checkout: email_orders.WebCheckout, *, by_token: bool
+) -> dict[str, Any]:
     """Статус заказа по почте для страницы оплаты.
 
     Ссылка подписки — только если аккаунт создан этим заказом. Оплата на уже
@@ -1061,7 +1063,7 @@ async def _email_order_status(session: AsyncSession, checkout: email_orders.WebC
         "account": {
             "email": checkout.email,
             "isNew": checkout.created_account,
-            "canSetPassword": await email_orders.can_set_password(session, checkout),
+            "canSetPassword": by_token and await email_orders.can_set_password(session, checkout),
         },
     }
 

@@ -128,17 +128,13 @@ async def test_no_subscription_means_no_mail(session_pool, monkeypatch):
 
 @pytest.mark.integration
 async def test_the_cabinet_is_reached_by_proving_ownership_not_by_knowing_the_email(session_pool):
-    """The two halves have to meet, but not by trusting an address.
+    """Почта не доказательство, и пересланная ссылка — тоже, если это Telegram-аккаунт.
 
-    The goal this test was written for stands: a customer told to open the
-    cabinet must land on their real account, not an empty one. What changed is
-    the proof. Registering with an address that already belongs to an account
-    must be refused — an address is public, so accepting one would hand over
-    the account, and the past purchases on it, to whoever guesses it.
-
-    The subscription link is the proof the customer actually holds. One use of
-    it sets a password on that same account, which is what
-    ``set_web_password_by_subscription`` exists for.
+    До 22.09.2026 одна ссылка подписки задавала пароль сайта даже Telegram-аккаунту,
+    а ссылку люди пересылают родным: получивший её открывал чужой кабинет (аудит,
+    SEC-02). Telegram-аккаунт входит через Telegram. А почта, вписанная им для чеков,
+    больше не занимает логин и не мешает зарегистрироваться (SEC-03): иначе чужой
+    адрес для чеков запирал бы вход настоящему владельцу почты.
     """
     from services import billing_api
 
@@ -157,21 +153,23 @@ async def test_the_cabinet_is_reached_by_proving_ownership_not_by_knowing_the_em
             subscription_url=_recovery_link("tg_900904"),
         )
         await session.commit()
-        telegram_id = user.telegram_id
 
-        with pytest.raises(billing_api.WebAuthError, match="already_registered"):
-            await billing_api.register_web_account(
-                session, email="vladimir@mail.ru", password="correct horse battery"
+        with pytest.raises(billing_api.WebAuthError, match="telegram_account"):
+            await billing_api.set_web_password_by_subscription(
+                session,
+                subscription_link=_recovery_link("tg_900904"),
+                password="correct horse battery",
             )
-
-        claimed = await billing_api.set_web_password_by_subscription(
-            session,
-            subscription_link=_recovery_link("tg_900904"),
-            password="correct horse battery",
-        )
-        assert claimed == telegram_id, "the cabinet must land on his real account"
-
-        again = await billing_api.authenticate_web_account(
+        assert await billing_api.authenticate_web_account(
             session, email="vladimir@mail.ru", password="correct horse battery"
+        ) is None
+
+        site_id = await billing_api.register_web_account(
+            session, email="vladimir@mail.ru", password="another horse battery"
         )
-        assert again == telegram_id
+        assert site_id < 0, "почта для чеков у Telegram-аккаунта не занимает логин"
+        assert await billing_api.authenticate_web_account(
+            session, email="vladimir@mail.ru", password="another horse battery"
+        ) == site_id
+        refreshed = await repo.get_user(user.id)
+        assert refreshed.web_password_hash is None, "Telegram-аккаунт не тронут"

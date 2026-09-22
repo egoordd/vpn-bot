@@ -102,8 +102,11 @@ async def existing_account(session: AsyncSession, email: str) -> User | None:
     подписки) не в счёт: за ним ничего нет.
     """
     from services.billing_api import _is_unpaid_guest
+    from services.web_accounts import site_account_by_email
 
-    user = await Repository(session).get_user_by_email(email)
+    # Почта для чеков у Telegram-аккаунта не делает его получателем чужой оплаты
+    # (аудит 22.09.2026, SEC-03).
+    user = await site_account_by_email(session, email)
     if user is None or await _is_unpaid_guest(session, user):
         return None
     return user
@@ -129,6 +132,11 @@ async def attach_payment(session: AsyncSession, checkout: WebCheckout, payment_i
 async def cancel(session: AsyncSession, checkout: WebCheckout) -> None:
     checkout.status = CANCELED
     await session.commit()
+
+
+async def find_by_token(session: AsyncSession, token: str) -> WebCheckout | None:
+    """Заказ только по номеру из адреса возврата — он есть лишь у браузера покупателя."""
+    return await session.scalar(select(WebCheckout).where(WebCheckout.token == token))
 
 
 async def find(session: AsyncSession, order_id: str) -> WebCheckout | None:
@@ -170,7 +178,9 @@ async def _account_for(session: AsyncSession, checkout: WebCheckout) -> tuple[Us
 
     # Пустой аккаунт от брошенной оплаты старого образца ничего не держит —
     # занимаем его, чтобы на одной почте не было двух аккаунтов.
-    user = await repo.get_user_by_email(checkout.email)
+    from services.web_accounts import site_account_by_email
+
+    user = await site_account_by_email(session, checkout.email)
     if user is None:
         user = await repo.create_user(telegram_id=-(secrets.randbits(52) + 1))
         user = await repo.update_user(user.id, email=checkout.email) or user
@@ -235,7 +245,9 @@ async def set_password_from_order(session: AsyncSession, order_id: str, password
 
     if not webauth.is_password_acceptable(password or ""):
         raise WebAuthError("weak_password")
-    checkout = await find(session, order_id)
+    # Только номер из адреса возврата: номер платежа ЮKassa виден в квитанциях
+    # и переписке и не должен давать вход в кабинет (аудит 22.09.2026, SEC-05).
+    checkout = await find_by_token(session, order_id)
     if checkout is None or not await can_set_password(session, checkout):
         raise WebAuthError("password_change_not_allowed")
     user = await Repository(session).get_user(checkout.user_id)

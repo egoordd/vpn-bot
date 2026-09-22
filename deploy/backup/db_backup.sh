@@ -31,15 +31,22 @@ OFFSITE_DEST="${OFFSITE_DEST:-}"
 mkdir -p "$BACKUP_DIR"
 ts=$(date +%Y%m%d_%H%M%S)
 
-# dump_db <prefix> <container> <pg_user> <pg_db>
+# dump_db <prefix> <container> <pg_user> <pg_db> [optional]
+# Без контейнера обязательная база — это провал, а не «пропуск»: иначе
+# остановленная или переименованная база бота тихо переставала бэкапиться,
+# а скрипт отчитывался успехом (аудит 22.09.2026, OPS-02).
 dump_db() {
-  local prefix="$1" container="$2" user="$3" db="$4"
+  local prefix="$1" container="$2" user="$3" db="$4" optional="${5:-}"
   local out="$BACKUP_DIR/${prefix}_${ts}.sql.gz"
   local tmp="${out}.tmp"
 
   if ! docker ps --format '{{.Names}}' | grep -qx "$container"; then
-    echo "skip $prefix: container '$container' not running" >&2
-    return 0
+    if [ "$optional" = "optional" ]; then
+      echo "skip $prefix: container '$container' not running" >&2
+      return 0
+    fi
+    echo "backup FAILED: $prefix — container '$container' not running" >&2
+    return 1
   fi
 
   # PGPASSWORD is read from the container's own env, so no secret is passed here.
@@ -133,7 +140,7 @@ alert() {
 rc=0
 dump_marzban || rc=1
 dump_db vpn_bot "${CONTAINER:-vpn-bot-postgres-1}" "${DB_USER:-vpn_bot}" "${DB_NAME:-vpn_bot}" || rc=1
-dump_db remnawave "${RW_CONTAINER:-remnawave-db}" "${RW_DB_USER:-postgres}" "${RW_DB_NAME:-postgres}" || rc=1
+dump_db remnawave "${RW_CONTAINER:-remnawave-db}" "${RW_DB_USER:-postgres}" "${RW_DB_NAME:-postgres}" optional || rc=1
 
 if [ -n "$OFFSITE_DEST" ]; then
   if rsync -az --delete "$BACKUP_DIR"/ "$OFFSITE_DEST"/; then

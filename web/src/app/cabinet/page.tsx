@@ -27,7 +27,11 @@ export default async function CabinetPage() {
   // and that variable is currently set to a domain that does not resolve.
   const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "unlockproject.site";
   const proto = headers().get("x-forwarded-proto") ?? "https";
-  const tgHref = telegramLoginUrl(`${proto}://${host}/auth/telegram/callback`);
+  // Кнопка ведёт на наш /api/auth/telegram/start: он ставит отметку начала входа
+  // и уже оттуда отправляет в Telegram (аудит 22.09.2026, SEC-01).
+  const tgHref = telegramLoginUrl(`${proto}://${host}/auth/telegram/callback`)
+    ? "/api/auth/telegram/start"
+    : null;
 
   if (!isBillingLive) {
     const demo = await getAccountOverview(DEMO_USER_ID);

@@ -47,7 +47,9 @@ def _aware(value: datetime) -> datetime:
 
 async def issue_reset(session: AsyncSession, email: str) -> tuple[User, str] | None:
     """Ссылка восстановления для аккаунта с этой почтой. None — такого аккаунта нет."""
-    user = await Repository(session).get_user_by_email(email)
+    from services.web_accounts import login_account_by_email
+
+    user = await login_account_by_email(session, email)
     if user is None:
         return None
     token = secrets.token_urlsafe(32)
