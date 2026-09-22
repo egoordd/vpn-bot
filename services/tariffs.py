@@ -63,7 +63,7 @@ TARIFFS: dict[str, Tariff] = {
         code="trial",
         title="Пробник",
         tier="trial",
-        duration_days=7,
+        duration_days=3,
         price_rub=0,
         crypto_amount="0",
         traffic_gb=10,
@@ -71,7 +71,7 @@ TARIFFS: dict[str, Tariff] = {
         # компьютере одновременно, и упереться в лимит на пробнике — это отказ
         # от покупки. Случай из поддержки 11.09: телефон работал, компьютер нет.
         device_limit=2,
-        description="Пробный доступ: 7 дней, 10 ГБ",
+        description="Пробный доступ: 3 дня, 10 ГБ",
         sort_order=0,
         traffic_resets_monthly=False,
     ),

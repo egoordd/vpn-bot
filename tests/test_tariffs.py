@@ -66,8 +66,10 @@ def test_trial_allowance_never_refills():
 
 
 @pytest.mark.unit
-def test_trial_runs_a_week():
-    assert resolve_tariff("trial").duration_days == 7
+def test_trial_runs_three_days():
+    # 22.09.2026 вернули 3 дня: за неделю пробника платили реже (13% против 22%),
+    # а покупали всё равно в последние дни.
+    assert resolve_tariff("trial").duration_days == 3
 
 
 @pytest.mark.unit
@@ -82,7 +84,7 @@ def test_day_counts_are_declined_for_russian():
     assert [plural_days(n) for n in (1, 2, 4, 5, 11, 14, 21, 22)] == [
         "1 день", "2 дня", "4 дня", "5 дней", "11 дней", "14 дней", "21 день", "22 дня",
     ]
-    assert trial_days() == "7 дней"
+    assert trial_days() == "3 дня"
 
 
 def test_the_trial_covers_a_phone_and_a_computer():
