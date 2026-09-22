@@ -17,6 +17,7 @@ Pure functions, stdlib only — mirrors the gateway it feeds.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.parse
 
@@ -517,6 +518,47 @@ def _capped_xhttp_buffers(extra: dict) -> dict:
     return capped
 
 
+# Транспорты, которые переносятся в JSON целиком. Раньше сеть переносилась
+# названием, а настройки — только у XHTTP: WebSocket терял путь и Host, gRPC —
+# serviceName, TLS — ALPN, и JSON-конфиг не подключался там, где прямая ссылка
+# работала. Что сюда не входит (kcp, quic, h2, TCP с HTTP-маскировкой), в JSON
+# не попадает вовсе (аудит 22.09.2026, GW-06).
+_SUPPORTED_NETWORKS = frozenset({"tcp", "xhttp", "ws", "httpupgrade", "grpc"})
+_warned_transports: set[str] = set()
+
+
+def _transport_supported(query: dict) -> bool:
+    network = query.get("type", "tcp") or "tcp"
+    header = query.get("headerType", "") or "none"
+    if network in _SUPPORTED_NETWORKS and (network != "tcp" or header == "none"):
+        return True
+    kind = f"{network}/{header}"
+    if kind not in _warned_transports:
+        _warned_transports.add(kind)
+        logging.getLogger(__name__).warning("xray-json: transport %s is not supported, link left out", kind)
+    return False
+
+
+def _path_host_settings(query: dict) -> dict:
+    """WebSocket и HTTPUpgrade: путь и Host, по которым сервер (или CDN) найдёт вход."""
+    settings: dict = {"path": query.get("path", "/") or "/"}
+    host = query.get("host", "")
+    if host:
+        settings["host"] = host
+    return settings
+
+
+def _grpc_settings(query: dict) -> dict:
+    settings: dict = {
+        "serviceName": query.get("serviceName", ""),
+        "multiMode": query.get("mode", "") == "multi",
+    }
+    authority = query.get("authority", "")
+    if authority:
+        settings["authority"] = authority
+    return settings
+
+
 def _stream_settings(query: dict) -> dict:
     network = query.get("type", "tcp") or "tcp"
     security = query.get("security", "none") or "none"
@@ -525,6 +567,12 @@ def _stream_settings(query: dict) -> dict:
         stream["sockopt"] = dict(_KEEPALIVE_SOCKOPT)
     if network == "xhttp":
         stream["xhttpSettings"] = _xhttp_settings(query)
+    elif network == "ws":
+        stream["wsSettings"] = _path_host_settings(query)
+    elif network == "httpupgrade":
+        stream["httpupgradeSettings"] = _path_host_settings(query)
+    elif network == "grpc":
+        stream["grpcSettings"] = _grpc_settings(query)
     sni = query.get("sni") or query.get("host") or ""
     fingerprint = query.get("fp", "")
     if security == "reality":
@@ -541,6 +589,9 @@ def _stream_settings(query: dict) -> dict:
         tls: dict = {"serverName": sni}
         if fingerprint:
             tls["fingerprint"] = fingerprint
+        alpn = [value.strip() for value in query.get("alpn", "").split(",") if value.strip()]
+        if alpn:
+            tls["alpn"] = alpn
         stream["tlsSettings"] = tls
     return stream
 
@@ -551,6 +602,8 @@ def build_outbound(uri: str, tag: str) -> dict | None:
     if parsed is None:
         return None
     scheme, userinfo, host, port, query, _ = parsed
+    if scheme in ("vless", "trojan") and not _transport_supported(query):
+        return None
 
     if scheme == "vless":
         user: dict = {"id": userinfo, "encryption": query.get("encryption", "none") or "none"}

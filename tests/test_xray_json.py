@@ -640,3 +640,68 @@ def test_balancer_still_holds_a_udp_outbound_with_every_node_present():
     ] + [HY2]
     config = xray_json.build_balancer_config(links)
     assert any(o.get("protocol") == "hysteria" for o in config["outbounds"])
+
+
+# --- аудит 22.09.2026, GW-06: транспорты переносятся целиком -----------------
+
+WS_URI = (
+    "vless://uuid@cdn.example.com:443?security=tls&type=ws&path=%2Fws%3Fed%3D2048"
+    "&host=edge.example.com&sni=edge.example.com&fp=chrome&alpn=h2%2Chttp%2F1.1#WS"
+)
+GRPC_URI = (
+    "trojan://pw@grpc.example.com:443?security=tls&type=grpc&serviceName=tun"
+    "&mode=multi&authority=grpc.example.com&sni=grpc.example.com#gRPC"
+)
+
+
+def test_websocket_keeps_its_path_and_host():
+    stream = xray_json.build_outbound(WS_URI, "proxy")["streamSettings"]
+    assert stream["network"] == "ws"
+    assert stream["wsSettings"] == {"path": "/ws?ed=2048", "host": "edge.example.com"}
+
+
+def test_tls_keeps_its_alpn():
+    tls = xray_json.build_outbound(WS_URI, "proxy")["streamSettings"]["tlsSettings"]
+    assert tls["alpn"] == ["h2", "http/1.1"]
+    assert tls["serverName"] == "edge.example.com"
+
+
+def test_links_without_alpn_get_none():
+    tls = xray_json.build_outbound(TROJAN, "proxy")["streamSettings"]["tlsSettings"]
+    assert "alpn" not in tls
+
+
+def test_grpc_keeps_its_service_name():
+    stream = xray_json.build_outbound(GRPC_URI, "proxy")["streamSettings"]
+    assert stream["grpcSettings"] == {
+        "serviceName": "tun",
+        "multiMode": True,
+        "authority": "grpc.example.com",
+    }
+
+
+def test_httpupgrade_keeps_its_path_and_host():
+    uri = WS_URI.replace("type=ws", "type=httpupgrade")
+    stream = xray_json.build_outbound(uri, "proxy")["streamSettings"]
+    assert stream["httpupgradeSettings"] == {"path": "/ws?ed=2048", "host": "edge.example.com"}
+    assert "wsSettings" not in stream
+
+
+@pytest.mark.parametrize(
+    "change",
+    [("type=ws", "type=kcp"), ("type=ws", "type=quic"), ("type=ws", "type=h2"), ("type=ws", "type=tcp&headerType=http")],
+)
+def test_transports_we_cannot_carry_are_left_out(change):
+    """Лучше не выдать вход, чем выдать конфиг, который назовёт сеть и не подключится."""
+    assert xray_json.build_outbound(WS_URI.replace(*change), "proxy") is None
+
+
+def test_plain_tcp_with_an_explicit_none_header_still_converts():
+    uri = REALITY.replace("type=tcp", "type=tcp&headerType=none")
+    assert xray_json.build_outbound(uri, "proxy")["streamSettings"]["network"] == "tcp"
+
+
+def test_a_left_out_link_does_not_break_the_balancer():
+    config = xray_json.build_balancer_config([REALITY, WS_URI.replace("type=ws", "type=kcp")])
+    proxies = [o for o in config["outbounds"] if o["tag"].startswith("proxy")]
+    assert len(proxies) == 1
