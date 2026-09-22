@@ -434,3 +434,65 @@ def test_staff_chats_come_from_the_environment():
     chats = node_probe.alert_chats({"ALERTS_CHAT_ID": "740484324", "ALERTS_EXTRA_CHAT_IDS": "8563480666,740484324"})
     assert chats == ["740484324", "8563480666"]
     assert node_probe.alert_chats({"ADMIN_IDS": "1,2"}) == ["1"]
+
+
+# --- слепой раунд: сломалась сама проверка, а не серверы ----------------------
+#
+# 22.09.2026 сторож на 8 минут выкинул из подписок московский релей: все девять
+# точек «умерли» разом, потому что релей (точка проверки) не пускал по SSH.
+# Через него в те же минуты шли 120–220 подключений клиентов в минуту.
+
+HOSTS = ["130.49.143.41", "166.0.28.132", "78.17.154.225"]
+
+
+def _run_round(monkeypatch, tmp_path, *, passing: set[str], streak: int = -1):
+    health = tmp_path / "health.json"
+    health.write_text(json.dumps({
+        "checked_at": 1,
+        "nodes": {h: True for h in HOSTS},
+        "streaks": {h: streak for h in HOSTS},
+    }))
+    sent = []
+    monkeypatch.setattr(node_probe, "HEALTH_FILE", str(health))
+    monkeypatch.setattr(node_probe, "PROBE_SUB_URL", "https://example/sub")
+    monkeypatch.setattr(node_probe, "PROBE_EXTRA_LINKS", "")
+    monkeypatch.setattr(node_probe, "fetch_links", lambda url: [_uri(h, 2087) for h in HOSTS])
+    monkeypatch.setattr(node_probe.os.path, "exists", lambda p: True)
+    monkeypatch.setattr(node_probe, "probe_node", lambda node: node["host"] in passing)
+    monkeypatch.setattr(node_probe, "hosts_carrying_traffic", lambda failed: {})
+    monkeypatch.setattr(node_probe, "notify", lambda text: sent.append(text))
+    code = node_probe.main()
+    return code, json.loads(health.read_text()), sent
+
+
+def test_a_round_where_every_host_fails_changes_nothing(monkeypatch, tmp_path):
+    code, saved, sent = _run_round(monkeypatch, tmp_path, passing=set())
+
+    assert code == 1
+    assert saved["nodes"] == {h: True for h in HOSTS}, "a blind prober must not empty the subscriptions"
+    assert saved["checked_at"] == 1
+    assert sent and "не работает" in sent[0]
+
+
+def test_one_live_host_makes_the_round_count(monkeypatch, tmp_path):
+    code, saved, _ = _run_round(monkeypatch, tmp_path, passing={"166.0.28.132"})
+
+    assert code == 0
+    assert saved["nodes"]["166.0.28.132"] is True
+    assert saved["nodes"]["130.49.143.41"] is False
+    assert saved["nodes"]["78.17.154.225"] is False
+
+
+def test_an_ssh_refusal_is_not_a_dead_node(monkeypatch):
+    import subprocess
+
+    monkeypatch.setattr(node_probe, "PROBE_FROM_HOST", "root@relay")
+    node = node_probe.parse_vless(_uri("166.0.28.132", 2087))
+
+    refused = subprocess.CompletedProcess([], 255, stdout="", stderr="Connection closed by relay port 22")
+    monkeypatch.setattr(node_probe.subprocess, "run", lambda *a, **kw: refused)
+    assert node_probe.probe_node(node) is True
+
+    dead = subprocess.CompletedProcess([], 0, stdout="000\n", stderr="")
+    monkeypatch.setattr(node_probe.subprocess, "run", lambda *a, **kw: dead)
+    assert node_probe.probe_node(node) is False

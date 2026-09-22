@@ -102,6 +102,12 @@ PROBE_PINNED_HOSTS = {
 }
 
 FAILS_TO_DROP = int(os.environ.get("FAILS_TO_DROP", "2"))
+# Раунд, где разом провалились все точки, говорит о самой проверке — релей не
+# пустил по SSH, у него пропала сеть, — а не о серверах. 22.09.2026 так на
+# 8 минут выпал из выдачи живой московский релей, через который в те же минуты
+# шли 120–220 подключений клиентов в минуту. С одной-двумя точками «все упали»
+# ещё может быть правдой, поэтому правило включается с трёх.
+BLIND_ROUND_MIN_HOSTS = int(os.environ.get("PROBE_BLIND_ROUND_MIN_HOSTS", "3"))
 PASSES_TO_RESTORE = int(os.environ.get("PASSES_TO_RESTORE", "2"))
 
 # --- alerting -----------------------------------------------------------------
@@ -264,6 +270,11 @@ def _probe_remote(node: dict) -> bool:
             input=config, capture_output=True, text=True,
             timeout=PROBE_TIMEOUT + 25,
         )
+        if result.returncode == 255:
+            # 255 — ошибка самого ssh (не пустил, оборвал), а не ответ ноды:
+            # удалённый скрипт всегда кончается echo и выходит с нулём.
+            print(f"ssh to {PROBE_FROM_HOST} failed: {result.stderr.strip()[:200]}", file=sys.stderr)
+            return True
         return "204" in result.stdout
     except Exception:
         # An SSH problem is not a node problem; saying "dead" here would pull
@@ -323,6 +334,11 @@ def probe_node(node: dict) -> bool:
             os.unlink(config_path)
         except OSError:
             pass
+
+
+def round_is_blind(fresh: dict[str, bool]) -> bool:
+    """Все точки провалились разом — значит, ослепла сама проверка."""
+    return len(fresh) >= BLIND_ROUND_MIN_HOSTS and not any(fresh.values())
 
 
 def load_previous() -> dict:
@@ -604,6 +620,14 @@ def main() -> int:
 
     if not fresh:
         print("no probeable nodes in subscription", file=sys.stderr)
+        return 1
+
+    if round_is_blind(fresh):
+        # Вердикты не трогаем: подписки продолжают отдавать то, что работало.
+        print(f"blind round: all {len(fresh)} hosts failed at once — verdicts kept", file=sys.stderr)
+        report_probe_broken(
+            f"все {len(fresh)} точек провалили проверку разом — сломалась сама проверка, а не серверы"
+        )
         return 1
 
     previous = load_previous()
