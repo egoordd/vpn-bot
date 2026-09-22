@@ -383,3 +383,37 @@ async def test_by_default_a_tariff_tap_opens_the_invoice_straight_away(session_p
     assert bot.platega.created[0]["method"] == mirror_platega.PAYER_CHOOSES
     screen = next(p for m, p in telegram.calls if m in {"editMessageText", "sendMessage"})
     assert "https://pay.platega.io/tx" in [b.get("url") for b in _buttons(screen["reply_markup"])]
+
+
+# --- аудит 22.09.2026, BILL-02 --------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_grant_cut_off_by_a_crash_is_retried_after_restart(db_session):
+    """Процесс упал между «processing» и выдачей: после перезапуска платёж
+    снова ждёт выдачи и получает её, а не застревает навсегда."""
+    client = FakePlatega()
+    payment, _ = await _open_invoice(db_session, client)
+    payment.status = "processing"  # так его оставило падение процесса
+    await db_session.commit()
+
+    assert await mirror_platega.recover_interrupted(db_session) == 1
+    client.status_value, client.amount_value = "CONFIRMED", 149.0
+    result = await mirror_platega.settle(db_session, client, payment.id, activate=FakeActivation())
+
+    assert result.state == "completed"
+
+
+@pytest.mark.asyncio
+async def test_a_paid_but_ungranted_invoice_is_watched_past_a_day(db_session):
+    from datetime import datetime, timedelta, timezone
+
+    client = FakePlatega()
+    payment, _ = await _open_invoice(db_session, client)
+    payment.status = "confirmed"
+    payment.created_at = datetime.now(timezone.utc) - timedelta(days=3)
+    await db_session.commit()
+
+    ids = [p.id for p in await mirror_platega.open_payments(db_session)]
+
+    assert payment.id in ids, "деньги получены — выдача не бросается через сутки"

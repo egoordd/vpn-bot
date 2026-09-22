@@ -278,3 +278,15 @@ async def get_subscription_info(session: AsyncSession, user_id: int) -> dict[str
         "started_at": subscription.started_at,
         "expires_at": subscription.expires_at,
     }
+
+
+# Две выдачи одному клиенту не должны читать один и тот же конец подписки
+# (аудит 22.09.2026, BILL-03): вторая ждёт первую и продлевает уже от её срока.
+_activate_unlocked = activate_panel_subscription
+
+
+async def activate_panel_subscription(session: AsyncSession, user_id: int, plan: str, *args, **kwargs) -> Subscription:
+    from services.activation_lock import user_activation_lock
+
+    async with user_activation_lock(session, user_id):
+        return await _activate_unlocked(session, user_id, plan, *args, **kwargs)

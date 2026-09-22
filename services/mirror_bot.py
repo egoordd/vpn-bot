@@ -1006,6 +1006,11 @@ class MirrorBot:
     async def platega_watch(self) -> None:
         """Ask Platega about every open invoice, so a paid one is granted without a tap."""
 
+        try:
+            async with self.session_pool() as session:
+                await mirror_platega.recover_interrupted(session)
+        except Exception:  # noqa: BLE001 - сторож всё равно должен запуститься
+            logger.exception("Platega: could not recover interrupted grants")
         while True:
             try:
                 async with self.session_pool() as session:

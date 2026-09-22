@@ -848,6 +848,9 @@ def create_app() -> FastAPI:
         try:
             subscription = await activate_panel_subscription(session=session, user_id=user.id, plan=plan)
         except Exception as exc:  # noqa: BLE001 - surface as 500 so Tribute retries
+            # Без снятия отметки повтор Tribute отбрасывался как дубль (аудит, BILL-01).
+            if redis is not None:
+                await redis.delete(f"tribute:evt:{event_id}")
             raise HTTPException(status_code=500, detail="provisioning failed") from exc
 
         await repo.record_funnel_event(user.id, "payment", meta={"provider": "tribute"})
@@ -889,10 +892,14 @@ def create_app() -> FastAPI:
                 return {"ok": True, "deduped": True}
 
         repo = Repository(session)
-        completed = await repo.complete_payment_by_external_id(str(payment_id), provider="yookassa")
-        # Заказ по почте: платежа в базе нет, пока не появился аккаунт.
+        # Заказ по почте проводится первым: платежа в базе нет, пока не появился
+        # аккаунт, а после сорвавшейся выдачи заказ снова ждёт — и повтор должен
+        # пройти тем же путём, чтобы письмо унесло временный пароль.
         email_order = None
-        if completed is None:
+        checkout = await email_orders.find_by_payment_id(session, str(payment_id))
+        if checkout is None or checkout.status == email_orders.COMPLETED:
+            completed = await repo.complete_payment_by_external_id(str(payment_id), provider="yookassa")
+        else:
             try:
                 email_order = await email_orders.fulfill(session, str(payment_id))
             except Exception as exc:
@@ -949,6 +956,14 @@ def create_app() -> FastAPI:
                 session=session, user_id=completed.user_id, plan=details.plan
             )
         except Exception as exc:  # noqa: BLE001 - surface as 500 so YooKassa retries
+            # Деньги пришли, доступ не выдан. До 22.09.2026 платёж к этому моменту
+            # уже числился проведённым, а отметка о дубле стояла — повтор ЮKassa
+            # отбрасывался, и клиент оставался без подписки (аудит, BILL-01).
+            log.exception("YooKassa payment %s: provisioning failed, reopening for retry", payment_id)
+            await _reopen_for_retry(
+                session, redis, str(payment_id), completed.id,
+                checkout.id if email_order is not None and checkout is not None else None,
+            )
             raise HTTPException(status_code=500, detail="provisioning failed") from exc
 
         sub_url = to_gateway_subscription_url(subscription.subscription_url) or ""
@@ -992,6 +1007,31 @@ def create_app() -> FastAPI:
 
     application.include_router(web_account_router)
     return application
+
+
+async def _reopen_for_retry(
+    session: AsyncSession, redis: Any, payment_id: str, payment_row_id: int, checkout_id: int | None
+) -> None:
+    """Вернуть оплату в ожидание, чтобы повтор вебхука выдал доступ заново."""
+    from services.alerts import send_alert
+
+    try:
+        await session.rollback()
+        await Repository(session).update_payment_status(payment_row_id, "pending")
+        if checkout_id is not None:
+            await email_orders.reopen(session, checkout_id)
+    except Exception:  # noqa: BLE001 - дальше всё равно 500 и повтор
+        logging.getLogger("yookassa").exception("Could not reopen payment %s", payment_id)
+    if redis is not None:
+        try:
+            await redis.delete(f"yookassa:evt:{payment_id}")
+        except Exception:  # noqa: BLE001
+            logging.getLogger("yookassa").exception("Could not clear dedupe for %s", payment_id)
+    await send_alert(
+        f"⚠️ Оплата {payment_id} получена, но выдать доступ не удалось. "
+        "ЮKassa повторит вебхук; если через час не выдано — проверить панель.",
+        throttle_key=f"yk-reopen:{payment_id}",
+    )
 
 
 async def _email_checkout(

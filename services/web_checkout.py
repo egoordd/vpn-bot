@@ -139,6 +139,19 @@ async def find_by_token(session: AsyncSession, token: str) -> WebCheckout | None
     return await session.scalar(select(WebCheckout).where(WebCheckout.token == token))
 
 
+async def find_by_payment_id(session: AsyncSession, payment_id: str) -> WebCheckout | None:
+    return await session.scalar(select(WebCheckout).where(WebCheckout.payment_id == payment_id))
+
+
+async def reopen(session: AsyncSession, checkout_id: int) -> None:
+    """Вернуть заказ в ожидание: выдача сорвалась, повтор вебхука проведёт его заново."""
+    checkout = await session.get(WebCheckout, checkout_id)
+    if checkout is not None:
+        checkout.status = PENDING
+        checkout.completed_at = None
+        await session.commit()
+
+
 async def find(session: AsyncSession, order_id: str) -> WebCheckout | None:
     """Заказ по номеру из адреса возврата или по номеру платежа ЮKassa."""
     return await session.scalar(

@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import Payment, Subscription, User
@@ -305,19 +305,48 @@ async def settle(
 
 
 async def open_payments(session: AsyncSession) -> list[Payment]:
-    """Invoices worth asking Platega about: open, ours, and recent enough to matter."""
+    """Invoices worth asking Platega about: open, ours, and recent enough to matter.
+
+    Оплаченный, но не выданный («confirmed») проверяется в любом возрасте: деньги
+    получены, и окно в сутки не повод бросить выдачу (аудит 22.09.2026, BILL-02).
+    """
 
     since = datetime.now(timezone.utc) - WATCH_WINDOW
     result = await session.execute(
         select(Payment)
         .where(
             Payment.provider == PROVIDER,
-            Payment.status.in_(("pending", "confirmed")),
-            Payment.created_at >= since,
+            or_(
+                Payment.status == "confirmed",
+                and_(Payment.status == "pending", Payment.created_at >= since),
+            ),
         )
         .order_by(Payment.created_at)
     )
     return list(result.scalars().all())
+
+
+async def recover_interrupted(session: AsyncSession) -> int:
+    """Вернуть в «оплачен, не выдан» выдачи, прерванные падением процесса.
+
+    «processing» ставит только процесс зеркала, и он один. Значит, всё, что в нём
+    висит к его запуску, — выдача, которую оборвали остановка, нехватка памяти
+    или отмена задачи. Иначе такой платёж застревал навсегда: повтор отвечал
+    «already», а сторож смотрит только pending/confirmed (аудит 22.09.2026, BILL-02).
+    Если панель успела продлить подписку до падения, срок продлится повторно —
+    в пользу клиента, а не против него.
+    """
+
+    result = await session.execute(
+        update(Payment)
+        .where(Payment.provider == PROVIDER, Payment.status == "processing")
+        .values(status="confirmed")
+    )
+    await session.commit()
+    recovered = result.rowcount or 0
+    if recovered:
+        logger.warning("Platega: %s interrupted grant(s) returned to confirmed", recovered)
+    return recovered
 
 
 async def expire_stale(session: AsyncSession) -> int:
