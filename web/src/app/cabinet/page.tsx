@@ -21,12 +21,12 @@ export const metadata: Metadata = {
 const DEMO_USER_ID = 1;
 
 export default async function CabinetPage() {
-  const telegramId = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const telegramId = await verifyUserSession((await cookies()).get(USER_SESSION_COOKIE)?.value);
   // Taken from the request, not from NEXT_PUBLIC_SITE_URL: Telegram rejects the
   // login when `origin` does not match the domain the person is actually on,
   // and that variable is currently set to a domain that does not resolve.
-  const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "unlockproject.site";
-  const proto = headers().get("x-forwarded-proto") ?? "https";
+  const host = (await headers()).get("x-forwarded-host") ?? (await headers()).get("host") ?? "unlockproject.site";
+  const proto = (await headers()).get("x-forwarded-proto") ?? "https";
   // Кнопка ведёт на наш /api/auth/telegram/start: он ставит отметку начала входа
   // и уже оттуда отправляет в Telegram (аудит 22.09.2026, SEC-01).
   const tgHref = telegramLoginUrl(`${proto}://${host}/auth/telegram/callback`)

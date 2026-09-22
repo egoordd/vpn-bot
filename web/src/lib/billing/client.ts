@@ -326,14 +326,19 @@ export async function loginWebAccount(email: string, password: string, clientIp?
  */
 export async function getSessionStamp(telegramId: number): Promise<string | null> {
   if (!API_URL) return "demo";
-  try {
-    const body = await callOrNull<{ stamp?: unknown }>(`/web/auth/stamp/${telegramId}`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    return typeof body?.stamp === "string" && /^[0-9a-f]{32}$/.test(body.stamp) ? body.stamp : null;
-  } catch {
-    return null;
+  // Один сбой связи с биллингом не должен выкидывать человека из кабинета:
+  // вторая попытка, и только потом отказ.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const body = await callOrNull<{ stamp?: unknown }>(`/web/auth/stamp/${telegramId}`, {
+        signal: AbortSignal.timeout(8_000),
+      });
+      return typeof body?.stamp === "string" && /^[0-9a-f]{32}$/.test(body.stamp) ? body.stamp : null;
+    } catch (error) {
+      console.error(`session stamp for ${telegramId}: attempt ${attempt} failed`, error);
+    }
   }
+  return null;
 }
 
 /** «Выйти на всех устройствах»: все сессии аккаунта перестают действовать. */

@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   // доказывает, чей это аккаунт, но не то, что входит сам владелец страницы.
   // Без отметки чужая ссылка с подписанным входом привязывала бы подписку жертвы
   // к Telegram атакующего (аудит 22.09.2026, SEC-01).
-  const started = cookies().get(TELEGRAM_LOGIN_COOKIE)?.value ?? "";
+  const started = (await cookies()).get(TELEGRAM_LOGIN_COOKIE)?.value ?? "";
   if (!/^[0-9a-f]{32}$/.test(started)) {
     return NextResponse.json({ error: "login_not_started" }, { status: 400 });
   }
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   // that is what lets the two accounts become one. Without this the login
   // merely swapped the session and the purchase stayed behind, which is how a
   // buyer ended up staring at an empty cabinet.
-  const current = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const current = await verifyUserSession((await cookies()).get(USER_SESSION_COOKIE)?.value);
   const username = typeof payload.username === "string" ? payload.username : undefined;
   const finalId =
     current !== null && current < 0
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
 
 /** Who am I — session state for client components. */
 export async function GET() {
-  const telegramId = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const telegramId = await verifyUserSession((await cookies()).get(USER_SESSION_COOKIE)?.value);
   if (!telegramId) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }

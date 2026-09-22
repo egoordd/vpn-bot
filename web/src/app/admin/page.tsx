@@ -18,7 +18,7 @@ function fmtDate(iso: string | null): string {
 }
 
 export default async function AdminPage() {
-  const authed = isValidAdminSession(cookies().get("admin_auth")?.value);
+  const authed = isValidAdminSession((await cookies()).get("admin_auth")?.value);
   if (!authed) return <AdminLogin />;
 
   const stats = await fetchAdminStats();

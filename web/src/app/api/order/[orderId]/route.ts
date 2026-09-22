@@ -13,9 +13,9 @@ const ORDER_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
  */
 export async function GET(
   _request: Request,
-  { params }: { params: { orderId: string } },
+  { params }: { params: Promise<{ orderId: string }> },
 ) {
-  const orderId = params.orderId ?? "";
+  const orderId = (await params).orderId ?? "";
   if (!ORDER_ID_RE.test(orderId)) {
     return NextResponse.json({ error: "order_not_found" }, { status: 404 });
   }

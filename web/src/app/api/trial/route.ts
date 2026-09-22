@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * cookie (Telegram login or email account) — never from the request body.
  */
 export async function POST() {
-  const telegramId = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const telegramId = await verifyUserSession((await cookies()).get(USER_SESSION_COOKIE)?.value);
   if (!telegramId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

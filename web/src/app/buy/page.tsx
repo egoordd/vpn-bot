@@ -13,12 +13,12 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function BuyPage({
+export default async function BuyPage({
   searchParams,
 }: {
-  searchParams: { plan?: string };
+  searchParams: Promise<{ plan?: string }>;
 }) {
-  const plan = TARIFFS[searchParams.plan ?? ""];
+  const plan = TARIFFS[(await searchParams).plan ?? ""];
   if (!plan || plan.tier !== "standard") {
     redirect("/#pricing");
   }

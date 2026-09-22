@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  * session decides who is calling; a client-supplied id would be an IDOR.
  */
 export async function POST(request: Request) {
-  const telegramId = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const telegramId = await verifyUserSession((await cookies()).get(USER_SESSION_COOKIE)?.value);
   if (!telegramId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

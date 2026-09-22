@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_plan" }, { status: 400 });
   }
 
-  const telegramId = (await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value)) ?? undefined;
+  const telegramId = (await verifyUserSession((await cookies()).get(USER_SESSION_COOKIE)?.value)) ?? undefined;
   const email =
     typeof body.email === "string" && body.email.trim() ? body.email.trim().toLowerCase() : undefined;
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   const clientIp = clientIpFrom(request);
   // Канал, по ссылке которого пришёл покупатель. Читаем на сервере, а не в
   // браузере: форма не должна знать про атрибуцию, чтобы её нельзя было забыть.
-  const source = cookies().get(SOURCE_COOKIE)?.value || undefined;
+  const source = (await cookies()).get(SOURCE_COOKIE)?.value || undefined;
 
   try {
     // На почте уже есть аккаунт: покупатель сам решил оплатить его продление.

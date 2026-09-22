@@ -44,7 +44,9 @@ if cmp -s next/package-lock.json app/package-lock.json; then
   # Same lockfile: hard-link the installed packages instead of a fresh install.
   cp -al app/node_modules next/
 else
-  run /opt/node/bin/npm ci --no-audit --no-fund --loglevel=error
+  # NODE_ENV=production в /etc/unlock-web.env: без --include=dev npm ci не ставит
+  # typescript, и сборка не находит пути «@/…» из tsconfig.
+  run /opt/node/bin/npm ci --include=dev --no-audit --no-fund --loglevel=error
 fi
 
 if ! run /opt/node/bin/npm run build >/tmp/unlock-web-build.log 2>&1; then

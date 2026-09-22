@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 /** «Выйти на всех устройствах»: гаснут все сессии аккаунта, включая эту. */
 export async function POST() {
-  const telegramId = await verifyUserSession(cookies().get(USER_SESSION_COOKIE)?.value);
+  const telegramId = await verifyUserSession((await cookies()).get(USER_SESSION_COOKIE)?.value);
   if (!telegramId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let ok = false;

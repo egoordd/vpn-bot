@@ -14,8 +14,8 @@ const ORDER_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
  * разрешает это лишь аккаунту, созданному этим заказом, и только пока пароль
  * ещё временный.
  */
-export async function POST(request: Request, { params }: { params: { orderId: string } }) {
-  const orderId = params.orderId ?? "";
+export async function POST(request: Request, { params }: { params: Promise<{ orderId: string }> }) {
+  const orderId = (await params).orderId ?? "";
   if (!ORDER_ID_RE.test(orderId)) {
     return NextResponse.json({ error: "order_not_found" }, { status: 404 });
   }

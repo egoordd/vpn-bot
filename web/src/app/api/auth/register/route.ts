@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
   let telegramId: number;
   try {
-    telegramId = await registerWebAccount(email, password, cookies().get(SOURCE_COOKIE)?.value);
+    telegramId = await registerWebAccount(email, password, (await cookies()).get(SOURCE_COOKIE)?.value);
   } catch (error: unknown) {
     if (error instanceof WebAuthError) {
       if (error.code === "rate_limited") return NextResponse.json({ error: "rate_limited" }, { status: 429 });

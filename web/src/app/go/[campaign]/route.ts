@@ -30,8 +30,8 @@ function normalizeSlug(raw: string): string | null {
  * on our domain, so if they later open the site in the same browser a purchase
  * there is still credited to the campaign that brought them.
  */
-export async function GET(request: Request, { params }: { params: { campaign: string } }) {
-  const campaign = normalizeSlug(params.campaign ?? "");
+export async function GET(request: Request, { params }: { params: Promise<{ campaign: string }> }) {
+  const campaign = normalizeSlug((await params).campaign ?? "");
 
   // An unusable campaign name (e.g. Cyrillic-only) still forwards the visitor —
   // we lose the attribution, never the click-through.

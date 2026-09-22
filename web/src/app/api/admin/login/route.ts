@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   }
 
   attempts.delete(ip);
-  cookies().set("admin_auth", session, {
+  (await cookies()).set("admin_auth", session, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
