@@ -1,0 +1,17 @@
+# Клиентам на 443 сервер сразу шлёт пакеты не больше 1400 байт: входящим SYN
+# с большим MSS ставится 1360. Так «узкий» мобильный путь не вешает рукопожатие
+# даже на время, пока tcp_mtu_probing нащупывает размер (проверено 23.09.2026:
+# 0,3 с вместо зависания). ICMP в VK Cloud режется, см. 62-tcp-mtu.conf.
+[Unit]
+Description=UnLock: clamp MSS of incoming TLS connections on the VK front
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'iptables -t mangle -C PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -m tcpmss --mss 1361:65535 -j TCPMSS --set-mss 1360 2>/dev/null || iptables -t mangle -A PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -m tcpmss --mss 1361:65535 -j TCPMSS --set-mss 1360'
+ExecStop=/bin/sh -c 'iptables -t mangle -D PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -m tcpmss --mss 1361:65535 -j TCPMSS --set-mss 1360 || true'
+
+[Install]
+WantedBy=multi-user.target
