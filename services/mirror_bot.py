@@ -63,6 +63,7 @@ PAYMENT_CALLBACK_PREFIXES = (
 PAYMENT_CALLBACKS = frozenset({"buy_menu", "renew_menu"})
 PROMO_STATE_TTL_SECONDS = 15 * 60
 PLATEGA_WATCH_SECONDS = 20
+PLATEGA_ALERT_AFTER_FAILURES = 3
 PLATEGA_CALLBACK_PREFIXES = ("pl_plan:", "pl_pay:", "pl_check:")
 
 
@@ -1011,6 +1012,7 @@ class MirrorBot:
                 await mirror_platega.recover_interrupted(session)
         except Exception:  # noqa: BLE001 - сторож всё равно должен запуститься
             logger.exception("Platega: could not recover interrupted grants")
+        failures = 0
         while True:
             try:
                 async with self.session_pool() as session:
@@ -1018,15 +1020,21 @@ class MirrorBot:
                     open_ids = [payment.id for payment in await mirror_platega.open_payments(session)]
                 for payment_id in open_ids:
                     await self.settle_and_notify(payment_id)
+                failures = 0
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - the watcher must keep going
                 logger.exception("Platega watcher pass failed")
-                await send_alert(
-                    "⚠️ <b>Сбой проверки оплат Platega в зеркале</b>\n"
-                    f"Ошибка: <code>{html.escape(type(exc).__name__)}</code>",
-                    throttle_key="mirror-platega-watch",
-                )
+                failures += 1
+                # Разовый таймаут Platega — не авария: следующий проход проверит
+                # те же счета. Тревога — только когда не отвечает около минуты.
+                if failures == PLATEGA_ALERT_AFTER_FAILURES:
+                    await send_alert(
+                        "⚠️ <b>Сбой проверки оплат Platega в зеркале</b>\n"
+                        f"Не отвечает {failures} проверки подряд (~{failures * PLATEGA_WATCH_SECONDS} с).\n"
+                        f"Ошибка: <code>{html.escape(type(exc).__name__)}</code>",
+                        throttle_key="mirror-platega-watch",
+                    )
             await asyncio.sleep(PLATEGA_WATCH_SECONDS)
 
     async def activate_trial(

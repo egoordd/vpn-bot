@@ -417,3 +417,42 @@ async def test_a_paid_but_ungranted_invoice_is_watched_past_a_day(db_session):
     ids = [p.id for p in await mirror_platega.open_payments(db_session)]
 
     assert payment.id in ids, "деньги получены — выдача не бросается через сутки"
+
+
+# --- тревога о сбое проверки Platega: только при затяжном сбое (23.09.2026) ----
+
+
+@pytest.mark.asyncio
+async def test_a_single_platega_timeout_raises_no_alarm(session_pool, monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from services import mirror_bot
+
+    outcomes = iter(["fail", "fail", "ok", "fail", "fail", "fail", "fail", "stop"])
+    passes = []
+
+    async def expire_stale(session):
+        outcome = next(outcomes)
+        passes.append(outcome)
+        if outcome == "stop":
+            raise asyncio.CancelledError
+        if outcome == "fail":
+            raise asyncio.TimeoutError
+
+    alerts = AsyncMock(return_value=True)
+    monkeypatch.setattr(mirror_bot.mirror_platega, "recover_interrupted", AsyncMock(return_value=0))
+    monkeypatch.setattr(mirror_bot.mirror_platega, "expire_stale", expire_stale)
+    monkeypatch.setattr(mirror_bot.mirror_platega, "open_payments", AsyncMock(return_value=[]))
+    monkeypatch.setattr(mirror_bot, "send_alert", alerts)
+    monkeypatch.setattr(mirror_bot.asyncio, "sleep", AsyncMock())
+
+    bot = object.__new__(mirror_bot.MirrorBot)
+    bot.session_pool = session_pool
+
+    with pytest.raises(asyncio.CancelledError):
+        await bot.platega_watch()
+
+    # Два сбоя, успех, затем четыре сбоя подряд: тревога ровно одна — на третьем.
+    assert alerts.await_count == 1
+    assert "3 проверки подряд" in alerts.await_args.args[0]
