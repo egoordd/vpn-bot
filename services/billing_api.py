@@ -432,10 +432,15 @@ async def set_web_password_by_subscription(
     if subscription is None:
         raise WebAuthError("invalid_subscription")
     stored = _subscription_credential(subscription.subscription_url)
-    # A wrong credential and an unknown subscription answer the same on purpose:
-    # telling them apart would confirm which links exist.
+    # Fast path first; otherwise the panel decides. It reissues tokens, so the
+    # link a customer holds routinely differs from the one we stored last.
     if stored is None or not secrets.compare_digest(credential, stored):
-        raise WebAuthError("invalid_subscription")
+        from services import sub_token
+
+        if not await sub_token.token_is_genuine(credential):
+            # Same answer as an unknown subscription, so the endpoint cannot be
+            # used to probe which links exist.
+            raise WebAuthError("invalid_subscription")
 
     user = await repo.get_user(subscription.user_id)
     if user is None:

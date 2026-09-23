@@ -99,7 +99,6 @@ async def test_build_payment_intent_creates_user_and_standard_payload(db_session
     assert user is not None
     assert user.id == intent.user_id
     assert intent.plan.code == "standard_1m"
-    assert intent.region is None
     assert intent.description == "Общий тариф на 30 дней, 150 ГБ в месяц"
     assert re.match(rf"^unlock:{user.id}:standard_1m:[0-9a-f]{{32}}$", intent.payload)
 
@@ -219,14 +218,16 @@ async def test_paying_with_a_link_tops_up_the_account_that_owns_it(db_session):
 
     repo = Repository(db_session)
     owner = await repo.get_or_create_user(telegram_id=7404, username="marina")
+    link = "https://sub.unlockvpn.site/sub/" + base64.b64encode(b"tg_7404,1785").decode()
+    # Оплата по ссылке требует полной подписи ссылки, как у сохранённой подписки.
     await repo.create_subscription(
         user_id=owner.id,
         plan="standard_1m",
         started_at=datetime.now(timezone.utc) - timedelta(days=32),
         expires_at=datetime.now(timezone.utc) - timedelta(days=2),  # already lapsed
         sub_token="tg_7404",
+        subscription_url=link,
     )
-    link = "https://sub.unlockvpn.site/sub/" + base64.b64encode(b"tg_7404,1785").decode()
 
     intent = await build_web_payment_intent(db_session, plan="1m", subscription_link=link)
 

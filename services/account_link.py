@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import Subscription
 from database.repository import Repository
+from services import sub_token
 from services.billing_api import _subscription_credential, subscription_token
 
 
@@ -72,10 +73,14 @@ async def claim_subscription_by_link(
         return ClaimResult(ClaimStatus.INVALID_LINK)
 
     stored = _subscription_credential(subscription.subscription_url)
-    # A wrong credential and an unknown subscription answer identically on
-    # purpose: telling them apart would confirm which links exist.
+    # Fast path: the link is the one we last handed out. Otherwise ask the panel
+    # — it reissues tokens, so an older link is still genuine even though it no
+    # longer matches what we stored.
     if stored is None or not secrets.compare_digest(credential, stored):
-        return ClaimResult(ClaimStatus.INVALID_LINK)
+        if not await sub_token.token_is_genuine(credential):
+            # A rejected credential and an unknown subscription answer the same
+            # on purpose: telling them apart would confirm which links exist.
+            return ClaimResult(ClaimStatus.INVALID_LINK)
 
     owner = await repo.get_user(subscription.user_id)
     if owner is None:
@@ -147,5 +152,13 @@ async def attach_telegram_to_web_account(
         fields["web_password_hash"] = web_user.web_password_hash
     if fields:
         await repo.update_user(owner.id, **fields)
+
+    # The absorbed row must stop answering to that address. Lookup by email
+    # takes the lowest id, and a website account is always older than the
+    # Telegram one that just claimed it — so leaving the address behind would
+    # send the next cabinet login straight back to the emptied account. That is
+    # the same "my subscription vanished" bug, only from the other side.
+    if web_user.email or web_user.web_password_hash:
+        await repo.update_user(web_user.id, email=None, web_password_hash=None)
     await session.commit()
     return owner.telegram_id

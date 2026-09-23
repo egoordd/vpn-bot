@@ -262,6 +262,16 @@ class Repository:
         )
         return result.scalar_one_or_none()
 
+    async def get_latest_standard_subscription(self, user_id: int) -> Subscription | None:
+        """Latest subscription from the current trial/standard product."""
+        result = await self.session.execute(
+            select(Subscription)
+            .where(Subscription.user_id == user_id, Subscription.tier.in_(("trial", "standard")))
+            .order_by(Subscription.expires_at.desc(), Subscription.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def list_subscriptions_by_user(self, user_id: int) -> list[Subscription]:
         result = await self.session.execute(
             select(Subscription)
@@ -283,6 +293,18 @@ class Repository:
         await self.session.execute(
             update(Subscription)
             .where(Subscription.user_id == user_id, lane, Subscription.is_active.is_(True))
+            .values(is_active=False)
+        )
+        await self.session.commit()
+
+    async def deactivate_standard_subscriptions(self, user_id: int) -> None:
+        await self.session.execute(
+            update(Subscription)
+            .where(
+                Subscription.user_id == user_id,
+                Subscription.tier.in_(("trial", "standard")),
+                Subscription.is_active.is_(True),
+            )
             .values(is_active=False)
         )
         await self.session.commit()
@@ -342,6 +364,7 @@ class Repository:
             .where(
                 Subscription.is_active.is_(False),
                 Subscription.status == "limited",
+                Subscription.tier != "trial",
                 Subscription.expires_at > _now(),
                 Subscription.panel_username.is_not(None),
                 Subscription.id.in_(newest),

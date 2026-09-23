@@ -8,6 +8,7 @@ from bot.handlers.admin import _funnel_report
 from database.repository import Repository
 from scheduler import tasks
 from services.panel_client import PanelUsage, PanelUser, RemnawaveNotFoundError
+from services.panel_gateway import RemnawavePanelGateway
 from services.subscription import activate_panel_subscription
 
 
@@ -130,7 +131,7 @@ async def test_trial_activation_records_trial_event(session_pool):
             session=session,
             user_id=user.id,
             plan="trial",
-            panel_client=FakeProvisionPanelClient(),
+            panel_gateway=RemnawavePanelGateway(FakeProvisionPanelClient()),
         )
         counts = await repo.funnel_counts()
 
@@ -146,7 +147,7 @@ async def test_paid_plan_activation_does_not_record_trial_event(session_pool):
             session=session,
             user_id=user.id,
             plan="standard_1m",
-            panel_client=FakeProvisionPanelClient(),
+            panel_gateway=RemnawavePanelGateway(FakeProvisionPanelClient()),
         )
         counts = await repo.funnel_counts()
 
@@ -171,8 +172,8 @@ async def test_traffic_sync_records_first_connect_once(fake_bot, session_pool):
         )
 
     client = FakeSyncPanelClient({"tg_1008": _panel_user("tg_1008", used=1024)})
-    await tasks.traffic_sync(fake_bot, session_pool, panel_client=client)
-    await tasks.traffic_sync(fake_bot, session_pool, panel_client=client)
+    await tasks.traffic_sync(fake_bot, session_pool, panel_gateway=RemnawavePanelGateway(client))
+    await tasks.traffic_sync(fake_bot, session_pool, panel_gateway=RemnawavePanelGateway(client))
 
     async with session_pool() as session:
         counts = await Repository(session).funnel_counts()
@@ -197,7 +198,7 @@ async def test_traffic_sync_without_usage_records_no_first_connect(fake_bot, ses
         )
 
     client = FakeSyncPanelClient({"tg_1010": _panel_user("tg_1010", used=0)})
-    await tasks.traffic_sync(fake_bot, session_pool, panel_client=client)
+    await tasks.traffic_sync(fake_bot, session_pool, panel_gateway=RemnawavePanelGateway(client))
 
     async with session_pool() as session:
         counts = await Repository(session).funnel_counts()
