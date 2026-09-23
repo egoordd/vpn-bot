@@ -953,7 +953,7 @@ def create_app() -> FastAPI:
 
         try:
             subscription = await activate_panel_subscription(
-                session=session, user_id=completed.user_id, plan=details.plan
+                session=session, user_id=completed.user_id, plan=details.plan, target=details.target
             )
         except Exception as exc:  # noqa: BLE001 - surface as 500 so YooKassa retries
             # Деньги пришли, доступ не выдан. До 22.09.2026 платёж к этому моменту

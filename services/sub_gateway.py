@@ -854,7 +854,9 @@ def plan_device_limit(username: str) -> int:
     limit = DEVICE_LIMIT
     ttl = DEVICE_LIMIT_FAIL_TTL
     try:
-        telegram_id = username.removeprefix("tg_")
+        # Дополнительные подписки аккаунта живут под «tg_<id>_s2» и т. д.;
+        # лимит спрашиваем по самому аккаунту.
+        telegram_id = re.sub(r"_s\d+$", "", username.removeprefix("tg_"))
         req = urllib.request.Request(
             DEVICE_LIMIT_API.format(telegram_id=urllib.parse.quote(telegram_id)),
             headers={"Authorization": f"Bearer {DEVICE_LIMIT_API_TOKEN}", "Accept": "application/json"},

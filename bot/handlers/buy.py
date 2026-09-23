@@ -20,6 +20,7 @@ from database.repository import Repository
 from services.billing_api import build_payment_intent, register_yookassa_payment
 from services.payment import PLANS, normalize_payment_plan_code
 from services.tariffs import resolve_tariff
+from services import subscription_slots as slots
 from services import yookassa
 
 logger = logging.getLogger(__name__)
@@ -43,11 +44,21 @@ async def _send_callback_message(
 
 
 
+def _back_for_target(target: str | None, tier: str) -> str:
+    """Один шаг назад: к выбору срока той же покупки."""
+    if target == slots.TARGET_NEW:
+        return "buy_extra"
+    if target is not None:
+        return f"renew_sub:{target}"
+    return f"buy_tier:{tier}"
+
+
 def _checkout_keyboard(
     *,
     plan: str,
     yookassa_ok: bool = False,
     tier: str = "standard",
+    target: str | None = None,
 ) -> InlineKeyboardMarkup:
     suffix = ""
     rows: list[list[InlineKeyboardButton]] = []
@@ -58,17 +69,24 @@ def _checkout_keyboard(
             [
                 InlineKeyboardButton(
                     text="💳 Оплатить картой",
-                    callback_data=f"payyk:{plan}{suffix}",
+                    callback_data=f"payyk:{slots.with_target(plan, target)}{suffix}",
                 )
             ]
         )
     # One step back = this tier's plan list, not the tier-select screen.
-    back_callback = f"buy_tier:{tier}"
-    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data=back_callback)])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data=_back_for_target(target, tier))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def build_checkout_view(plan: str) -> tuple[str, InlineKeyboardMarkup]:
+def _target_line(target: str | None) -> str | None:
+    if target == slots.TARGET_NEW:
+        return "➕ Ещё одна подписка: отдельная ссылка и до 3 устройств"
+    if target is not None:
+        return "🔄 Продление выбранной подписки"
+    return None
+
+
+def build_checkout_view(plan: str, target: str | None = None) -> tuple[str, InlineKeyboardMarkup]:
     """Текст и клавиатура экрана оплаты одного тарифа.
 
     Отдельно от хэндлера, потому что на этот экран ведут два пути: кнопка в
@@ -82,6 +100,9 @@ def build_checkout_view(plan: str) -> tuple[str, InlineKeyboardMarkup]:
         f"💎 Тариф: {tariff.title}",
         f"💵 Стоимость: {tariff.price_rub}₽",
     ]
+    target_line = _target_line(target)
+    if target_line:
+        card_lines.insert(0, target_line)
     sections = ["💳 <b>Оплата тарифа</b>\n\n" + bq(*card_lines)]
     if yookassa_ok:
         sections.append(
@@ -92,7 +113,7 @@ def build_checkout_view(plan: str) -> tuple[str, InlineKeyboardMarkup]:
         sections.append("⚠️ Оплата временно недоступна. Попробуйте позже.")
 
     return "\n\n".join(sections), _checkout_keyboard(
-        plan=plan, yookassa_ok=yookassa_ok, tier=tariff.tier
+        plan=plan, yookassa_ok=yookassa_ok, tier=tariff.tier, target=target
     )
 
 
@@ -101,6 +122,7 @@ async def _show_checkout(
     session_pool: async_sessionmaker[AsyncSession],
     *,
     plan: str,
+    target: str | None = None,
 ) -> None:
     async with session_pool() as session:
         repo = Repository(session)
@@ -109,7 +131,7 @@ async def _show_checkout(
             username=callback.from_user.username,
         )
 
-    text, keyboard = build_checkout_view(plan)
+    text, keyboard = build_checkout_view(plan, target)
     await _edit_current_message(callback, text, keyboard)
     await callback.answer()
 
@@ -154,6 +176,7 @@ async def _create_yookassa_invoice(
     plan: str,
     email: str | None,
     send,
+    target: str | None = None,
 ) -> None:
     async with session_pool() as session:
         intent = await build_payment_intent(
@@ -161,6 +184,7 @@ async def _create_yookassa_invoice(
             telegram_id=telegram_id,
             username=username,
             plan=plan,
+            target=target,
         )
 
     try:
@@ -186,12 +210,13 @@ async def _create_yookassa_invoice(
         await register_yookassa_payment(session, intent=intent, external_payment_id=str(payment_id))
 
     receipt_line = f"🧾 Чек придёт на {email}\n" if email else ""
+    invoice_lines = [f"💎 Тариф: {intent.plan.title}", f"💵 Стоимость: {intent.plan.price_rub}₽"]
+    target_line = _target_line(target)
+    if target_line:
+        invoice_lines.insert(0, target_line)
     text = (
         "💳 <b>Оплата картой</b>\n\n"
-        + bq(
-            f"💎 Тариф: {intent.plan.title}",
-            f"💵 Стоимость: {intent.plan.price_rub}₽",
-        )
+        + bq(*invoice_lines)
         + "\n\nНажмите кнопку ниже и оплатите на защищённой странице.\n"
         + receipt_line
         + "Ссылка-подписка придёт автоматически в течение минуты после оплаты."
@@ -201,7 +226,7 @@ async def _create_yookassa_invoice(
         _yookassa_pay_keyboard(
             pay_url,
             intent.plan.price_rub,
-            plan=plan,
+            plan=slots.with_target(plan, target),
             email_editable=bool(email),
         ),
     )
@@ -222,6 +247,48 @@ TIER_TEXTS = {
         "Выберите срок:"
     ),
 }
+
+
+EXTRA_TEXT = (
+    "➕ <b>Ещё одна подписка</b>\n\n"
+    "<blockquote>"
+    "🔗 Отдельная ссылка — например, для семьи\n"
+    "📱 Ещё до 3 устройств\n"
+    "📊 Свой трафик: 150–200 ГБ в месяц — зависит от срока\n"
+    "⏳ Срок идёт с момента оплаты, основная подписка не меняется"
+    "</blockquote>\n\n"
+    "Выберите срок:"
+)
+
+
+def _parse_plan(raw: str) -> tuple[str, str | None]:
+    """«standard_1m@new» → (код тарифа, цель). ValueError — если что-то не так."""
+    raw_plan, target = slots.split_plan_target(raw)
+    return normalize_payment_plan_code(raw_plan), target
+
+
+async def _extra_allowed(session_pool: async_sessionmaker[AsyncSession], telegram_id: int, username: str | None) -> bool:
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.get_or_create_user(telegram_id=telegram_id, username=username)
+        return slots.can_add(await repo.list_active_subscriptions(user.id))
+
+
+LIMIT_ALERT = f"На одном аккаунте может быть не больше {slots.MAX_SUBSCRIPTIONS} подписок."
+
+
+@router.callback_query(F.data == "buy_extra")
+async def buy_extra_handler(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session_pool: async_sessionmaker[AsyncSession],
+) -> None:
+    await state.clear()
+    if not await _extra_allowed(session_pool, callback.from_user.id, callback.from_user.username):
+        await callback.answer(LIMIT_ALERT, show_alert=True)
+        return
+    await _edit_current_message(callback, EXTRA_TEXT, tier_plans_keyboard("standard", target=slots.TARGET_NEW))
+    await callback.answer()
 
 
 @router.callback_query(F.data == "buy_menu")
@@ -269,7 +336,9 @@ async def renew_menu_handler(callback: CallbackQuery, session_pool: async_sessio
         await _edit_current_message(
             callback,
             "🔄 <b>Продление</b>\n\nВыберите срок — он добавится к текущему:",
-            renew_durations_keyboard(subscriptions[0].tier, back_callback="main_menu"),
+            renew_durations_keyboard(
+                subscriptions[0].tier, back_callback="main_menu", target=str(subscriptions[0].id)
+            ),
         )
         await callback.answer()
         return
@@ -297,7 +366,9 @@ async def renew_sub_handler(callback: CallbackQuery, session_pool: async_session
 
     # Reached from the picker, so «Назад» belongs there.
     text = "🔄 <b>Продление</b>\n\nВыберите срок — он добавится к текущему:"
-    await _edit_current_message(callback, text, renew_durations_keyboard(tier, back_callback="renew_menu"))
+    await _edit_current_message(
+        callback, text, renew_durations_keyboard(tier, back_callback="renew_menu", target=str(sub_id))
+    )
     await callback.answer()
 
 
@@ -321,13 +392,17 @@ async def buy_plan_handler(
 ) -> None:
     raw_plan = callback.data.split(":", maxsplit=1)[1] if callback.data else ""
     try:
-        plan = normalize_payment_plan_code(raw_plan)
+        plan, target = _parse_plan(raw_plan)
     except ValueError:
         await callback.answer("Тариф не найден", show_alert=True)
         return
-    tariff = resolve_tariff(plan)
+    if target == slots.TARGET_NEW and not await _extra_allowed(
+        session_pool, callback.from_user.id, callback.from_user.username
+    ):
+        await callback.answer(LIMIT_ALERT, show_alert=True)
+        return
 
-    await _show_checkout(callback, session_pool, plan=plan)
+    await _show_checkout(callback, session_pool, plan=plan, target=target)
 
 
 
@@ -341,9 +416,14 @@ async def pay_yookassa_handler(
     parts = callback.data.split(":", maxsplit=2) if callback.data else []
     raw_plan = parts[1] if len(parts) >= 2 else ""
     try:
-        plan = normalize_payment_plan_code(raw_plan)
+        plan, target = _parse_plan(raw_plan)
     except ValueError:
         await callback.answer("Тариф не найден", show_alert=True)
+        return
+    if target == slots.TARGET_NEW and not await _extra_allowed(
+        session_pool, callback.from_user.id, callback.from_user.username
+    ):
+        await callback.answer(LIMIT_ALERT, show_alert=True)
         return
 
     if not yookassa.is_configured():
@@ -363,7 +443,7 @@ async def pay_yookassa_handler(
     # the buyer's email, ask once. In on-page mode YooKassa collects it instead.
     if settings.YOOKASSA_RECEIPT_ENABLED and not settings.YOOKASSA_COLLECT_EMAIL_ON_PAGE and not stored_email:
         await state.set_state(YookassaEmailInput.email)
-        await state.update_data(plan=plan)
+        await state.update_data(plan=plan, **({"target": target} if target else {}))
         text = (
             "📧 <b>Email для чека</b>\n\n"
             + bq(
@@ -372,7 +452,7 @@ async def pay_yookassa_handler(
             )
             + "\n\nОтправьте ваш email одним сообщением (например, <code>name@mail.ru</code>)."
         )
-        await _send_callback_message(callback, bot, text, _email_prompt_keyboard(plan))
+        await _send_callback_message(callback, bot, text, _email_prompt_keyboard(slots.with_target(plan, target)))
         return
 
     await _create_yookassa_invoice(
@@ -382,6 +462,7 @@ async def pay_yookassa_handler(
         plan=plan,
         email=stored_email,
         send=lambda text, kb: _send_callback_message(callback, bot, text, kb),
+        target=target,
     )
 
 
@@ -394,19 +475,19 @@ async def yookassa_change_email_handler(
     parts = callback.data.split(":", maxsplit=2) if callback.data else []
     raw_plan = parts[1] if len(parts) >= 2 else ""
     try:
-        plan = normalize_payment_plan_code(raw_plan)
+        plan, target = _parse_plan(raw_plan)
     except ValueError:
         await callback.answer("Тариф не найден", show_alert=True)
         return
 
     await state.set_state(YookassaEmailInput.email)
-    await state.update_data(plan=plan)
+    await state.update_data(plan=plan, **({"target": target} if target else {}))
     text = (
         "✏️ <b>Новый email для чека</b>\n\n"
         "Отправьте адрес одним сообщением (например, <code>name@mail.ru</code>) — "
         "мы сохраним его и выставим счёт заново."
     )
-    await _send_callback_message(callback, bot, text, _email_prompt_keyboard(plan))
+    await _send_callback_message(callback, bot, text, _email_prompt_keyboard(slots.with_target(plan, target)))
     await callback.answer()
 
 
@@ -421,13 +502,16 @@ async def yookassa_email_message_handler(
         data = await state.get_data()
         await message.answer(
             "Это не похоже на email. Отправьте адрес вида <code>name@mail.ru</code>.",
-            reply_markup=_email_prompt_keyboard(str(data.get("plan") or "")),
+            reply_markup=_email_prompt_keyboard(
+                slots.with_target(str(data.get("plan") or ""), data.get("target"))
+            ),
         )
         return
 
     data = await state.get_data()
     await state.clear()
     plan = data.get("plan")
+    target = data.get("target")
     if not plan:
         await message.answer("Сессия оплаты истекла. Откройте тариф заново через «🛒 Купить».")
         return
@@ -446,4 +530,5 @@ async def yookassa_email_message_handler(
         plan=plan,
         email=email,
         send=lambda text, kb: message.answer(text, reply_markup=kb),
+        target=target,
     )

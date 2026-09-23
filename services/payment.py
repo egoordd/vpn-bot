@@ -19,6 +19,9 @@ class ParsedInvoicePayload:
     user_id: int
     plan: str
     region: str | None = None
+    # Какую подписку продлить: None — основную, «new» — завести ещё одну,
+    # «<id>» — подписку с этим номером (services/subscription_slots.py).
+    target: str | None = None
 
 
 def _label_for_days(days: int) -> str:
@@ -57,12 +60,24 @@ def normalize_payment_plan_code(plan: str) -> str:
     return tariff.code
 
 
-def create_invoice_payload(user_id: int, plan: str, region: str | None = None) -> str:
+TARGET_PREFIX = "t="
+
+
+def create_invoice_payload(
+    user_id: int, plan: str, region: str | None = None, target: str | None = None
+) -> str:
+    from services.subscription_slots import is_valid_target
+
     plan_code = normalize_payment_plan_code(plan)
     if region is not None:
         # Regions existed only to pick a Premium location, and Premium is gone.
         raise ValueError("Region is no longer supported")
-    return f"unlock:{user_id}:{plan_code}:{uuid.uuid4().hex}"
+    payload = f"unlock:{user_id}:{plan_code}:{uuid.uuid4().hex}"
+    if target is not None:
+        if not is_valid_target(target):
+            raise ValueError("Invalid purchase target")
+        payload += f":{TARGET_PREFIX}{target}"
+    return payload
 
 
 def parse_invoice_payload_details(payload: str) -> ParsedInvoicePayload:
@@ -82,8 +97,17 @@ def parse_invoice_payload_details(payload: str) -> ParsedInvoicePayload:
     # mints them any more, but invoices already issued must still be readable:
     # a person who opened one before the change should still be able to pay it.
     # The region itself no longer means anything, so it is dropped rather than
-    # resolved against a table that no longer exists.
-    return ParsedInvoicePayload(user_id=user_id, plan=plan, region=None)
+    # resolved against a table that no longer exists. A fifth part that starts
+    # with «t=» is the purchase target of a multi-subscription account instead.
+    target = None
+    if len(parts) == 5 and parts[4].startswith(TARGET_PREFIX):
+        from services.subscription_slots import is_valid_target
+
+        candidate = parts[4][len(TARGET_PREFIX):]
+        if not is_valid_target(candidate):
+            raise ValueError("Invalid invoice target")
+        target = candidate
+    return ParsedInvoicePayload(user_id=user_id, plan=plan, region=None, target=target)
 
 
 def parse_invoice_payload(payload: str) -> tuple[int, str]:

@@ -23,6 +23,7 @@ from services.subscription import (
     connect_page_url,
     to_gateway_subscription_url,
 )
+from services import subscription_slots as slots
 from services import utm_links
 from services.payment import normalize_payment_plan_code
 from services.tariffs import resolve_tariff
@@ -46,7 +47,7 @@ def _tariff_title(plan_code: str) -> str:
         return plan_code
 
 
-def _subscription_card(subscription: Subscription) -> str:
+def _subscription_card(subscription: Subscription, *, numbered: bool = False) -> str:
     used = _format_gb(subscription.traffic_used_bytes or 0)
     limit = _format_gb(subscription.traffic_limit_bytes)
     devices = subscription.device_limit if subscription.device_limit is not None else "∞"
@@ -56,7 +57,8 @@ def _subscription_card(subscription: Subscription) -> str:
         f"📱 Устройств: до {devices}",
     ]
     lines.append(f"📅 До: {_format_msk(subscription.expires_at)}")
-    return "📦 <b>Подписка</b>\n" + bq(*lines)
+    title = slots.label(subscription) if numbered else "Подписка"
+    return f"📦 <b>{title}</b>\n" + bq(*lines)
 
 
 def _menu_text(
@@ -104,7 +106,9 @@ def _my_subs_text(subscriptions: list[Subscription]) -> str:
             "📋 <b>Мои подписки</b>\n\n"
             "Активных подписок нет. Оформите тариф через «🛒 Купить подписку»."
         )
-    cards = [_subscription_card(s) for s in subscriptions]
+    ordered = sorted(subscriptions, key=lambda s: slots.slot_number(s.panel_username))
+    numbered = len(ordered) > 1
+    cards = [_subscription_card(s, numbered=numbered) for s in ordered]
     return "📋 <b>Мои подписки</b>\n\n" + "\n\n".join(cards) + (
         "\n\n📱 Нажмите «Подключить устройство», чтобы получить ссылку и подключиться."
     )
@@ -128,7 +132,11 @@ async def _menu_state(
         text = _menu_text(user, subscriptions, display_name, trial_available=trial_available)
         has_subscription = bool(subscriptions)
 
-    keyboard = main_menu_keyboard(has_subscription=has_subscription, trial_available=trial_available)
+    keyboard = main_menu_keyboard(
+        has_subscription=has_subscription,
+        trial_available=trial_available,
+        can_add_subscription=slots.can_add(subscriptions),
+    )
     return text, keyboard, has_subscription
 
 

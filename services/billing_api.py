@@ -137,7 +137,9 @@ async def build_payment_intent(
     telegram_id: int,
     username: str | None,
     plan: str,
+    target: str | None = None,
 ) -> PaymentIntent:
+    """``target`` — какую подписку покупают (services/subscription_slots.py)."""
     tariff = resolve_tariff(normalize_payment_plan_code(plan))
     billing_plan = _plan_from_tariff(tariff)
 
@@ -146,6 +148,7 @@ async def build_payment_intent(
     payload = create_invoice_payload(
         user_id=user.id,
         plan=billing_plan.code,
+        target=target,
     )
 
     return PaymentIntent(

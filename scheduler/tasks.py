@@ -21,6 +21,7 @@ from services.panel_gateway import (
 )
 from services import yookassa
 from services.alerts import send_alert
+from services import subscription_slots as slots
 from services.money import format_rub
 from services.payment import parse_invoice_payload_details
 from services.subscription import (
@@ -60,8 +61,14 @@ async def check_expiring_subscriptions(
                     "ничего перенастраивать не придётся. Кнопка «🛒 Купить подписку» в меню."
                 )
             else:
+                # С несколькими подписками важно, какая именно заканчивается.
+                title = (
+                    f"{slots.label(subscription)} скоро закончится"
+                    if slots.is_extra(subscription.panel_username)
+                    else "Подписка скоро закончится"
+                )
                 text = (
-                    "⏰ <b>Подписка скоро закончится</b>\n\n"
+                    f"⏰ <b>{title}</b>\n\n"
                     + bq("📅 Осталось: меньше 3 дней")
                     + "\n\nЧтобы не потерять доступ, продлите подписку — кнопка «🔄 Продлить» в меню."
                 )

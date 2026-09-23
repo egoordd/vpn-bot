@@ -11,6 +11,7 @@ from services.panel_gateway import (
     PanelUserNotFoundError,
     get_panel_gateway,
 )
+from services import subscription_slots as slots
 from services.payment import PLANS
 from services.tariffs import TARIFFS, Tariff, resolve_tariff
 
@@ -124,11 +125,67 @@ async def _renewal_starts_at(
 
     # The existing "latest" lookup sorts by expiry, not creation order. An
     # older limited row with a long expiry may already have been superseded.
-    # Premium was a separate lane; all other rows share this account's lane.
+    # Premium was a separate lane; all other rows share this account's lane —
+    # within one subscription slot: a newer extra subscription is not a
+    # successor of the main one.
+    slot = slots.slot_number(getattr(latest, "panel_username", None))
     subscriptions = await repo.list_subscriptions_by_user(latest.user_id)
-    if any(row.id > latest.id and row.tier != "premium" for row in subscriptions):
+    if any(
+        row.id > latest.id
+        and row.tier != "premium"
+        and slots.slot_number(getattr(row, "panel_username", None)) == slot
+        for row in subscriptions
+    ):
         return now
     return _aware(latest.expires_at)
+
+
+async def _purchase_slot(
+    repo: Repository,
+    user,
+    tariff: Tariff,
+    gateway: PanelGateway,
+    target: str | None,
+) -> tuple[Subscription | None, str, list[Subscription]]:
+    """Какую подписку покупают: (последняя запись этого места, имя в панели, записи места).
+
+    Без цели и при чужом или неизвестном номере — основная подписка: оплата
+    не должна потеряться из-за номера, который не сходится.
+    """
+    rows = [
+        row
+        for row in await repo.list_subscriptions_by_user(user.id)
+        if row.tier in ("trial", "standard")
+    ]
+    base = gateway.build_username(user.telegram_id)
+
+    if target == slots.TARGET_NEW:
+        if tariff.tier == "trial":
+            raise ValueError("A trial cannot be an extra subscription")
+        active = await repo.list_active_subscriptions(user.id)
+        if not slots.can_add(active):
+            # Оплата уже прошла, поэтому выдаём и сверх лимита: лимит держит бот
+            # до выставления счёта, здесь только отмечаем расхождение.
+            logger.warning("user %s: extra subscription beyond the limit of %s", user.id, slots.MAX_SUBSCRIPTIONS)
+        username = slots.slot_username(base, slots.free_slot_number(active))
+        return None, username, [row for row in rows if row.panel_username == username]
+
+    chosen: str | None = None
+    if target is not None:
+        candidate = await repo.get_subscription(int(target))
+        if candidate is not None and candidate.user_id == user.id:
+            if slots.is_extra(candidate.panel_username):
+                chosen = candidate.panel_username
+        else:
+            logger.warning("user %s: purchase target %s is not theirs, renewing the main one", user.id, target)
+
+    if chosen is not None:
+        slot_rows = [row for row in rows if row.panel_username == chosen]
+    else:
+        slot_rows = [row for row in rows if not slots.is_extra(row.panel_username)]
+    latest = max(slot_rows, key=lambda row: (_aware(row.expires_at), row.id), default=None)
+    username = latest.panel_username if latest is not None and latest.panel_username else (chosen or base)
+    return latest, username, slot_rows
 
 
 async def activate_panel_subscription(
@@ -136,6 +193,7 @@ async def activate_panel_subscription(
     user_id: int,
     plan: str,
     panel_gateway: PanelGateway | None = None,
+    target: str | None = None,
 ) -> Subscription:
     tariff: Tariff = resolve_tariff(plan)
     repo = Repository(session)
@@ -144,17 +202,13 @@ async def activate_panel_subscription(
         raise ValueError(f"Unknown user_id: {user_id}")
 
     now = datetime.now(timezone.utc)
-    latest = await repo.get_latest_standard_subscription(user_id)
+    gateway = panel_gateway or get_panel_gateway()
+    latest, panel_username, slot_rows = await _purchase_slot(repo, user, tariff, gateway, target)
     starts_at = await _renewal_starts_at(
         repo, latest, now, paid_renewal=tariff.tier == "standard"
     )
 
     expires_at = starts_at + timedelta(days=tariff.duration_days)
-    gateway = panel_gateway or get_panel_gateway()
-    if latest and latest.panel_username:
-        panel_username = latest.panel_username
-    else:
-        panel_username = gateway.build_username(user.telegram_id)
 
     if await _panel_user_exists(gateway, panel_username):
         panel_user = await gateway.modify_user(
@@ -191,7 +245,11 @@ async def activate_panel_subscription(
             traffic_resets_monthly=tariff.traffic_resets_monthly,
         )
 
-    await repo.deactivate_standard_subscriptions(user_id)
+    # Гаснут только прежние записи этого же места: основная не трогает
+    # дополнительные и наоборот.
+    for row in slot_rows:
+        if row.is_active:
+            await repo.deactivate_subscription(row.id)
     subscription = await repo.create_subscription(
         user_id=user_id,
         plan=tariff.code,
@@ -241,6 +299,15 @@ def _device_limit(subscription: Subscription) -> int | None:
 async def get_subscription_info(session: AsyncSession, user_id: int) -> dict[str, object]:
     repo = Repository(session)
     subscription = await repo.get_latest_subscription(user_id)
+    if subscription is not None and slots.is_extra(subscription.panel_username):
+        # Кабинет и шлюз спрашивают «подписку аккаунта» — это основная, а не
+        # последняя купленная дополнительная.
+        main_rows = [
+            row for row in await repo.list_subscriptions_by_user(user_id)
+            if not slots.is_extra(row.panel_username)
+        ]
+        if main_rows:
+            subscription = max(main_rows, key=lambda row: (_aware(row.expires_at), row.id))
     if subscription is None:
         return {
             "exists": False,

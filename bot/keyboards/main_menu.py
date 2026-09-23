@@ -2,6 +2,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.texts import format_msk, trial_days
 from config import settings
+from services import subscription_slots as slots
 from services.payment import PLANS
 
 
@@ -11,7 +12,11 @@ from services.payment import PLANS
 DURATION_EMOJI = {30: "🚀", 90: "💎", 180: "👑", 365: "🏆"}
 
 
-def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = False) -> InlineKeyboardMarkup:
+def main_menu_keyboard(
+    has_subscription: bool = False,
+    trial_available: bool = False,
+    can_add_subscription: bool = False,
+) -> InlineKeyboardMarkup:
     """Single compact main menu shown after /start. Promo entry and help live
     in the quick-access command menu (/promo, /help)."""
     rows: list[list[InlineKeyboardButton]] = []
@@ -28,6 +33,10 @@ def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = F
     rows.append(
         [InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_menu", style="primary")]
     )
+    if has_subscription and can_add_subscription:
+        # Отдельная ссылка и свои устройства — например, для семьи. Обычная
+        # «Купить» по-прежнему продлевает основную подписку.
+        rows.append([InlineKeyboardButton(text="➕ Ещё одна подписка", callback_data="buy_extra")])
     if not has_subscription:
         # Shown only to an empty account, which is exactly what a website buyer
         # sees when their purchase landed on a separate email-only user. Anyone
@@ -51,12 +60,12 @@ def main_menu_keyboard(has_subscription: bool = False, trial_available: bool = F
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def tier_plans_keyboard(tier: str) -> InlineKeyboardMarkup:
+def tier_plans_keyboard(tier: str, target: str | None = None) -> InlineKeyboardMarkup:
     plan_rows = [
         [
             InlineKeyboardButton(
                 text=f"{DURATION_EMOJI.get(int(plan['days']), '⏱')} {plan['label']} — {plan['rub_amount']}₽",
-                callback_data=f"buy:{code}",
+                callback_data=f"buy:{slots.with_target(code, target)}",
             )
         ]
         for code, plan in PLANS.items()
@@ -82,7 +91,7 @@ def renew_menu_keyboard(subscriptions) -> InlineKeyboardMarkup:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"🔄 До {format_msk(sub.expires_at)}",
+                    text=f"🔄 {slots.label(sub)} · до {format_msk(sub.expires_at)}",
                     callback_data=f"renew_sub:{sub.id}",
                 )
             ]
@@ -91,7 +100,9 @@ def renew_menu_keyboard(subscriptions) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def renew_durations_keyboard(tier: str, *, back_callback: str = "main_menu") -> InlineKeyboardMarkup:
+def renew_durations_keyboard(
+    tier: str, *, back_callback: str = "main_menu", target: str | None = None
+) -> InlineKeyboardMarkup:
     """Duration options for renewing a subscription of this tier.
 
     ``back_callback`` exists because this screen is now reached two ways. When
@@ -107,7 +118,7 @@ def renew_durations_keyboard(tier: str, *, back_callback: str = "main_menu") -> 
             [
                 InlineKeyboardButton(
                     text=f"{DURATION_EMOJI.get(int(plan['days']), '⏱')} {plan['label']} — {plan['rub_amount']}₽",
-                    callback_data=f"buy:{code}",
+                    callback_data=f"buy:{slots.with_target(code, target)}",
                 )
             ]
         )

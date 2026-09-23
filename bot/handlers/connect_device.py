@@ -22,6 +22,7 @@ from database.repository import Repository
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services import mailer
 from services.alerts import send_alert
+from services import subscription_slots as slots
 from services.subscription import connect_page_url, to_gateway_subscription_url, to_happ_import_url
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,10 @@ router = Router()
 def _location_label(subscription: Subscription) -> str:
     if subscription.tier == "premium":
         return "💎 Premium"
+    # У дополнительной подписки своя ссылка: на экране подключения должно быть
+    # видно, какая именно сейчас открыта.
+    if slots.is_extra(subscription.panel_username):
+        return f"📦 {slots.label(subscription)}"
     return "🌐 Обычный"
 
 
@@ -41,7 +46,7 @@ def _sub_choice_label(subscription: Subscription) -> str:
         title = resolve_tariff(subscription.plan).title
     except ValueError:
         title = subscription.plan
-    return f"{_location_label(subscription)} · {title} · до {format_msk(subscription.expires_at)}"
+    return f"{slots.label(subscription)} · {title} · до {format_msk(subscription.expires_at)}"
 
 
 def _connect_device_keyboard(
