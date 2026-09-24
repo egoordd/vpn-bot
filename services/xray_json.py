@@ -74,14 +74,27 @@ _PROBE_SAMPLING = 3
 # keeps picking the least-bad node even when every reading is terrible.
 _MAX_RTT = "4s"
 
-# leastPing ranks purely on measured latency, which is exactly what a user
-# feels: a node that merely gets slow sinks in the ranking on the next probe
-# and stops being picked, so short _PROBE_INTERVAL covers both "died" and
-# "долго грузит". leastLoad optimises for *stability* instead and measurably
-# picked worse servers here — benchmarked from a real RU line 2026-07-28,
-# leastPing 295/421ms via Frankfurt vs leastLoad 465/616ms via Amsterdam — so
-# it stays available (BALANCER_STRATEGY=leastload) but is not the default.
-BALANCER_STRATEGY = os.environ.get("BALANCER_STRATEGY", "leastping").strip().lower()
+# leastLoad по умолчанию с 24.09.2026 — с настройками автовыбора конкурента
+# (Phantom), на котором владелец сидит и которым доволен. leastPing сажает всех
+# на один сервер с самым коротким пингом: 24.09 это была Литва — 22 мс из
+# Москвы, но свой канал около 8 Мбит/с и 8% потерь, и «Авто-обход» у всех
+# упирался в 5–6 Мбит/с. leastLoad держит в работе два лучших сервера
+# (`expected: 2`) из тех, что отвечают быстрее секунды, и делит соединения между
+# ними, поэтому одна перегруженная нода не забирает весь трафик.
+#
+# Замер 28.07.2026 с реальной линии РФ был в пользу leastPing (295/421 мс через
+# Франкфурт против 465/616 мс через Амстердам), но на прежних настройках
+# leastLoad, без порога в секунду. BALANCER_STRATEGY=leastping возвращает старое.
+BALANCER_STRATEGY = os.environ.get("BALANCER_STRATEGY", "leastload").strip().lower()
+
+# Параметры автовыбора конкурента, перенесены как есть 24.09.2026: сервер,
+# ответивший медленнее секунды, выпадает из кандидатов; медленнее трёх — считается
+# мёртвым. Проверка раз в две минуты, а не раз в минуту: при двух серверах в
+# работе смерть одного уводит на второй только половину новых соединений, а
+# не останавливает всё, и телефону реже приходится будить радио.
+_LEASTLOAD_SETTINGS = {"baselines": ["1s"], "expected": 2, "maxRTT": "3s", "tolerance": 0.5}
+_BURST_INTERVAL = "2m"
+_BURST_TIMEOUT = "1s"
 
 # Refuse QUIC (UDP/443) for tunnel-bound traffic so applications fall back to
 # TLS over TCP. Added 2026-08-09 against "photos and videos stop loading", and
@@ -177,7 +190,29 @@ _RU_DIRECT_DOMAINS = [
     "domain:qiwi.com",
     "domain:2gis.com",
     "domain:tamtam.chat",
+    # Из прямого списка конкурента (24.09.2026) — то, чего у нас не было.
+    "domain:vkuser.net",
+    "domain:vkcdn.net",
+    "domain:rutubeimg.com",
+    "domain:ozon-st.cdn.ngenix.net",
 ]
+
+# Уведомления Apple и Google идут мимо туннеля, как у конкурента: соединение
+# с сервером уведомлений живёт часами, и каждое переподключение VPN рвёт его —
+# сообщения приходят с опозданием или пачкой, когда приложение уже открыли.
+# Оба сервиса в России доступны напрямую. Правило стоит раньше списка
+# принудительного туннеля, иначе mtalk.google.com ушёл бы в туннель вместе
+# с google.com.
+_PUSH_DIRECT_DOMAINS = [
+    "domain:mtalk.google.com",
+    "domain:push.apple.com",
+    "domain:push-apple.com.akadns.net",
+]
+
+# Сайты проверки IP идут через VPN, хотя они в зоне .ru: иначе человек, который
+# проверяет «работает ли VPN» на 2ip.ru, видит свой российский адрес и решает,
+# что не работает. Так же у конкурента.
+_IP_CHECK_DOMAINS = ["domain:2ip.ru", "domain:2ip.io"]
 
 _DNS = {
     "servers": [
@@ -372,6 +407,13 @@ def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False) -> dict:
                 "outboundTag": "dns-out",
             },
             {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
+            # Торренты не пускаем, как и конкурент: раздача через наши узлы
+            # приносит хостеру жалобы правообладателей, а за ними — блокировку
+            # сервера для всех, и съедает канал, который делят все клиенты.
+            {"type": "field", "protocol": ["bittorrent"], "outboundTag": "block"},
+            # Раньше правила «.ru — напрямую»: иначе проверка на 2ip.ru показала
+            # бы российский адрес.
+            {"type": "field", "domain": _IP_CHECK_DOMAINS, **destination},
             # Russian names are settled before QUIC is refused below, so
             # domestic services — VK video, Yandex, Kinopoisk — keep using it.
             # They never touch the tunnel, so the reason for refusing it does
@@ -384,6 +426,7 @@ def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False) -> dict:
                 "domain": _RU_DIRECT_DOMAINS + (_RU_APPS_DIRECT if ru_apps_direct else []),
                 "outboundTag": "direct",
             },
+            {"type": "field", "domain": _PUSH_DIRECT_DOMAINS, "outboundTag": "direct"},
             # QUIC is refused for everything still undecided — that is, for
             # everything bound for the tunnel — so those applications fall back
             # to TLS over TCP.
@@ -661,6 +704,15 @@ def _hysteria_outbound(password: str, host: str, port: int, query: dict, tag: st
             "hysteriaSettings": {"version": 2, "auth": password},
             "security": "tls",
             "tlsSettings": tls,
+            # Параметры QUIC конкурента (24.09.2026). Оператор закрывает
+            # молчащее UDP-соединение за десятки секунд, и туннель тихо умирает;
+            # пакет раз в 10 с держит его открытым. BBR вместо «брутального»
+            # режима Hysteria: без заданной ширины канала тот гадает о скорости,
+            # а BBR её измеряет. Ядро, которое этого поля не знает, его
+            # пропускает.
+            "finalmask": {
+                "quicParams": {"congestion": "bbr", "keepAlivePeriod": 10, "maxIdleTimeout": 120}
+            },
         },
     }
 
@@ -717,14 +769,15 @@ def _health_check(strategy: str) -> tuple[dict, dict]:
         # `expected: 2` keeps a second healthy server in play instead of pinning
         # every connection to a single "best" one, so one node degrading never
         # takes the whole session down with it.
-        {"type": "leastLoad", "settings": {"expected": 2, "maxRTT": _MAX_RTT, "tolerance": 0.3}},
+        {"type": "leastLoad", "settings": dict(_LEASTLOAD_SETTINGS)},
         {
             "burstObservatory": {
                 "subjectSelector": ["proxy-"],
                 "pingConfig": {
                     "destination": _PROBE_URL,
-                    "interval": _PROBE_INTERVAL,
-                    "timeout": _PROBE_TIMEOUT,
+                    "connectivity": "",
+                    "interval": _BURST_INTERVAL,
+                    "timeout": _BURST_TIMEOUT,
                     "sampling": _PROBE_SAMPLING,
                 },
             }

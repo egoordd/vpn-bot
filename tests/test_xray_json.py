@@ -85,7 +85,7 @@ def test_build_balancer_config_structure():
     assert tags == ["proxy-0", "proxy-1", "proxy-2", "direct", "block", "dns-out"]
     balancer = cfg["routing"]["balancers"][0]
     assert balancer["selector"] == ["proxy-"]
-    assert balancer["strategy"]["type"] == "leastPing"
+    assert balancer["strategy"]["type"] == "leastLoad"
     rules = cfg["routing"]["rules"]
     # Russian destinations bypass the tunnel (real IP → RU apps work, no detour)
     assert cfg["routing"]["domainStrategy"] == "IPIfNonMatch"
@@ -153,11 +153,13 @@ def _interval(config):
 
 
 def test_probe_interval_is_short_enough_to_fail_over():
-    """The probe interval IS the outage a user sits through when a node dies:
-    the balancer cannot route around it until a fresh sample judges it."""
+    """The probe interval IS the outage a user sits through when a node dies.
+    With leastLoad two servers carry the traffic, so a dead one costs half the
+    new connections until the next sample, not all of them — two minutes, as
+    the competitor runs it (24.09.2026), and never the old three."""
     interval = _interval(_balancer())
-    assert interval.endswith("s"), f"expected seconds granularity, got {interval}"
-    assert int(interval.rstrip("s")) <= 60, "failover would take over a minute"
+    seconds = int(interval[:-1]) * (60 if interval.endswith("m") else 1)
+    assert seconds <= 120, "failover would take over two minutes"
 
 
 def test_probe_url_is_plain_http():
@@ -168,10 +170,22 @@ def test_probe_url_is_plain_http():
     assert url.startswith("http://")
 
 
-def test_default_strategy_ranks_on_latency(monkeypatch):
-    """Latency ranking is what demotes a server that merely got slow — the
-    "долго грузит" case — and it benchmarked faster than leastLoad on a real
-    RU line, so it is the default."""
+def test_default_strategy_spreads_over_two_fast_servers():
+    """24.09.2026: leastPing put every user on Lithuania — the shortest ping and
+    an 8 Mbit/s channel. The competitor's leastLoad keeps two servers that answer
+    within a second in play and splits connections between them."""
+    config = _balancer()
+    assert config["routing"]["balancers"][0]["strategy"] == {
+        "type": "leastLoad",
+        "settings": {"baselines": ["1s"], "expected": 2, "maxRTT": "3s", "tolerance": 0.5},
+    }
+    ping = config["burstObservatory"]["pingConfig"]
+    assert (ping["interval"], ping["timeout"], ping["sampling"]) == ("2m", "1s", 3)
+    assert "observatory" not in config
+
+
+def test_leastping_is_one_setting_away(monkeypatch):
+    monkeypatch.setattr(xray_json, "BALANCER_STRATEGY", "leastping")
     config = _balancer()
     assert config["routing"]["balancers"][0]["strategy"] == {"type": "leastPing"}
     assert "observatory" in config and "burstObservatory" not in config
@@ -301,7 +315,7 @@ def test_blocked_platforms_are_pinned_to_the_tunnel():
     geoip:ru rule would send the request straight out of the device to an edge
     that is frozen — which shows up as a stale feed, not an error."""
     rules = _balancer()["routing"]["rules"]
-    pinned = next(r for r in rules if r.get("balancerTag") == "auto" and "domain" in r)
+    pinned = next(r for r in rules if r.get("balancerTag") == "auto" and "domain:tiktok.com" in r.get("domain", []))
     geo_ru = next(i for i, r in enumerate(rules) if r.get("ip") == ["geoip:ru"])
     # decided by domain, before any IP rule can send it direct
     assert rules.index(pinned) < geo_ru
@@ -316,7 +330,7 @@ def test_single_server_config_pins_the_same_domains():
         "vless://uuid@h1:2096?security=reality&sni=h1&pbk=P&sid=S#h1", 0
     )
     pinned = next(r for r in config["routing"]["rules"]
-                  if r.get("outboundTag") == "proxy" and "domain" in r)
+                  if r.get("outboundTag") == "proxy" and "domain:tiktok.com" in r.get("domain", []))
     assert "domain:tiktok.com" in pinned["domain"]
 
 
@@ -399,7 +413,8 @@ def test_google_and_spotify_never_take_the_direct_path():
     addresses outright, so once addresses decide routing, both would be handed
     to a path that fails."""
     rules = _balancer()["routing"]["rules"]
-    pinned = next(r for r in rules if "domain" in r and r.get("balancerTag") == "auto")
+    pinned = next(r for r in rules if "domain:google.com" in r.get("domain", []))
+    assert pinned.get("balancerTag") == "auto"
     joined = " ".join(pinned["domain"])
     for host in ("google.com", "gstatic.com", "googleapis.com",
                  "spotify.com", "scdn.co", "spotifycdn.com"):
@@ -475,8 +490,12 @@ def test_smaller_buffers_from_the_panel_are_left_alone():
 
 def test_probes_do_not_dial_every_node_at_once():
     """Ten simultaneous handshakes a minute is a memory and radio burst on a
-    sleeping phone — the shape of background work that gets an app reclaimed."""
-    assert _prober(_balancer()).get("enableConcurrency") is False
+    sleeping phone — the shape of background work that gets an app reclaimed.
+    burstObservatory spreads each server's probe over the interval by design;
+    the plain observatory has to be told."""
+    config = _balancer()
+    if "burstObservatory" not in config:
+        assert config["observatory"].get("enableConcurrency") is False
 
 
 # --- the control build -------------------------------------------------------
@@ -705,3 +724,43 @@ def test_a_left_out_link_does_not_break_the_balancer():
     config = xray_json.build_balancer_config([REALITY, WS_URI.replace("type=ws", "type=kcp")])
     proxies = [o for o in config["outbounds"] if o["tag"].startswith("proxy")]
     assert len(proxies) == 1
+
+
+def _rule_index(rules, predicate):
+    return next(i for i, rule in enumerate(rules) if predicate(rule))
+
+
+@pytest.mark.unit
+def test_torrents_are_blocked_before_anything_else_decides():
+    rules = xray_json.build_balancer_config([REALITY])["routing"]["rules"]
+    torrent = _rule_index(rules, lambda r: r.get("protocol") == ["bittorrent"])
+    assert rules[torrent]["outboundTag"] == "block"
+    assert torrent < _rule_index(rules, lambda r: r.get("outboundTag") == "direct" and "domain" in r)
+
+
+@pytest.mark.unit
+def test_ip_check_sites_show_the_vpn_address():
+    """2ip.ru is in .ru; without its own rule it went direct and showed the
+    user's Russian address, which reads as «VPN не работает»."""
+    rules = xray_json.build_balancer_config([REALITY])["routing"]["rules"]
+    check = _rule_index(rules, lambda r: "domain:2ip.ru" in r.get("domain", []))
+    assert rules[check].get("balancerTag") == "auto"
+    ru_direct = _rule_index(rules, lambda r: "regexp:\\.ru$" in r.get("domain", []))
+    assert check < ru_direct
+
+
+@pytest.mark.unit
+def test_push_notifications_skip_the_tunnel_ahead_of_google():
+    rules = xray_json.build_balancer_config([REALITY])["routing"]["rules"]
+    push = _rule_index(rules, lambda r: "domain:mtalk.google.com" in r.get("domain", []))
+    forced = _rule_index(rules, lambda r: "domain:google.com" in r.get("domain", []))
+    assert rules[push]["outboundTag"] == "direct"
+    assert push < forced, "mtalk.google.com would otherwise ride the tunnel with google.com"
+
+
+@pytest.mark.unit
+def test_hysteria_keeps_its_udp_path_alive():
+    stream = xray_json.build_outbound(HY2, "proxy-0")["streamSettings"]
+    assert stream["finalmask"]["quicParams"] == {
+        "congestion": "bbr", "keepAlivePeriod": 10, "maxIdleTimeout": 120,
+    }
