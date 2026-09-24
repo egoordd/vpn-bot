@@ -1292,3 +1292,18 @@ def test_a_flood_gets_busy_instead_of_piling_onto_the_panel(monkeypatch):
     finally:
         sub_gateway.UPSTREAM_SLOTS.release()
     assert _request(_panel_token("tg_558"), "hw", monkeypatch, valid=True) == 200
+
+
+def test_hosts_can_be_kept_out_of_the_automatic_modes(monkeypatch):
+    """Узел с коротким пингом и урезанным каналом не должен забирать «Авто-обход» (24.09.2026)."""
+    from services import sub_gateway, xray_json
+
+    monkeypatch.setattr(sub_gateway, "BALANCER_EXCLUDE_HOSTS", frozenset({"2.59.162.34.sslip.io"}))
+    monkeypatch.setattr(sub_gateway, "MOBILE_HOST", "212.233.122.241")
+    excluded = sub_gateway.balancer_exclusions()
+    assert excluded == {"2.59.162.34.sslip.io", "212.233.122.241"}
+
+    lt = "vless://u@2.59.162.34.sslip.io:443?security=reality&type=tcp&sni=2.59.162.34.sslip.io&pbk=K&sid=1#LT"
+    nl = "vless://u@107.189.22.160.sslip.io:443?security=reality&type=tcp&sni=107.189.22.160.sslip.io&pbk=K&sid=1#NL"
+    picked = xray_json._balancer_selection([lt, nl], excluded)
+    assert picked == [nl]

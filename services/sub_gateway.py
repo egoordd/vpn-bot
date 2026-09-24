@@ -1013,6 +1013,19 @@ def device_limit_body() -> str:
 # Она намеренно не попадает в «Авто-обход» (см. build_auto_json): трафик в
 # российском облаке платный, а канал этот — аварийный, а не для всех подряд.
 MOBILE_HOST = os.environ.get("MOBILE_HOST", "")
+# Узлы, которые остаются в списке для ручного выбора, но не участвуют в
+# «Авто-обходе» и «Режиме РУ-сервисов». Автовыбор идёт по пингу, и узел с самым
+# коротким пингом, но урезанным каналом забирает всех: 24.09.2026 Литва (22 мс
+# из Москвы, 8 Мбит/с собственного канала) давала автоматическому режиму 6 Мбит/с
+# при 140–240 у Германии и Нидерландов.
+BALANCER_EXCLUDE_HOSTS = frozenset(
+    host.strip() for host in os.environ.get("BALANCER_EXCLUDE_HOSTS", "").split(",") if host.strip()
+)
+
+
+def balancer_exclusions() -> frozenset[str]:
+    extra = {MOBILE_HOST} if MOBILE_HOST else set()
+    return frozenset(BALANCER_EXCLUDE_HOSTS | extra)
 MOBILE_PORT = int(os.environ.get("MOBILE_PORT", "443") or 443)
 # Имя, которое видит оператор. Своим адресом маскироваться бессмысленно: в белом
 # списке его нет, а значит и соединения не будет.
@@ -1130,9 +1143,7 @@ def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
     if resolved is None:
         return None
     links, userinfo = resolved
-    configs = build_json_subscription(
-        links, exclude_from_balancer={MOBILE_HOST} if MOBILE_HOST else frozenset()
-    )
+    configs = build_json_subscription(links, exclude_from_balancer=balancer_exclusions())
     if configs:
         # Compact separators, because the size of this body decides whether a
         # Russian client can fetch it at all. The path from RU to the gateway is
