@@ -115,3 +115,18 @@ def _never_call_the_tax_service(monkeypatch):
     monkeypatch.setattr(moynalog.settings, "MOYNALOG_INN", "")
     monkeypatch.setattr(moynalog.settings, "MOYNALOG_PASSWORD", blank)
     monkeypatch.setattr(moynalog.settings, "MOYNALOG_REFRESH_TOKEN", blank)
+
+
+@pytest.fixture(autouse=True)
+def _prices_before_the_rise(monkeypatch):
+    """Тесты писались при старых ценах (149/399/699/1199) и сверяют их.
+
+    С 26.09.2026 тарифы переключаются сами по часам, поэтому здесь часы
+    каталога остановлены до повышения. Само переключение проверяет
+    tests/test_price_rise.py, задавая время явно.
+    """
+    from datetime import datetime, timezone
+
+    from services import tariffs
+
+    monkeypatch.setattr(tariffs, "_now", lambda: datetime(2026, 9, 20, tzinfo=timezone.utc))

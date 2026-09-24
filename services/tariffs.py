@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 
 
 BYTES_IN_GB = 1024**3
@@ -58,7 +60,7 @@ def country_flag(country_code: str) -> str:
 
 
 
-TARIFFS: dict[str, Tariff] = {
+_BASE_TARIFFS: dict[str, Tariff] = {
     "trial": Tariff(
         code="trial",
         title="Пробник",
@@ -124,6 +126,52 @@ TARIFFS: dict[str, Tariff] = {
         sort_order=40,
     ),
 }
+
+
+# Повышение цен, объявленное рассылкой 23.09.2026: с 26.09.2026 00:00 по Москве.
+# Переключается само — TARIFFS отдаёт цену на момент обращения, поэтому ни бот,
+# ни зеркало, ни API перезапускать в полночь не нужно. Кто успел оплатить
+# раньше, получает весь оплаченный срок по старой цене: сумма платежа
+# фиксируется при его создании.
+PRICE_RISE_AT = datetime(2026, 9, 25, 21, 0, tzinfo=timezone.utc)  # 26.09 00:00 МСК
+_RISEN_PRICES: dict[str, tuple[int, str]] = {
+    "standard_1m": (199, "2.49"),
+    "standard_3m": (549, "6.99"),
+    "standard_6m": (999, "11.99"),
+    "standard_12m": (1799, "19.99"),
+}
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def price_rise_in_effect(now: datetime | None = None) -> bool:
+    return (now or _now()) >= PRICE_RISE_AT
+
+
+def _effective(tariff: Tariff, now: datetime | None = None) -> Tariff:
+    risen = _RISEN_PRICES.get(tariff.code)
+    if risen is None or not price_rise_in_effect(now):
+        return tariff
+    price_rub, crypto_amount = risen
+    return replace(tariff, price_rub=price_rub, crypto_amount=crypto_amount)
+
+
+class _ScheduledTariffs(Mapping[str, Tariff]):
+    """Каталог тарифов с ценой, действующей прямо сейчас."""
+
+    def __getitem__(self, code: str) -> Tariff:
+        return _effective(_BASE_TARIFFS[code])
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(_BASE_TARIFFS)
+
+    def __len__(self) -> int:
+        return len(_BASE_TARIFFS)
+
+
+TARIFFS: Mapping[str, Tariff] = _ScheduledTariffs()
 
 
 

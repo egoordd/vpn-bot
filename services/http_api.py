@@ -927,7 +927,11 @@ def create_app() -> FastAPI:
             paid_kopecks = int(round(float(payment["amount"]["value"]) * 100))
         except (KeyError, TypeError, ValueError):
             paid_kopecks = None
-        expected_kopecks = billing_api.get_billing_plan(details.plan).price_rub * 100
+        # Сверяем с суммой, записанной в платеже при его создании, а не с
+        # сегодняшней ценой: счёт, выставленный в 23:59 по старой цене и
+        # оплаченный после повышения (26.09.2026 00:00 МСК), иначе выглядел бы
+        # недоплатой, и человек остался бы без подписки при пришедших деньгах.
+        expected_kopecks = completed.amount or billing_api.get_billing_plan(details.plan).price_rub * 100
         if paid_kopecks is not None and paid_kopecks < expected_kopecks:
             log.error(
                 "YooKassa amount mismatch payment=%s paid=%s expected=%s plan=%s",
