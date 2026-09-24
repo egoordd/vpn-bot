@@ -38,8 +38,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # standalone as /opt/sub_gateway.py with /opt/xray_json.py beside it (the
 # script's own dir is on sys.path), so fall back to a flat import.
 try:
+    from services.competitor_profile import build_test_config
     from services.xray_json import build_json_subscription
 except ImportError:  # pragma: no cover - standalone deploy path
+    from competitor_profile import build_test_config
     from xray_json import build_json_subscription
 
 MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://panel.23.95.3.18.sslip.io").rstrip("/")
@@ -1196,6 +1198,23 @@ def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
     return payload, userinfo, False
 
 
+# Тестовая подписка владельца: одна запись с автовыбором, скопированным у
+# конкурента (services/competitor_profile.py). Своё имя в Happ, чтобы не спутать
+# с рабочей подпиской, и никаких заголовков автоподключения.
+TEST_PROFILE_TITLE_HEADER = "base64:" + base64.b64encode("UnLock ТЕСТ".encode("utf-8")).decode("ascii")
+
+
+def build_test_json(token: str) -> tuple[str, str | None, bool] | None:
+    resolved = resolve_links(token)
+    if resolved is None:
+        return None
+    links, userinfo = resolved
+    config = build_test_config(pin_addresses(links), exclude_hosts=balancer_exclusions())
+    if config is None:
+        return "[]", userinfo, True
+    return json.dumps([config], ensure_ascii=False, separators=(",", ":")), userinfo, True
+
+
 def happ_redirect_page(sub_url: str) -> str:
     """HTML that bounces the browser into Happ's `happ://add/<sub_url>` deep link.
 
@@ -1269,6 +1288,8 @@ class Handler(BaseHTTPRequestHandler):
         # foreign TLDs leave the tunnel too. Handed out by link only, so it is
         # opt-in and comparable against the ordinary subscription.
         is_split = flavor == "split"
+        # Только для теста владельцем: автовыбор как у конкурента.
+        is_test = flavor == "test"
         if not token or not _TOKEN_RE.match(token):
             # Настоящие ссылки всегда подходят под шаблон: мусор отсекаем, не
             # тревожа панель (аудит 22.09.2026, GW-03).
@@ -1298,7 +1319,7 @@ class Handler(BaseHTTPRequestHandler):
         # keep the base64 URI list, Hysteria2 included.
         ua = self.headers.get("User-Agent", "")
         wants_json = not force_plain and (
-            is_auto or is_split or (AUTO_IN_SUB and _supports_xray_json(ua))
+            is_auto or is_split or is_test or (AUTO_IN_SUB and _supports_xray_json(ua))
         )
         # Сначала панель проверяет ссылку, и только потом устройство попадает в
         # учёт. Имя в ссылке не подписано: до 22.09.2026 поддельная ссылка с
@@ -1308,7 +1329,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(503, b"busy, retry later", "text/plain")
             return
         try:
-            built = build_auto_json(token) if wants_json else build_combined(token)
+            if is_test:
+                built = build_test_json(token)
+            else:
+                built = build_auto_json(token) if wants_json else build_combined(token)
         finally:
             UPSTREAM_SLOTS.release()
         if built is None:
@@ -1335,6 +1359,8 @@ class Handler(BaseHTTPRequestHandler):
             # link: the plain subscription must not start dialling on its own.
             if is_json and (is_auto or is_split):
                 extra.update(AUTO_HEADERS)
+            if is_test:
+                extra["profile-title"] = TEST_PROFILE_TITLE_HEADER
             if userinfo:
                 extra["subscription-userinfo"] = _normalise_userinfo(userinfo)
             ctype = "application/json; charset=utf-8" if is_json else "text/plain; charset=utf-8"
