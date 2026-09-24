@@ -76,3 +76,40 @@ def test_only_the_test_link_serves_the_copy(monkeypatch):
     assert first["remarks"] == "⚡️ Авто-обход"
     assert first["routing"]["balancers"][0]["strategy"] == {"type": "leastPing"}
     assert not any(r.get("protocol") == ["bittorrent"] for r in first["routing"]["rules"])
+
+
+CASCADE_DE = (
+    "vless://c@130.49.143.41.sslip.io:2096?security=reality&type=tcp&flow=xtls-rprx-vision"
+    "&sni=130.49.143.41.sslip.io&fp=firefox&pbk=K&sid=9a#DE-cascade"
+)
+
+
+@pytest.mark.unit
+def test_bridge_copy_sends_everything_through_one_server():
+    config = competitor_profile.build_bridge_test_config(CASCADE_DE)
+    proxies = [o for o in config["outbounds"] if o["tag"] == "proxy"]
+    assert len(proxies) == 1 and config["outbounds"][0]["tag"] == "proxy"
+    assert config["routing"]["rules"] == [
+        {"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"}
+    ]
+    assert config["dns"] == {"queryStrategy": "UseIP", "servers": ["1.1.1.1", "1.0.0.1"]}
+    assert "balancers" not in config["routing"]
+
+
+@pytest.mark.unit
+def test_bridge_copy_is_none_without_a_cascade():
+    assert competitor_profile.build_bridge_test_config(None) is None
+
+
+@pytest.mark.unit
+def test_test_link_carries_both_copies_when_the_cascade_is_live(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: (_links() + [CASCADE_DE], None))
+
+    body, _, _ = sub_gateway.build_test_json("tok")
+    configs = json.loads(body)
+
+    assert [c["remarks"] for c in configs] == [
+        competitor_profile.TEST_REMARKS, competitor_profile.BRIDGE_REMARKS,
+    ]
+    bridge = configs[1]["outbounds"][0]["settings"]["vnext"][0]
+    assert (bridge["address"], bridge["port"]) == ("130.49.143.41", 2096)

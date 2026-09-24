@@ -208,3 +208,36 @@ def build_test_config(
         },
         "burstObservatory": _BURST_OBSERVATORY,
     }
+
+
+# «🇪🇺 Мост 🇷🇺 ➡️ 🇪🇺» Phantom (снят 24.09.2026): один сервер — вход в России
+# (Санкт-Петербург, Reality на 443 со своим доменом), выход в Германии. У нас
+# то же самое — каскад Москва → Франкфурт, поэтому копируется клиентская часть:
+# весь трафик в туннель без деления на российское и зарубежное (российское
+# выходит из моста, а не с телефона), торренты напрямую, DNS 1.1.1.1/1.0.0.1.
+BRIDGE_REMARKS = "🧪 Тест · мост как у Phantom 🇷🇺 ➡️ 🇩🇪"
+_BRIDGE_DNS = {"queryStrategy": "UseIP", "servers": ["1.1.1.1", "1.0.0.1"]}
+
+
+def build_bridge_test_config(uri: str | None) -> dict | None:
+    """Одна запись — мост с настройками конкурента поверх нашего каскада."""
+    outbound = build_outbound(uri, "proxy") if uri else None
+    if outbound is None:
+        return None
+    return {
+        "remarks": BRIDGE_REMARKS,
+        "log": {"loglevel": "warning"},
+        "dns": _BRIDGE_DNS,
+        "inbounds": _INBOUNDS,
+        "outbounds": [
+            outbound,
+            {"tag": "direct", "protocol": "freedom"},
+            {"tag": "block", "protocol": "blackhole"},
+        ],
+        # Правило одно; всё остальное уходит в первый выход — мост.
+        "routing": {
+            "domainMatcher": "hybrid",
+            "domainStrategy": "IPIfNonMatch",
+            "rules": [{"type": "field", "protocol": ["bittorrent"], "outboundTag": "direct"}],
+        },
+    }

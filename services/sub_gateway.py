@@ -38,10 +38,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # standalone as /opt/sub_gateway.py with /opt/xray_json.py beside it (the
 # script's own dir is on sys.path), so fall back to a flat import.
 try:
-    from services.competitor_profile import build_test_config
+    from services.competitor_profile import build_bridge_test_config, build_test_config
     from services.xray_json import build_json_subscription
 except ImportError:  # pragma: no cover - standalone deploy path
-    from competitor_profile import build_test_config
+    from competitor_profile import build_bridge_test_config, build_test_config
     from xray_json import build_json_subscription
 
 MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://panel.23.95.3.18.sslip.io").rstrip("/")
@@ -1204,15 +1204,32 @@ def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
 TEST_PROFILE_TITLE_HEADER = "base64:" + base64.b64encode("UnLock ТЕСТ".encode("utf-8")).decode("ascii")
 
 
+# Мост конкурента выходит в Германии — у нас это каскад Москва → Франкфурт.
+BRIDGE_TEST_PORT = 2096
+
+
+def _bridge_link(links: list[str]) -> str | None:
+    for uri in links:
+        if _uri_endpoint(uri) == (RU_RELAY_HOST, BRIDGE_TEST_PORT):
+            return uri
+    return None
+
+
 def build_test_json(token: str) -> tuple[str, str | None, bool] | None:
     resolved = resolve_links(token)
     if resolved is None:
         return None
     links, userinfo = resolved
-    config = build_test_config(pin_addresses(links), exclude_hosts=balancer_exclusions())
-    if config is None:
-        return "[]", userinfo, True
-    return json.dumps([config], ensure_ascii=False, separators=(",", ":")), userinfo, True
+    bridge = _bridge_link(links)
+    configs = [
+        config
+        for config in (
+            build_test_config(pin_addresses(links), exclude_hosts=balancer_exclusions()),
+            build_bridge_test_config(pin_address(bridge) if bridge else None),
+        )
+        if config is not None
+    ]
+    return json.dumps(configs, ensure_ascii=False, separators=(",", ":")), userinfo, True
 
 
 def happ_redirect_page(sub_url: str) -> str:
