@@ -336,7 +336,7 @@ def test_build_auto_json_returns_json_array_with_balancer_first(monkeypatch):
 
     configs = json.loads(body)
     assert configs[0]["remarks"] == "⚡️ Авто-обход"
-    assert configs[0]["routing"]["balancers"][0]["strategy"]["type"] == "leastLoad"
+    assert configs[0]["routing"]["balancers"][0]["strategy"]["type"] == "leastPing"
     # Hysteria rides along now: «Авто-обход» needs a UDP path to reach for when
     # the carrier drops every TCP connection at once.
     proxy_tags = [o["tag"] for o in configs[0]["outbounds"] if o["tag"].startswith("proxy-")]
