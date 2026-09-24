@@ -13,6 +13,7 @@ from database.repository import Repository
 from scheduler.tasks import traffic_sync
 from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services import channel_stats
+from services import manual_trial
 from services import utm_links
 from services.promo import PROMO_SUBSCRIPTION_GRANT, PromoTypeError, plan_for_days
 
@@ -125,6 +126,7 @@ async def admin_help_handler(message: Message) -> None:
             "/channels — бот / сайт / зеркало по отдельности",
             "/utm &lt;название&gt; — рекламная ссылка в бота; /utm — все ссылки",
             "/find &lt;tg_id&gt; — карточка пользователя",
+            "/trial [источник] — пробник по ссылке (для Авито и т.п.)",
             "/gift_promo &lt;КОД&gt; &lt;дней&gt; [исп.] — промокод на подписку",
             "/sync_traffic — синхронизировать трафик",
             "/panel_user &lt;tg_id&gt; — юзер в панели",
@@ -291,6 +293,32 @@ async def find_handler(message: Message, session_pool: async_sessionmaker[AsyncS
     sub_lines = [f"🌐 {s.tier}: до {format_msk(s.expires_at)}" for s in subs] or ["нет активных"]
     text = "👤 <b>Пользователь</b>\n" + bq(*lines) + "\n\n🔑 <b>Подписки</b>\n" + bq(*sub_lines)
     await message.answer(text)
+
+
+@router.message(Command("trial"))
+async def manual_trial_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
+    if await _reject_non_admin(message):
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    try:
+        source = manual_trial.normalize_source(parts[1] if len(parts) > 1 else None)
+    except ValueError as exc:
+        await message.answer(f"❌ {exc}. Пример: /trial или /trial avito")
+        return
+    try:
+        async with session_pool() as session:
+            trial = await manual_trial.issue_manual_trial(session, source=source)
+    except Exception:
+        logger.exception("Manual trial failed (source=%s)", source)
+        await message.answer("❌ Не удалось выдать пробник — панель не ответила. Попробуйте ещё раз.")
+        return
+    expires = format_msk(trial.expires_at)
+    await message.answer(
+        f"✅ Пробник выдан · источник <b>{trial.source}</b> · до {expires}\n"
+        f"Аккаунт <code>{trial.telegram_id}</code> (для /find)\n\n"
+        "Текст для клиента — скопируйте целиком 👇"
+    )
+    await message.answer(manual_trial.client_message(trial, expires), parse_mode=None)
 
 
 @router.message(Command("gift_promo"))
