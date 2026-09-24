@@ -295,9 +295,14 @@ async def find_handler(message: Message, session_pool: async_sessionmaker[AsyncS
     await message.answer(text)
 
 
+def _can_issue_trials(message: Message) -> bool:
+    return _is_admin(message) or message.from_user.id in settings.trial_issuer_ids
+
+
 @router.message(Command("trial"))
 async def manual_trial_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
-    if await _reject_non_admin(message):
+    if not _can_issue_trials(message):
+        await message.answer("Команда доступна только администраторам")
         return
     parts = (message.text or "").split(maxsplit=1)
     try:

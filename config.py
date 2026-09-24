@@ -175,6 +175,9 @@ class Settings(BaseSettings):
     # alerts bot once, or Telegram refuses to message them.
     ALERTS_EXTRA_CHAT_IDS: str = ""
     SUPPORT_AGENT_IDS: str = ""
+    # Кому, кроме админов, разрешена только /trial — выдача пробников клиентам с
+    # Авито (comma-separated Telegram ids). Остальная админка им не открывается.
+    TRIAL_ISSUER_IDS: str = ""
     # Support bot: users open tickets here; the support relay forwards them to the
     # reports bot and routes the admin's replies back. Username = for the deep link.
     SUPPORT_BOT_TOKEN: str = ""
@@ -218,6 +221,10 @@ class Settings(BaseSettings):
     @property
     def support_agent_ids(self) -> list[int]:
         return [int(item.strip()) for item in self.SUPPORT_AGENT_IDS.split(",") if item.strip()]
+
+    @property
+    def trial_issuer_ids(self) -> list[int]:
+        return [int(item.strip()) for item in self.TRIAL_ISSUER_IDS.split(",") if item.strip()]
 
     @property
     def alerts_chat_id(self) -> str:

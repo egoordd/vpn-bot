@@ -110,3 +110,21 @@ async def test_trial_survives_a_session_that_expires_on_commit(session_pool):
     async with strict() as session:
         trial = await manual_trial.issue_manual_trial(session, panel_gateway=SlotPanel())
     assert trial.telegram_id < 0 and trial.expires_at is not None
+
+
+@pytest.mark.integration
+async def test_a_trial_issuer_can_use_trial_but_not_the_rest_of_the_admin(session_pool, monkeypatch):
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(admin.settings, "ADMIN_IDS", "4")
+    monkeypatch.setattr(admin.settings, "TRIAL_ISSUER_IDS", "9, 10")
+    trial = manual_trial.ManualTrial(-78, "avito", "https://unlockru.site/sub/t2", datetime(2026, 9, 27, tzinfo=timezone.utc))
+    monkeypatch.setattr(admin.manual_trial, "issue_manual_trial", AsyncMock(return_value=trial))
+
+    issuer = _message(10, "/trial")
+    await admin.manual_trial_handler(issuer, session_pool)
+    assert "https://unlockru.site/sub/t2" in issuer.answer.await_args_list[-1].args[0]
+
+    stats = _message(10, "/stats")
+    await admin.admin_help_handler(stats)
+    assert "администраторам" in stats.answer.await_args.args[0]
