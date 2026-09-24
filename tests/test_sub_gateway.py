@@ -196,7 +196,10 @@ def test_build_combined_serves_active_marzban_user(monkeypatch):
 
     payload, _ = sub_gateway.build_combined("tok")
 
-    assert base64.b64decode(payload).decode("utf-8") == vless
+    # Адрес уходит клиенту прямым IP, имя остаётся в sni.
+    assert base64.b64decode(payload).decode("utf-8") == (
+        "vless://uuid@172.86.119.133:443?sni=172.86.119.133.sslip.io#US"
+    )
 
 
 def test_marzban_sub_active_fails_open_on_transport_error(monkeypatch):
@@ -1301,9 +1304,47 @@ def test_hosts_can_be_kept_out_of_the_automatic_modes(monkeypatch):
     monkeypatch.setattr(sub_gateway, "BALANCER_EXCLUDE_HOSTS", frozenset({"2.59.162.34.sslip.io"}))
     monkeypatch.setattr(sub_gateway, "MOBILE_HOST", "212.233.122.241")
     excluded = sub_gateway.balancer_exclusions()
-    assert excluded == {"2.59.162.34.sslip.io", "212.233.122.241"}
+    assert excluded == {"2.59.162.34", "212.233.122.241"}
 
     lt = "vless://u@2.59.162.34.sslip.io:443?security=reality&type=tcp&sni=2.59.162.34.sslip.io&pbk=K&sid=1#LT"
     nl = "vless://u@107.189.22.160.sslip.io:443?security=reality&type=tcp&sni=107.189.22.160.sslip.io&pbk=K&sid=1#NL"
+    lt, nl = sub_gateway.pin_addresses([lt, nl])
     picked = xray_json._balancer_selection([lt, nl], excluded)
     assert picked == [nl]
+
+
+def test_servers_are_addressed_by_ip_so_no_name_lookup_can_fail():
+    """«Сервер с указанным именем хоста не удалось найти» (24.09.2026): адрес — IP, имя — только в sni."""
+    reality = "vless://u@78.17.154.225.sslip.io:2087?security=reality&type=tcp&sni=78.17.154.225.sslip.io&pbk=K&sid=1#PL"
+    hy2 = "hysteria2://pass@78.17.154.225.sslip.io:443?sni=78.17.154.225.sslip.io&insecure=0#PL%20Hy2"
+    bare = "vless://u@166.0.28.132.sslip.io:2098?security=reality&type=xhttp&path=%2Fp&pbk=K#DE"
+    foreign = "vless://u@example.com:443?security=tls&sni=example.com#X"
+
+    pinned = sub_gateway.pin_addresses([reality, hy2, bare, foreign])
+
+    assert pinned[0] == reality.replace("@78.17.154.225.sslip.io:", "@78.17.154.225:")
+    assert pinned[1] == hy2.replace("@78.17.154.225.sslip.io:", "@78.17.154.225:")
+    assert pinned[2] == "vless://u@166.0.28.132:2098?security=reality&type=xhttp&path=%2Fp&pbk=K&sni=166.0.28.132.sslip.io#DE"
+    assert pinned[3] == foreign
+
+
+def test_both_subscription_bodies_carry_ip_addresses(monkeypatch):
+    links = [
+        "vless://u@78.17.154.225.sslip.io:2087?security=reality&type=tcp&sni=78.17.154.225.sslip.io&pbk=K&sid=1#PL",
+        "vless://u@166.0.28.132.sslip.io:2088?security=reality&type=tcp&sni=166.0.28.132.sslip.io&pbk=K&sid=1#DE",
+    ]
+    monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: (links, None))
+
+    plain, _ = sub_gateway.build_combined("tok")
+    body, _, is_json = sub_gateway.build_auto_json("tok")
+
+    decoded = base64.b64decode(plain).decode()
+    assert ".sslip.io:" not in decoded and "@78.17.154.225:2087" in decoded
+    assert is_json
+    addresses = {
+        (o["settings"].get("vnext") or o["settings"].get("servers"))[0]["address"]
+        for config in json.loads(body)
+        for o in config["outbounds"]
+        if o.get("tag", "").startswith("proxy")
+    }
+    assert addresses == {"78.17.154.225", "166.0.28.132"}

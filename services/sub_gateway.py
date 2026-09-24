@@ -233,10 +233,13 @@ def _client_headers(token: str | None = None, flavor: str = "") -> dict[str, str
 
 # vless host -> location + its Hysteria2 endpoint
 NODES = {
+    # На USA-2 Hysteria2 не поднят: UDP 443 там никто не слушает, и запись
+    # «🇺🇸 США · Hysteria2» не отвечала ни у кого (проверено 24.09.2026). Пароль
+    # US_HY2_PASS остался от прежнего американского сервера и здесь не читается.
     "172.86.119.133.sslip.io": {
         "flag": "🇺🇸", "name": "США",
         "hy2_host": "172.86.119.133.sslip.io", "hy2_port": 443,
-        "hy2_pass": os.environ.get("US_HY2_PASS", ""),
+        "hy2_pass": "",
     },
     "107.189.22.160.sslip.io": {
         "flag": "🇳🇱", "name": "Нидерланды",
@@ -1025,7 +1028,41 @@ BALANCER_EXCLUDE_HOSTS = frozenset(
 
 def balancer_exclusions() -> frozenset[str]:
     extra = {MOBILE_HOST} if MOBILE_HOST else set()
-    return frozenset(BALANCER_EXCLUDE_HOSTS | extra)
+    return frozenset(pin_host(host) for host in BALANCER_EXCLUDE_HOSTS | extra)
+
+
+# Клиент получает адрес сервера прямым IP, а не именем. 24.09.2026 Happ
+# владельца перестал подключаться с «Сервер с указанным именем хоста не удалось
+# найти»: имена вида 78.17.154.225.sslip.io телефон резолвит через DNS своего
+# провайдера, а sslip.io — сторонний бесплатный сервис. Не ответил он или DNS
+# провайдера — не находится ни один сервер сразу. С IP искать нечего. Имя
+# остаётся в sni: под него выписаны сертификаты и его ждёт Reality, а sni клиент
+# не резолвит. Внутри шлюза узлы по-прежнему зовутся именами — замена делается
+# только на выходе.
+_SSLIP_IP_RE = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3})\.sslip\.io$")
+
+
+def pin_host(host: str) -> str:
+    match = _SSLIP_IP_RE.match(host or "")
+    return match.group(1) if match else host
+
+
+def pin_address(uri: str) -> str:
+    host = _uri_host(uri)
+    if not host or pin_host(host) == host:
+        return uri
+    head, _, rest = uri.partition("@")
+    rest, hash_sep, fragment = rest.partition("#")
+    address, query_sep, query = rest.partition("?")
+    if "sni" not in urllib.parse.parse_qs(query):
+        query = f"{query}&sni={host}" if query else f"sni={host}"
+        query_sep = "?"
+    address = pin_host(host) + address[len(host):]
+    return f"{head}@{address}{query_sep}{query}{hash_sep}{fragment}"
+
+
+def pin_addresses(links: list[str]) -> list[str]:
+    return [pin_address(uri) for uri in links]
 MOBILE_PORT = int(os.environ.get("MOBILE_PORT", "443") or 443)
 # Имя, которое видит оператор. Своим адресом маскироваться бессмысленно: в белом
 # списке его нет, а значит и соединения не будет.
@@ -1124,7 +1161,7 @@ def build_combined(token: str) -> tuple[str, str | None] | None:
     if resolved is None:
         return None
     links, userinfo = resolved
-    payload = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
+    payload = base64.b64encode("\n".join(pin_addresses(links)).encode("utf-8")).decode("ascii")
     return payload, userinfo
 
 
@@ -1143,6 +1180,7 @@ def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
     if resolved is None:
         return None
     links, userinfo = resolved
+    links = pin_addresses(links)
     configs = build_json_subscription(links, exclude_from_balancer=balancer_exclusions())
     if configs:
         # Compact separators, because the size of this body decides whether a
