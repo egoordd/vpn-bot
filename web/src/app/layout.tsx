@@ -11,6 +11,11 @@ const manrope = Manrope({
   variable: "--font-manrope",
 });
 
+// Цены на страницах берутся из lib/tariffs.ts на момент сборки страницы.
+// Раз в минуту страница пересобирается, поэтому новые цены (26.09.2026 00:00
+// МСК) появятся сами, без выкладки ночью.
+export const revalidate = 60;
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE.url),
   title: {

@@ -23,7 +23,7 @@ export interface Tariff {
   sortOrder: number;
 }
 
-export const TARIFFS: Record<string, Tariff> = {
+const BASE_TARIFFS: Record<string, Tariff> = {
   trial: {
     code: "trial",
     title: "Пробник",
@@ -57,10 +57,10 @@ export const TARIFFS: Record<string, Tariff> = {
     durationDays: 90,
     priceRub: 399,
     cryptoAmount: "4.99",
-    trafficGb: 150,
+    trafficGb: 200,
     trafficResetsMonthly: true,
     deviceLimit: 3,
-    description: "Общий тариф на 90 дней, 150 ГБ в месяц",
+    description: "Общий тариф на 90 дней, 200 ГБ в месяц",
     sortOrder: 20,
   },
   standard_6m: {
@@ -70,10 +70,10 @@ export const TARIFFS: Record<string, Tariff> = {
     durationDays: 180,
     priceRub: 699,
     cryptoAmount: "7.99",
-    trafficGb: 150,
+    trafficGb: 200,
     trafficResetsMonthly: true,
-    deviceLimit: 5,
-    description: "Общий тариф на 180 дней, 150 ГБ в месяц",
+    deviceLimit: 3,
+    description: "Общий тариф на 180 дней, 200 ГБ в месяц",
     sortOrder: 30,
   },
   standard_12m: {
@@ -83,13 +83,47 @@ export const TARIFFS: Record<string, Tariff> = {
     durationDays: 365,
     priceRub: 1199,
     cryptoAmount: "12.99",
-    trafficGb: 150,
+    trafficGb: 200,
     trafficResetsMonthly: true,
-    deviceLimit: 5,
-    description: "Общий тариф на 12 месяцев, 150 ГБ в месяц",
+    deviceLimit: 3,
+    description: "Общий тариф на 12 месяцев, 200 ГБ в месяц",
     sortOrder: 40,
   },
 };
+
+/**
+ * Повышение цен, объявленное рассылкой 23.09.2026: с 26.09.2026 00:00 по Москве.
+ * Как и в боте (services/tariffs.py), цена берётся на момент показа, поэтому
+ * в полночь ничего пересобирать не нужно: страницы обновляются сами
+ * (revalidate в app/layout.tsx), а в браузере цена считается по его часам.
+ */
+export const PRICE_RISE_AT = Date.UTC(2026, 8, 25, 21, 0, 0); // 26.09 00:00 МСК
+
+const RISEN_PRICES: Record<string, { priceRub: number; cryptoAmount: string }> = {
+  standard_1m: { priceRub: 199, cryptoAmount: "2.49" },
+  standard_3m: { priceRub: 549, cryptoAmount: "6.99" },
+  standard_6m: { priceRub: 999, cryptoAmount: "11.99" },
+  standard_12m: { priceRub: 1799, cryptoAmount: "19.99" },
+};
+
+export function priceRiseInEffect(now: number = Date.now()): boolean {
+  return now >= PRICE_RISE_AT;
+}
+
+function effective(tariff: Tariff, now: number = Date.now()): Tariff {
+  const risen = RISEN_PRICES[tariff.code];
+  return risen && priceRiseInEffect(now) ? { ...tariff, ...risen } : tariff;
+}
+
+/** Каталог с ценой, действующей прямо сейчас. */
+export const TARIFFS: Record<string, Tariff> = new Proxy(BASE_TARIFFS, {
+  get(target, key, receiver) {
+    const value = Reflect.get(target, key, receiver);
+    return typeof key === "string" && value && typeof value === "object" && "priceRub" in value
+      ? effective(value as Tariff)
+      : value;
+  },
+});
 
 
 
@@ -109,7 +143,7 @@ export function pricePerMonth(tariff: Tariff): number {
 /** How much traffic a tariff grants, worded so the period is unmistakable.
  *
  * A refilling allowance printed bare reads as the whole term — "150 ГБ" on a
- * three-month plan looks like a worse deal than the monthly one it repeats.
+ * three-month plan looks like a term-wide pool rather than a monthly allowance.
  */
 export function trafficLabel(plan: Pick<Tariff, "trafficGb" | "trafficResetsMonthly">): string | null {
   if (plan.trafficGb === null) return null;

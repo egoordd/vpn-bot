@@ -478,7 +478,7 @@ img, svg { display: block; }
           Для компаний
         </a>
       </div>
-      <p class="fineprint reveal" style="--i:6">от 149 ₽ в месяц · до 3 устройств на подписку</p>
+      <p class="fineprint reveal" style="--i:6" data-price-after="от 199 ₽ в месяц · до 3 устройств на подписку">от 149 ₽ в месяц · до 3 устройств на подписку</p>
     </div>
 
     <div class="stage reveal" style="--i:4" aria-label="Тарифы">
@@ -492,9 +492,9 @@ img, svg { display: block; }
       </div>
       <div class="card">
         <div class="card__label">Тарифы от</div>
-        <p class="card__price"><span class="card__amount">149 ₽</span><span class="card__unit">в месяц</span></p>
+        <p class="card__price"><span class="card__amount" data-price-after="199 ₽">149 ₽</span><span class="card__unit">в месяц</span></p>
         <ul class="card__rows">
-          <li><span>За год</span><b class="hot">100 ₽ в месяц</b></li>
+          <li><span>За год</span><b class="hot" data-price-after="150 ₽ в месяц">100 ₽ в месяц</b></li>
           <li><span>Трафик</span><b>до 200 ГБ в месяц</b></li>
           <li><span>Устройств</span><b>до 3</b></li>
           <li><span>Приложение</span><b>iOS · Android · Windows · macOS</b></li>
@@ -543,5 +543,15 @@ img, svg { display: block; }
     <a href="https://t.me/unlock_support_bot" rel="noopener">Поддержка</a>
   </nav>
 </footer>
+<script>
+  // Новые цены с 26.09.2026 00:00 МСК — как в боте и на сайте. Страница
+  // статичная, поэтому после этого часа надписи меняет сам браузер.
+  (function () {
+    if (Date.now() < Date.UTC(2026, 8, 25, 21, 0, 0)) return;
+    document.querySelectorAll("[data-price-after]").forEach(function (el) {
+      el.textContent = el.getAttribute("data-price-after");
+    });
+  })();
+</script>
 </body>
 </html>
