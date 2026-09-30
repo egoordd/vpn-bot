@@ -11,6 +11,11 @@ PAYMENT_PLAN_CODES = (
     "standard_3m",
     "standard_6m",
     "standard_12m",
+    # Скрытые: счёт на них выставляется только по личному предложению
+    # (services/winback.py); меню бота показывает лишь коды на standard_.
+    "winback_unlim_1m",
+    "winback_unlim_3m",
+    "winback_unlim_6m",
 )
 
 

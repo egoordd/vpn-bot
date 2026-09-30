@@ -192,6 +192,10 @@ class Settings(BaseSettings):
     # The bot shows a "pay by card" button that opens Tribute INSIDE Telegram, so the
     # buyer is Telegram-identified and the new_digital_product webhook can auto-deliver.
     TRIBUTE_PAY_LINKS: str = "{}"
+    # Личное предложение «безлимит со скидкой» тем, кто взял пробник и так и не
+    # подключился (services/winback.py). Выключено, пока владелец не скажет «да»:
+    # включение сразу рассылает всем, кто сейчас подходит.
+    WINBACK_ENABLED: bool = False
     DB_ECHO: bool = False
 
     @field_validator("ADMIN_IDS", mode="before")

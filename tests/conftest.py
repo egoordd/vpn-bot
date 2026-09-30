@@ -51,6 +51,7 @@ from database.models import Base
 # create_all, иначе тест, запущенный отдельно, не находит их.
 import services.web_checkout  # noqa: E402,F401
 import services.web_passwords  # noqa: E402,F401
+import services.winback  # noqa: E402,F401
 
 
 @pytest_asyncio.fixture

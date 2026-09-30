@@ -277,7 +277,8 @@ def test_tariffs_screen_lists_real_prices() -> None:
 
     body = mirror_legal.tariffs_text()
     for tariff in TARIFFS.values():
-        if tariff.price_rub > 0:
+        # Скрытые (личное предложение основного бота) в зеркале не продаются.
+        if tariff.price_rub > 0 and not tariff.hidden:
             assert f"{tariff.price_rub} ₽" in body, f"нет цены тарифа {tariff.code}"
 
 

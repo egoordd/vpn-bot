@@ -205,10 +205,11 @@ def _plan_from_start_payload(payload: str | None) -> str | None:
     raw = payload[len(_START_BUY_PREFIX):].strip()
     try:
         plan = normalize_payment_plan_code(raw)
-        resolve_tariff(plan)
+        tariff = resolve_tariff(plan)
     except (KeyError, ValueError):
         return None
-    return plan
+    # Скрытый тариф открывается только кнопкой из личного предложения.
+    return None if tariff.hidden else plan
 
 
 @router.message(CommandStart())

@@ -19,6 +19,10 @@ def test_plans_shape():
         "standard_3m",
         "standard_6m",
         "standard_12m",
+        # скрытые: счёт только по личному предложению (services/winback.py)
+        "winback_unlim_1m",
+        "winback_unlim_3m",
+        "winback_unlim_6m",
     }
     for plan in PLANS.values():
         assert {"days", "rub_amount", "crypto_amount"} <= set(plan)

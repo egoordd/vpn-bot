@@ -21,6 +21,7 @@ from services.billing_api import build_payment_intent, register_yookassa_payment
 from services.payment import PLANS, normalize_payment_plan_code
 from services.tariffs import resolve_tariff
 from services import subscription_slots as slots
+from services import winback
 from services import yookassa
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,9 @@ async def _create_yookassa_invoice(
     send,
     target: str | None = None,
 ) -> None:
+    if not await _winback_allowed(session_pool, telegram_id, plan):
+        await send(WINBACK_CLOSED, None)
+        return
     async with session_pool() as session:
         intent = await build_payment_intent(
             session,
@@ -264,7 +268,22 @@ EXTRA_TEXT = (
 def _parse_plan(raw: str) -> tuple[str, str | None]:
     """«standard_1m@new» → (код тарифа, цель). ValueError — если что-то не так."""
     raw_plan, target = slots.split_plan_target(raw)
-    return normalize_payment_plan_code(raw_plan), target
+    plan = normalize_payment_plan_code(raw_plan)
+    if winback.is_winback_plan(plan):
+        # Скидка продлевает сам аккаунт, а не отдельную подписку.
+        target = None
+    return plan, target
+
+
+WINBACK_CLOSED = "Это предложение уже недоступно: срок истёк или скидка уже использована."
+
+
+async def _winback_allowed(session_pool: async_sessionmaker[AsyncSession], telegram_id: int, plan: str) -> bool:
+    """Скидочный тариф открыт только держателю действующего предложения."""
+    if not winback.is_winback_plan(plan):
+        return True
+    async with session_pool() as session:
+        return await winback.purchase_allowed(session, telegram_id, plan)
 
 
 async def _extra_allowed(session_pool: async_sessionmaker[AsyncSession], telegram_id: int, username: str | None) -> bool:
@@ -401,6 +420,9 @@ async def buy_plan_handler(
     ):
         await callback.answer(LIMIT_ALERT, show_alert=True)
         return
+    if not await _winback_allowed(session_pool, callback.from_user.id, plan):
+        await callback.answer(WINBACK_CLOSED, show_alert=True)
+        return
 
     await _show_checkout(callback, session_pool, plan=plan, target=target)
 
@@ -428,6 +450,9 @@ async def pay_yookassa_handler(
 
     if not yookassa.is_configured():
         await callback.answer("Оплата картой сейчас недоступна.", show_alert=True)
+        return
+    if not await _winback_allowed(session_pool, callback.from_user.id, plan):
+        await callback.answer(WINBACK_CLOSED, show_alert=True)
         return
 
     await callback.answer()

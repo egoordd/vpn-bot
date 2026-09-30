@@ -15,6 +15,7 @@ from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services import channel_stats
 from services import manual_trial
 from services import utm_links
+from services import winback
 from services.promo import PROMO_SUBSCRIPTION_GRANT, PromoTypeError, plan_for_days
 
 logger = logging.getLogger(__name__)
@@ -265,6 +266,47 @@ async def funnel_handler(message: Message, session_pool: async_sessionmaker[Asyn
         )
     )
     await message.answer(text)
+
+
+@router.message(Command("winback"))
+async def winback_handler(message: Message, session_pool: async_sessionmaker[AsyncSession], bot: Bot) -> None:
+    """Личное предложение тем, кто взял пробник и не подключился (services/winback.py).
+
+    /winback — сводка и само сообщение, без отправки.
+    /winback test — открыть предложение себе и прислать его, чтобы пройти путь до оплаты.
+    """
+    if await _reject_non_admin(message):
+        return
+    parts = (message.text or "").split()
+    now = datetime.now(timezone.utc)
+
+    if len(parts) > 1 and parts[1].lower() == "test":
+        async with session_pool() as session:
+            user = await Repository(session).get_or_create_user(
+                telegram_id=message.from_user.id, username=message.from_user.username
+            )
+            offer = await winback.grant_offer(session, user.id, now=now)
+        text, keyboard = winback.offer_view(offer.expires_at)
+        await bot.send_message(message.from_user.id, text, reply_markup=keyboard)
+        return
+
+    async with session_pool() as session:
+        numbers = await winback.stats(session, now=now)
+    state = "включена — бот сам пишет раз в час" if settings.WINBACK_ENABLED else "выключена — никому ничего не уходит"
+    await message.answer(
+        "🎁 <b>Предложение «безлимит со скидкой»</b>\n\n"
+        + bq(
+            f"Рассылка: {state}",
+            f"Подходят сейчас: {numbers['candidates']}",
+            f"Получили: {numbers['sent']}, не доставлено: {numbers['failed']}",
+            f"Купили по скидке: {numbers['purchased']}",
+        )
+        + "\n\nКто подходит: пробник кончился больше суток назад, трафика не было, оплат нет. "
+        "Предложение действует 72 часа, купить по нему можно один раз.\n"
+        "Прислать его себе для проверки: /winback test\n\nТак выглядит сообщение:"
+    )
+    text, keyboard = winback.offer_view(now + winback.OFFER_TTL)
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.message(Command("find"))

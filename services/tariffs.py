@@ -28,6 +28,9 @@ class Tariff:
     # The trial is a single 10 GB bucket that never refills — three days never
     # reach a refill boundary anyway, and a refilling trial would be free VPN.
     traffic_resets_monthly: bool = True
+    # Скрытый тариф не показывается ни в меню бота, ни на сайте и не продаётся
+    # через сайт: его открывает только персональное предложение (services/winback.py).
+    hidden: bool = False
 
     @property
     def traffic_limit_bytes(self) -> int | None:
@@ -124,6 +127,48 @@ _BASE_TARIFFS: dict[str, Tariff] = {
         device_limit=3,
         description="Общий тариф на 12 месяцев, 200 ГБ в месяц",
         sort_order=40,
+    ),
+    # Спецпредложение тем, кто взял пробник и так и не подключился (01.10.2026):
+    # безлимит со скидкой ~10% от обычной цены (199/549/999). Только по личному
+    # предложению из services/winback.py, поэтому hidden.
+    "winback_unlim_1m": Tariff(
+        code="winback_unlim_1m",
+        title="Безлимит 30 дней",
+        tier="standard",
+        duration_days=30,
+        price_rub=179,
+        crypto_amount="2.29",
+        traffic_gb=None,
+        device_limit=3,
+        description="Спецпредложение: 30 дней без лимита трафика",
+        sort_order=110,
+        hidden=True,
+    ),
+    "winback_unlim_3m": Tariff(
+        code="winback_unlim_3m",
+        title="Безлимит 3 месяца",
+        tier="standard",
+        duration_days=90,
+        price_rub=489,
+        crypto_amount="6.29",
+        traffic_gb=None,
+        device_limit=3,
+        description="Спецпредложение: 90 дней без лимита трафика",
+        sort_order=120,
+        hidden=True,
+    ),
+    "winback_unlim_6m": Tariff(
+        code="winback_unlim_6m",
+        title="Безлимит 6 месяцев",
+        tier="standard",
+        duration_days=180,
+        price_rub=899,
+        crypto_amount="10.99",
+        traffic_gb=None,
+        device_limit=3,
+        description="Спецпредложение: 180 дней без лимита трафика",
+        sort_order=130,
+        hidden=True,
     ),
 }
 

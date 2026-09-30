@@ -98,6 +98,8 @@ def list_billing_plans(*, tier: str | None = None, include_trial: bool = False) 
     for tariff in sorted(TARIFFS.values(), key=lambda item: (item.sort_order, item.code)):
         if not include_trial and tariff.code == "trial":
             continue
+        if tariff.hidden:
+            continue
         if tier is not None and tariff.tier != tier:
             continue
         plans.append(_plan_from_tariff(tariff))

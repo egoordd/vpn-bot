@@ -200,7 +200,7 @@ def _per_month(tariff: Tariff) -> int:
 
 def _paid_tariffs() -> list[Tariff]:
     ordered = sorted(TARIFFS.values(), key=lambda item: item.sort_order)
-    return [item for item in ordered if item.price_rub > 0]
+    return [item for item in ordered if item.price_rub > 0 and not item.hidden]
 
 
 def device_limit() -> int | None:

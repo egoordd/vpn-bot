@@ -29,7 +29,11 @@ def test_old_prices_hold_until_midnight_moscow(monkeypatch):
 def test_new_prices_from_midnight_moscow(monkeypatch):
     assert tariffs.PRICE_RISE_AT == datetime(2026, 9, 26, 0, 0, tzinfo=timezone(timedelta(hours=3)))
     _at(monkeypatch, tariffs.PRICE_RISE_AT)
-    got = {c: (t.price_rub, t.crypto_amount) for c, t in tariffs.TARIFFS.items() if c != "trial"}
+    got = {
+        c: (t.price_rub, t.crypto_amount)
+        for c, t in tariffs.TARIFFS.items()
+        if c != "trial" and not t.hidden
+    }
     assert got == {
         "standard_1m": (199, "2.49"),
         "standard_3m": (549, "6.99"),

@@ -19,6 +19,7 @@ from services.panel_gateway import (
     get_panel_gateway,
     is_panel_configured,
 )
+from services import winback
 from services import yookassa
 from services.alerts import send_alert
 from services import subscription_slots as slots
@@ -515,6 +516,19 @@ def setup_scheduler(bot: Bot, session_pool: async_sessionmaker[AsyncSession]) ->
         max_instances=1,
         coalesce=True,
         next_run_time=datetime.now(timezone.utc),
+    )
+    # Личное предложение «безлимит со скидкой» тем, кто взял пробник и не
+    # подключился (services/winback.py). Ничего не шлёт, пока WINBACK_ENABLED выключен.
+    scheduler.add_job(
+        winback.send_winback_offers,
+        trigger="interval",
+        hours=1,
+        args=[bot, session_pool],
+        id="send_winback_offers",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
     scheduler.add_job(
         check_inbound_drift,

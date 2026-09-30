@@ -568,8 +568,9 @@ def create_app() -> FastAPI:
             tariff = resolve_tariff(body.plan)
         except (KeyError, ValueError):
             raise HTTPException(status_code=404, detail="unknown_plan")
-        if tariff.tier != "standard" or tariff.code == "trial":
+        if tariff.tier != "standard" or tariff.code == "trial" or tariff.hidden:
             # Card checkout on the site mirrors the bot: standard plans only.
+            # Скрытые тарифы (личное предложение из бота) через сайт не продаются.
             raise HTTPException(status_code=400, detail="plan_not_purchasable")
 
         if not yookassa.is_configured():

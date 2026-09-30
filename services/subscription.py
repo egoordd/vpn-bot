@@ -209,12 +209,16 @@ async def activate_panel_subscription(
     )
 
     expires_at = starts_at + timedelta(days=tariff.duration_days)
+    # «Без лимита» панель понимает только как 0: пустое значение она при
+    # изменении пользователя просто пропускает, и бывший пробник, оплативший
+    # безлимит, остался бы со своими 10 ГБ (01.10.2026, services/winback.py).
+    panel_traffic_limit = tariff.traffic_limit_bytes if tariff.traffic_limit_bytes is not None else 0
 
     if await _panel_user_exists(gateway, panel_username):
         panel_user = await gateway.modify_user(
             username=panel_username,
             expire_at=expires_at,
-            traffic_limit_bytes=tariff.traffic_limit_bytes,
+            traffic_limit_bytes=panel_traffic_limit,
             status="active",
             traffic_resets_monthly=tariff.traffic_resets_monthly,
         )
@@ -238,7 +242,7 @@ async def activate_panel_subscription(
         panel_user = await gateway.create_user(
             username=panel_username,
             expire_at=expires_at,
-            traffic_limit_bytes=tariff.traffic_limit_bytes,
+            traffic_limit_bytes=panel_traffic_limit,
             telegram_id=user.telegram_id,
             status="active",
             description=f"Telegram user {user.telegram_id}",
