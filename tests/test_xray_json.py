@@ -77,6 +77,33 @@ def test_hysteria_can_be_switched_off(monkeypatch):
 
 
 @pytest.mark.unit
+def test_hysteria_is_decided_per_request_not_per_deploy():
+    """Cores older than xray 26.1.23 — Happ for desktop, INCY 2.6 — reject the
+    whole config with «unknown transport protocol: hysteria» (checked on 25.3.6,
+    2026-09-30), so one flag for everybody either breaks them or takes the UDP
+    path away from the phones that handle it. The gateway decides per request."""
+    old = xray_json.build_json_subscription([REALITY, HY2, TROJAN], hysteria=False)
+    assert "hysteria" not in {o["protocol"] for c in old for o in c["outbounds"]}
+    assert [c["remarks"] for c in old] == ["⚡️ Авто-обход", "🇷🇺 Режим РУ-сервисов", "🇺🇸 США", "🇵🇱 Trojan"]
+
+    new = xray_json.build_json_subscription([REALITY, HY2, TROJAN], hysteria=True)
+    assert "hysteria" in {o["protocol"] for o in new[0]["outbounds"]}
+    assert "US-Hy2" in [c["remarks"] for c in new]
+
+
+@pytest.mark.unit
+def test_hysteria_left_out_gives_its_balancer_slot_to_a_tcp_exit():
+    """With Hysteria off the reserved fifth slot must not stay empty: «Авто-обход»
+    silently ran on four exits while HY2_IN_JSON=0 (2026-09-30)."""
+    tcp = [f"vless://u@h{i}:2087?security=reality&sni=h{i}&pbk=P&sid=S#h{i}" for i in range(6)]
+    hy2 = "hysteria2://pw@h0:443?sni=h0#h0-hy2"
+    assert xray_json._balancer_selection(tcp + [hy2], hysteria=False) == tcp[:5]
+    assert xray_json._balancer_selection(tcp + [hy2], hysteria=True) == tcp[:4] + [hy2]
+    cfg = xray_json.build_balancer_config(tcp + [hy2], hysteria=False)
+    assert [o["protocol"] for o in cfg["outbounds"] if o["tag"].startswith("proxy-")] == ["vless"] * 5
+
+
+@pytest.mark.unit
 def test_build_balancer_config_structure():
     cfg = xray_json.build_balancer_config([REALITY, HY2, TROJAN])
     assert cfg["remarks"] == "⚡️ Авто-обход"

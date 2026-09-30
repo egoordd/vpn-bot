@@ -596,8 +596,11 @@ def _stream_settings(query: dict) -> dict:
     return stream
 
 
-def build_outbound(uri: str, tag: str) -> dict | None:
-    """Map one VLESS/Trojan URI to an xray outbound. None for anything else."""
+def build_outbound(uri: str, tag: str, *, hysteria: bool | None = None) -> dict | None:
+    """Map one VLESS/Trojan URI to an xray outbound. None for anything else.
+
+    Hysteria2 becomes an outbound only when `hysteria` allows it (None: the
+    HY2_IN_JSON default) — see `_hysteria_allowed`."""
     parsed = _parse_uri(uri)
     if parsed is None:
         return None
@@ -623,7 +626,7 @@ def build_outbound(uri: str, tag: str) -> dict | None:
             "settings": {"servers": [{"address": host, "port": port, "password": userinfo}]},
             "streamSettings": _stream_settings(query),
         }
-    if scheme in ("hysteria2", "hy2") and HY2_IN_JSON:
+    if scheme in ("hysteria2", "hy2") and _hysteria_allowed(hysteria):
         return _hysteria_outbound(userinfo, host, port, query, tag)
     return None
 
@@ -642,6 +645,16 @@ def build_outbound(uri: str, tag: str) -> dict | None:
 # inside an ordinary xray config, with Hysteria first in their balancer. Same
 # schema, so «Авто-обход» can hold a UDP path too and reach for it by itself.
 HY2_IN_JSON = os.environ.get("HY2_IN_JSON", "1").lower() not in ("0", "false", "no", "")
+
+
+def _hysteria_allowed(hysteria: bool | None) -> bool:
+    """Per-request answer wins; None falls back to the deployment-wide flag.
+
+    xray learned the `hysteria` outbound only in 26.1.23. An older client core —
+    Happ for desktop, INCY 2.6 — rejects the whole config with «unknown transport
+    protocol: hysteria» (reproduced on 25.3.6, 2026-09-30), so the gateway asks
+    per request, by the client's version, instead of one flag for everybody."""
+    return HY2_IN_JSON if hysteria is None else hysteria
 
 
 def _hysteria_outbound(password: str, host: str, port: int, query: dict, tag: str) -> dict:
@@ -670,9 +683,9 @@ def _remark(uri: str, fallback: str) -> str:
     return parsed[5] if parsed else fallback
 
 
-def build_server_config(uri: str, tag_index: int) -> dict | None:
+def build_server_config(uri: str, tag_index: int, *, hysteria: bool | None = None) -> dict | None:
     """A standalone single-server xray config (so the user can still pick one)."""
-    outbound = build_outbound(uri, "proxy")
+    outbound = build_outbound(uri, "proxy", hysteria=hysteria)
     if outbound is None:
         return None
     return {
@@ -738,6 +751,7 @@ def build_balancer_config(
     *,
     ru_apps_direct: bool = False,
     exclude_hosts: frozenset[str] | set[str] = frozenset(),
+    hysteria: bool | None = None,
 ) -> dict | None:
     """The one automatic entry: balances over one server per exit, healthiest first.
 
@@ -755,9 +769,10 @@ def build_balancer_config(
     what the evidence points at. Every server stays individually pickable
     below, so nothing is lost but the churn.
     """
+    allowed = _hysteria_allowed(hysteria)
     outbounds: list[dict] = []
-    for uri in _balancer_selection(uris, exclude_hosts):
-        outbound = build_outbound(uri, f"proxy-{len(outbounds)}")
+    for uri in _balancer_selection(uris, exclude_hosts, hysteria=allowed):
+        outbound = build_outbound(uri, f"proxy-{len(outbounds)}", hysteria=allowed)
         if outbound is not None:
             outbounds.append(outbound)
     if not outbounds:
@@ -784,8 +799,13 @@ def build_balancer_config(
 BALANCER_MAX_OUTBOUNDS = int(os.environ.get("BALANCER_MAX_OUTBOUNDS", "5"))
 
 
-def _balancer_selection(uris: list[str], exclude_hosts: frozenset[str] | set[str] = frozenset()) -> list[str]:
+def _balancer_selection(
+    uris: list[str], exclude_hosts: frozenset[str] | set[str] = frozenset(), *, hysteria: bool = True
+) -> list[str]:
     """One entry per exit, plus the first Hysteria2, in that order.
+
+    Without Hysteria (`hysteria=False`, an old client core) its reserved slot
+    goes back to a TCP exit instead of staying empty.
 
     Twelve outbounds means the health prober opens twelve tunnels a minute,
     every minute — two hundred and forty over the twenty minutes it takes for
@@ -802,7 +822,7 @@ def _balancer_selection(uris: list[str], exclude_hosts: frozenset[str] | set[str
     """
     chosen: list[str] = []
     seen_hosts: set[str] = set()
-    hysteria: str | None = None
+    udp: str | None = None
     for uri in uris:
         parsed = _parse_uri(uri)
         if parsed is None:
@@ -813,7 +833,7 @@ def _balancer_selection(uris: list[str], exclude_hosts: frozenset[str] | set[str
         if host in exclude_hosts:
             continue
         if scheme in ("hysteria2", "hy2"):
-            hysteria = hysteria or uri
+            udp = udp or (uri if hysteria else None)
             continue
         if host in seen_hosts:
             continue
@@ -828,8 +848,8 @@ def _balancer_selection(uris: list[str], exclude_hosts: frozenset[str] | set[str
     # mapping kills every TCP entry at the same moment, while a QUIC connection
     # survives the client's address changing. Trading the last TCP exit for it
     # keeps the outbound count at the five that measured healthy.
-    if hysteria:
-        chosen = chosen[: BALANCER_MAX_OUTBOUNDS - 1] + [hysteria]
+    if udp:
+        chosen = chosen[: BALANCER_MAX_OUTBOUNDS - 1] + [udp]
     return chosen[:BALANCER_MAX_OUTBOUNDS]
 
 
@@ -840,7 +860,10 @@ SPLIT_REMARKS = "🇷🇺 Режим РУ-сервисов"
 
 
 def build_json_subscription(
-    links: list[str], *, exclude_from_balancer: frozenset[str] | set[str] = frozenset()
+    links: list[str],
+    *,
+    exclude_from_balancer: frozenset[str] | set[str] = frozenset(),
+    hysteria: bool | None = None,
 ) -> list[dict]:
     """Full JSON-array body: both balancers first, then each server on its own.
 
@@ -864,17 +887,19 @@ def build_json_subscription(
     Empty when no xray-core-compatible server is present (caller then falls
     back to the plain base64 subscription).
     """
-    balancer = build_balancer_config(links, AUTO_REMARKS, exclude_hosts=exclude_from_balancer)
+    balancer = build_balancer_config(
+        links, AUTO_REMARKS, exclude_hosts=exclude_from_balancer, hysteria=hysteria
+    )
     if balancer is None:
         return []
     configs = [balancer]
     split = build_balancer_config(
-        links, SPLIT_REMARKS, ru_apps_direct=True, exclude_hosts=exclude_from_balancer
+        links, SPLIT_REMARKS, ru_apps_direct=True, exclude_hosts=exclude_from_balancer, hysteria=hysteria
     )
     if split is not None:
         configs.append(split)
     for index, uri in enumerate(links):
-        server = build_server_config(uri, index)
+        server = build_server_config(uri, index, hysteria=hysteria)
         if server is not None:
             configs.append(server)
     return configs

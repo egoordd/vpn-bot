@@ -122,10 +122,19 @@ def test_nobody_else_ever_sees_corporate_hysteria(corp_hy2):
 
 
 def test_corporate_hysteria_is_in_the_auto_mode(corp_hy2):
-    body, _, _ = sub_gateway.build_auto_json(_token("corp_fi_1"))
+    body, _, _ = sub_gateway.build_auto_json(_token("corp_fi_1"), hysteria=True)
 
     auto = json.loads(body)[0]
     assert "hysteria" in {outbound.get("protocol") for outbound in auto["outbounds"]}
+
+
+def test_corporate_auto_mode_loads_on_an_old_core(corp_hy2):
+    """The customer runs Happ for Windows 4.3.0: an old core that rejects the
+    whole config over a hysteria outbound (2026-09-30)."""
+    body, _, _ = sub_gateway.build_auto_json(_token("corp_fi_1"), hysteria=False)
+
+    auto = json.loads(body)[0]
+    assert "hysteria" not in {outbound.get("protocol") for outbound in auto["outbounds"]}
 
 
 def test_corporate_user_without_a_hysteria_login_gets_none(corp_hy2, monkeypatch):

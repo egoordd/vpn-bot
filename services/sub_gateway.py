@@ -108,6 +108,65 @@ def _supports_xray_json(user_agent: str) -> bool:
     return any(client in ua for client in _XRAY_JSON_UA)
 
 
+# Hysteria2 внутри JSON-подписки понимает только новое ядро: outbound `hysteria`
+# появился в xray 26.1.23. Старое ядро не пропускает весь конфиг с «unknown
+# transport protocol: hysteria» — 30.09.2026 так не разбиралась подписка у Happ
+# для компьютеров (4.3.0) и не добавлялась в INCY 2.6.2, проверено на 25.3.6.
+# Поэтому Hysteria получают только версии из правила HY2_JSON_CLIENTS, например
+# «happ/ios>=5.1.0,happ/macos>=5.1.0» (Happ из App Store с 5.1.0 = xray 26.6.27).
+# Платформа сверяется как её пишет приложение: сборка из App Store пишет «ios» и
+# «macos», отдельная сборка для компьютеров — «macOS» и «Windows». Кого правило
+# не называет — получает подписку без Hysteria, которая грузится везде.
+# HY2_IN_JSON=0 выключает Hysteria в JSON для всех, как и раньше.
+HY2_IN_JSON = os.environ.get("HY2_IN_JSON", "1").lower() not in ("0", "false", "no", "")
+
+
+def _version(text: str) -> tuple[int, ...] | None:
+    parts = text.strip().split(".")
+    if not parts or not all(part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def parse_hy2_rules(raw: str) -> tuple[tuple[str, str, tuple[int, ...]], ...]:
+    """«happ/ios>=5.1.0, happ/macos>=5.1.0» → ((app, platform, min_version), …)."""
+
+    rules = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)>=([0-9][0-9.]*)", part)
+        minimum = _version(match.group(3)) if match else None
+        if minimum is None:
+            print(f"HY2_JSON_CLIENTS: правило {part!r} не понято, пропускаю", flush=True)
+            continue
+        rules.append((match.group(1).lower(), match.group(2), minimum))
+    return tuple(rules)
+
+
+HY2_JSON_RULES = parse_hy2_rules(os.environ.get("HY2_JSON_CLIENTS", ""))
+
+
+def hysteria_in_json(user_agent: str) -> bool:
+    """Можно ли этому приложению отдать Hysteria2 внутри JSON-подписки."""
+
+    if not HY2_IN_JSON or not HY2_JSON_RULES:
+        return False
+    # «Happ/5.9.0/ios/2609171647606», «INCY/2.6.2/ios CFNetwork/…»
+    parts = (user_agent or "").split(" ")[0].split("/")
+    if len(parts) < 3:
+        return False
+    version = _version(parts[1])
+    if version is None:
+        return False
+    app, platform = parts[0].lower(), parts[2]
+    return any(
+        app == rule_app and platform == rule_platform and version >= minimum
+        for rule_app, rule_platform, minimum in HY2_JSON_RULES
+    )
+
+
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 # Display name clients show for the subscription (Happ reads `profile-title`,
@@ -1167,7 +1226,7 @@ def build_combined(token: str) -> tuple[str, str | None] | None:
     return payload, userinfo
 
 
-def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
+def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | None, bool] | None:
     """Build the «Авто-обход» body for the /auto flavor.
 
     The body carries both automatic entries — «Авто-обход» and
@@ -1183,7 +1242,7 @@ def build_auto_json(token: str) -> tuple[str, str | None, bool] | None:
         return None
     links, userinfo = resolved
     links = pin_addresses(links)
-    configs = build_json_subscription(links, exclude_from_balancer=balancer_exclusions())
+    configs = build_json_subscription(links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria)
     if configs:
         # Compact separators, because the size of this body decides whether a
         # Russian client can fetch it at all. The path from RU to the gateway is
@@ -1349,7 +1408,9 @@ class Handler(BaseHTTPRequestHandler):
             if is_test:
                 built = build_test_json(token)
             else:
-                built = build_auto_json(token) if wants_json else build_combined(token)
+                built = (
+                    build_auto_json(token, hysteria=hysteria_in_json(ua)) if wants_json else build_combined(token)
+                )
         finally:
             UPSTREAM_SLOTS.release()
         if built is None:

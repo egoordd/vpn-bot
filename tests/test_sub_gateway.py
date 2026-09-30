@@ -329,7 +329,7 @@ def test_build_auto_json_returns_json_array_with_balancer_first(monkeypatch):
     links = [_reality_uri("h1"), _hy2("h1"), _reality_uri("h2")]
     monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: (links, "expire=0"))
 
-    result = sub_gateway.build_auto_json("tok")
+    result = sub_gateway.build_auto_json("tok", hysteria=True)
     assert result is not None
     body, userinfo, is_json = result
     assert is_json is True and userinfo == "expire=0"
@@ -1231,7 +1231,7 @@ def _request(token: str, hwid: str, monkeypatch, *, valid: bool, path: str | Non
             pass
 
     answer = ("[{}]", "upload=0; download=0; total=0; expire=0", True) if valid else None
-    monkeypatch.setattr(sub_gateway, "build_auto_json", lambda token: answer)
+    monkeypatch.setattr(sub_gateway, "build_auto_json", lambda token, **_: answer)
     monkeypatch.setattr(sub_gateway, "build_combined", lambda token: None)
     probe = _Probe()
     probe.do_GET()
@@ -1275,7 +1275,7 @@ def test_the_panel_certificate_is_verified_by_default():
 
 def test_a_malformed_link_never_reaches_the_panel(monkeypatch):
     called = []
-    monkeypatch.setattr(sub_gateway, "build_auto_json", lambda token: called.append(token))
+    monkeypatch.setattr(sub_gateway, "build_auto_json", lambda token, **_: called.append(token))
     monkeypatch.setattr(sub_gateway, "build_combined", lambda token: called.append(token))
 
     code = _request("x", "hw", monkeypatch, valid=False, path="/sub/не-токен%20с%20пробелом")
@@ -1348,3 +1348,51 @@ def test_both_subscription_bodies_carry_ip_addresses(monkeypatch):
         if o.get("tag", "").startswith("proxy")
     }
     assert addresses == {"78.17.154.225", "166.0.28.132"}
+
+
+def test_build_auto_json_leaves_hysteria_out_unless_asked(monkeypatch):
+    """Safe by default: a caller that does not know the client's core gets the
+    config every core can load."""
+    links = [_reality_uri("h1"), _hy2("h1"), _reality_uri("h2")]
+    monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: (links, None))
+    body, _, is_json = sub_gateway.build_auto_json("tok")
+    assert is_json is True
+    assert "hysteria" not in {o["protocol"] for c in json.loads(body) for o in c["outbounds"]}
+
+
+@pytest.mark.parametrize(
+    "ua, expected",
+    [
+        ("Happ/5.9.0/ios/2609171647606", True),
+        ("Happ/5.1.0/ios/2607161200000", True),
+        ("Happ/5.9.0/macos/2609171647606", True),
+        ("Happ/5.0.9/ios/2607011200000", False),
+        ("Happ/4.12.0/ios/2606121423635", False),
+        ("Happ/4.3.0/macOS/2609151456603", False),
+        ("Happ/4.4.1/Android/17903223988441985697", False),
+        ("Happ/4.3.0/Windows/2609151455603", False),
+        ("INCY/2.6.2/ios CFNetwork/3860.400.51 Darwin/25.3.0", False),
+        ("Happ/3.9.1", False),
+        ("Happ/abc/ios/1", False),
+        ("v2rayNG/1.9.30", False),
+        ("", False),
+    ],
+)
+def test_hysteria_goes_only_to_client_versions_with_a_new_core(monkeypatch, ua, expected):
+    """xray learned the hysteria outbound in 26.1.23; Happ from the App Store
+    ships 26.6.27 from 5.1.0 on. Everything else keeps the config that loads
+    everywhere. The platform is matched as the app writes it: the App Store
+    build says «ios»/«macos», the separate desktop build says «macOS»."""
+    monkeypatch.setattr(sub_gateway, "HY2_JSON_RULES", sub_gateway.parse_hy2_rules("happ/ios>=5.1.0, happ/macos>=5.1.0"))
+    assert sub_gateway.hysteria_in_json(ua) is expected
+
+
+def test_hysteria_rules_default_to_nobody(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HY2_JSON_RULES", sub_gateway.parse_hy2_rules(""))
+    assert sub_gateway.hysteria_in_json("Happ/5.9.0/ios/2609171647606") is False
+
+
+def test_hysteria_master_switch_still_wins(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HY2_JSON_RULES", sub_gateway.parse_hy2_rules("happ/ios>=5.1.0"))
+    monkeypatch.setattr(sub_gateway, "HY2_IN_JSON", False)
+    assert sub_gateway.hysteria_in_json("Happ/5.9.0/ios/2609171647606") is False
