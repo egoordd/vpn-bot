@@ -292,7 +292,7 @@ async def winback_handler(message: Message, session_pool: async_sessionmaker[Asy
 
     async with session_pool() as session:
         numbers = await winback.stats(session, now=now)
-    state = "включена — бот сам пишет раз в час" if settings.WINBACK_ENABLED else "выключена — никому ничего не уходит"
+    state = "включена — бот пишет новым раз в день в 22:00 по Москве" if settings.WINBACK_ENABLED else "выключена — никому ничего не уходит"
     await message.answer(
         "🎁 <b>Предложение «безлимит со скидкой»</b>\n\n"
         + bq(

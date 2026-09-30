@@ -518,17 +518,19 @@ def setup_scheduler(bot: Bot, session_pool: async_sessionmaker[AsyncSession]) ->
         next_run_time=datetime.now(timezone.utc),
     )
     # Личное предложение «безлимит со скидкой» тем, кто взял пробник и не
-    # подключился (services/winback.py). Ничего не шлёт, пока WINBACK_ENABLED выключен.
+    # подключился (services/winback.py). Раз в день в 22:00 по Москве — решение
+    # владельца 01.10.2026. Ничего не шлёт, пока WINBACK_ENABLED выключен.
     scheduler.add_job(
         winback.send_winback_offers,
-        trigger="interval",
-        hours=1,
+        trigger="cron",
+        hour=22,
+        minute=0,
+        timezone="Europe/Moscow",
         args=[bot, session_pool],
         id="send_winback_offers",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
-        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
     scheduler.add_job(
         check_inbound_drift,

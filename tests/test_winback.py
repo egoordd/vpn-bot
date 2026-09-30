@@ -234,6 +234,21 @@ async def test_a_crafted_target_does_not_follow_the_winback_price(session_pool, 
     assert keyboard.inline_keyboard[0][0].callback_data == "payyk:winback_unlim_1m"
 
 
+# --- расписание --------------------------------------------------------------
+
+
+def test_offers_go_out_once_a_day_at_22_moscow(fake_bot):
+    """Решение владельца 01.10.2026: не раз в час, а раз в день в 22:00 по Москве."""
+    from scheduler.tasks import setup_scheduler
+
+    job = setup_scheduler(fake_bot, AsyncMock()).get_job("send_winback_offers")
+
+    after_noon = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+    after_evening = datetime(2026, 10, 1, 19, 30, tzinfo=timezone.utc)
+    assert job.trigger.get_next_fire_time(None, after_noon) == datetime(2026, 10, 1, 19, 0, tzinfo=timezone.utc)
+    assert job.trigger.get_next_fire_time(None, after_evening) == datetime(2026, 10, 2, 19, 0, tzinfo=timezone.utc)
+
+
 # --- админ-команда -----------------------------------------------------------
 
 
