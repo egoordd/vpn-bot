@@ -306,3 +306,25 @@ async def test_unlimited_really_lifts_the_trial_cap_in_the_panel(db_session):
     assert panel.modified[0]["traffic_limit_bytes"] == 0
     assert subscription.traffic_limit_bytes is None
     assert subscription.plan == "winback_unlim_1m"
+
+
+@pytest.mark.integration
+async def test_a_regular_renewal_after_the_offer_brings_the_limit_back(db_session):
+    """Безлимит — только на оплаченный по предложению срок. Следующее продление
+    обычным тарифом возвращает месячную квоту и в панели, и в базе, а скидка
+    второй раз не открывается."""
+    user = await _trial_user(db_session, 70901)
+    await winback.grant_offer(db_session, user.id)
+    panel = FakeGenericPanelGateway(exists=True)
+    await activate_panel_subscription(db_session, user.id, "winback_unlim_1m", panel_gateway=panel)
+
+    renewed = await activate_panel_subscription(db_session, user.id, "standard_1m", panel_gateway=panel)
+
+    quota = 150 * 1024**3
+    assert panel.modified[-1]["traffic_limit_bytes"] == quota
+    assert panel.modified[-1]["traffic_resets_monthly"] is True
+    assert renewed.traffic_limit_bytes == quota
+    assert renewed.plan == "standard_1m"
+    active = await Repository(db_session).list_active_subscriptions(user.id)
+    assert [s.plan for s in active] == ["standard_1m"], "безлимитная запись погашена"
+    assert await winback.purchase_allowed(db_session, 70901, "winback_unlim_1m") is False
