@@ -43,9 +43,14 @@ def test_paid_tariffs_sell_a_monthly_allowance_not_a_term_pool():
 
 
 @pytest.mark.unit
-def test_every_paid_tariff_is_limited_to_three_devices():
-    for code in ("standard_1m", "standard_3m", "standard_6m", "standard_12m"):
+def test_long_tariffs_allow_five_devices_short_ones_three():
+    """Решение владельца 01.10.2026: от 6 месяцев — до 5 устройств, короче — до 3.
+    Так было до 13.09, когда 6 и 12 месяцев молча урезали до 3 вместе с правкой
+    пробника, и человек, купивший полгода с пятью устройствами, упёрся в лимит."""
+    for code in ("standard_1m", "standard_3m"):
         assert resolve_tariff(code).device_limit == 3
+    for code in ("standard_6m", "standard_12m"):
+        assert resolve_tariff(code).device_limit == 5
 
 
 @pytest.mark.unit

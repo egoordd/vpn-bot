@@ -112,7 +112,9 @@ _BASE_TARIFFS: dict[str, Tariff] = {
         price_rub=699,
         crypto_amount="7.99",
         traffic_gb=200,
-        device_limit=3,
+        # От 6 месяцев — до 5 устройств (решение владельца 01.10.2026; 13.09 это
+        # молча урезали до 3, и купившие полгода упёрлись в лимит).
+        device_limit=5,
         description="Общий тариф на 180 дней, 200 ГБ в месяц",
         sort_order=30,
     ),
@@ -124,7 +126,9 @@ _BASE_TARIFFS: dict[str, Tariff] = {
         price_rub=1199,
         crypto_amount="12.99",
         traffic_gb=200,
-        device_limit=3,
+        # От 6 месяцев — до 5 устройств (решение владельца 01.10.2026; 13.09 это
+        # молча урезали до 3, и купившие полгода упёрлись в лимит).
+        device_limit=5,
         description="Общий тариф на 12 месяцев, 200 ГБ в месяц",
         sort_order=40,
     ),

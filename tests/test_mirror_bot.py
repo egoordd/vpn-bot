@@ -296,3 +296,16 @@ def test_bot_profile_texts_fit_telegram_limits() -> None:
 
     assert len(mirror_legal.bot_description()) <= 512
     assert len(mirror_legal.bot_short_description()) <= 120
+
+
+def test_device_limits_are_stated_per_term_not_as_a_vague_range() -> None:
+    """«до 3–5 устройств» читалось как «до 5 на любом тарифе» — жалоба 01.10.2026.
+    Пишем прямо: сколько на коротких тарифах и с какого срока больше."""
+    from services import mirror_legal
+
+    summary = "до 3 устройств, от 6 месяцев — до 5"
+    assert mirror_legal.devices_summary() == summary
+    assert summary in mirror_bot._about_text()
+    assert summary in mirror_bot._welcome_text().lower()
+    assert summary in mirror_legal.bot_description().lower()
+    assert "3–5" not in mirror_bot._about_text()

@@ -287,11 +287,10 @@ def _gb(value_bytes: int | None) -> str:
 
 
 def _devices_phrase() -> str:
-    devices = mirror_legal.device_limit()
-    if devices is None:
+    summary = mirror_legal.devices_summary()
+    if summary is None:
         return "Несколько устройств на одной подписке"
-    word = "устройства" if devices % 10 == 1 and devices % 100 != 11 else "устройств"
-    return f"До {devices} {word} на подписке"
+    return f"{summary[0].upper()}{summary[1:]} на подписке"
 
 
 def _welcome_text() -> str:
@@ -313,9 +312,9 @@ def _about_text() -> str:
     if starting is not None:
         points.append(f"Доступные цены — от {starting} ₽ в месяц")
     traffic = mirror_legal.largest_monthly_traffic_gb()
-    devices = mirror_legal.device_limit()
+    devices = mirror_legal.devices_summary()
     if traffic is not None and devices is not None:
-        points.append(f"До {traffic} ГБ в месяц и до {devices} устройств на подписке")
+        points.append(f"До {traffic} ГБ в месяц, {devices} на подписке")
     points += ["Серверы в Европе и США", "Живая поддержка в Telegram"]
     return (
         "ℹ️ <b>О сервисе</b>\n\n"

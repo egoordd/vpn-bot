@@ -210,6 +210,27 @@ def device_limit() -> int | None:
     return limits.pop() if len(limits) == 1 else None
 
 
+def devices_summary() -> str | None:
+    """«до 3 устройств, от 6 месяцев — до 5» — или «до 3 устройств», если у всех одно число.
+
+    Диапазон «до 3–5 устройств» читался как «до 5 на любом тарифе», и человек,
+    купивший короткий срок, считал себя обманутым (01.10.2026). Поэтому прямо:
+    сколько на коротких тарифах и с какого срока больше.
+    """
+
+    paid = [item for item in _paid_tariffs() if item.device_limit is not None]
+    if not paid:
+        return None
+    low = min(item.device_limit for item in paid)
+    high = max(item.device_limit for item in paid)
+    base = f"до {low} {_plural(low, 'устройства', 'устройств', 'устройств')}"
+    if low == high:
+        return base
+    shortest = min((item for item in paid if item.device_limit == high), key=lambda item: item.duration_days)
+    count = months(shortest)
+    return f"{base}, от {count} {_plural(count, 'месяца', 'месяцев', 'месяцев')} — до {high}"
+
+
 def starting_price() -> int | None:
     """The price a subscription starts at: the cheapest plan as it is sold, not a per-month average."""
 
@@ -278,7 +299,6 @@ def tariffs_text() -> str:
 def bot_description() -> str:
     """The «Что умеет этот бот?» card a newcomer sees before pressing Start."""
 
-    devices = device_limit()
     trial = _trial()
     lines = [
         f"{PROJECT_NAME} — быстрый защищённый VPN для телефона и компьютера.",
@@ -286,8 +306,9 @@ def bot_description() -> str:
         "⚡️ Подключение одной кнопкой",
         "🌍 Серверы в Европе и США",
     ]
-    if devices is not None:
-        lines.append(f"📱 До {devices} {_plural(devices, 'устройства', 'устройств', 'устройств')} на подписке")
+    summary = devices_summary()
+    if summary is not None:
+        lines.append(f"📱 {summary[0].upper()}{summary[1:]} на подписке")
     if trial is not None:
         days = trial.duration_days
         lines.append(f"🎁 {days} {_plural(days, 'день', 'дня', 'дней')} бесплатно для новых пользователей")
