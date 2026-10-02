@@ -9,6 +9,7 @@ from services import subscription_slots
 from services.panel_gateway import PanelAccount, PanelUserNotFoundError
 from services.payment import create_invoice_payload, parse_invoice_payload_details
 from services.subscription import _aware, activate_panel_subscription
+from services.tariffs import resolve_tariff
 from tests.test_http_api import api_client  # noqa: F401 - fixture
 
 
@@ -75,7 +76,7 @@ async def test_another_subscription_gets_its_own_link_and_devices(db_session):
     assert extra.panel_username == "tg_7101_s2"
     assert panel.created == ["tg_7101", "tg_7101_s2"]
     assert len(active) == 2, "первая подписка не должна гаснуть"
-    assert {row.device_limit for row in active} == {3}
+    assert {row.device_limit for row in active} == {resolve_tariff("standard_1m").device_limit}
     assert extra.subscription_url != next(r for r in active if r.id != extra.id).subscription_url
 
 
