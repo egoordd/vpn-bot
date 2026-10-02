@@ -39,10 +39,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # script's own dir is on sys.path), so fall back to a flat import.
 try:
     from services.competitor_profile import build_bridge_test_config, build_test_config
-    from services.xray_json import build_json_subscription, build_ru_vk_configs
+    from services.xray_json import build_json_subscription
 except ImportError:  # pragma: no cover - standalone deploy path
     from competitor_profile import build_bridge_test_config, build_test_config
-    from xray_json import build_json_subscription, build_ru_vk_configs
+    from xray_json import build_json_subscription
 
 MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://panel.23.95.3.18.sslip.io").rstrip("/")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8090"))
@@ -254,10 +254,9 @@ def _token_username(token: str) -> str | None:
         except Exception:
             continue
         name = decoded.decode("utf-8", "replace").split(",", 1)[0].strip()
-        # corp_… — корпоративные учётные записи (см. CORP_USERS), exp_… —
-        # экспериментальные (см. RU_VK_USERS); те и другие заведены в панели
+        # corp_… — корпоративные учётные записи (см. CORP_USERS), заведены в панели
         # вручную, без аккаунта в боте.
-        if re.fullmatch(r"tg_-?\d{1,20}|(corp|exp)_[a-z0-9_]{1,24}", name):
+        if re.fullmatch(r"tg_-?\d{1,20}|corp_[a-z0-9_]{1,24}", name):
             return name
     return None
 
@@ -1159,33 +1158,6 @@ def _mobile_link() -> str | None:
     )
 
 
-# --- эксперимент 03.10.2026: российский трафик через VK Cloud ----------------------
-# Для учётных записей из RU_VK_USERS «Авто-обход» и «Режим РУ-сервисов» выпускают
-# российские адреса и приложения не с устройства, а с адреса VK Cloud: клиент
-# RU_VK_UUID на входе VK (тот же Reality под max.ru, что и «📶 Мобильный интернет»)
-# всегда выходит прямо оттуда. Обычные режимы и каскад через московский релей в
-# той же ссылке остаются как есть; остальным подпискам ничего не меняется.
-RU_VK_USERS = _names(os.environ.get("RU_VK_USERS", ""))
-RU_VK_HOST = os.environ.get("RU_VK_HOST", "")
-RU_VK_PORT = int(os.environ.get("RU_VK_PORT", "443") or 443)
-RU_VK_SNI = os.environ.get("RU_VK_SNI", "max.ru")
-RU_VK_UUID = os.environ.get("RU_VK_UUID", "")
-RU_VK_PBK = os.environ.get("RU_VK_PBK", "")
-RU_VK_SID = os.environ.get("RU_VK_SID", "")
-
-
-def ru_vk_link() -> str | None:
-    """Ссылка на российский выход VK, или None, пока он не настроен."""
-
-    if not (RU_VK_HOST and RU_VK_UUID and RU_VK_PBK):
-        return None
-    return (
-        f"vless://{RU_VK_UUID}@{RU_VK_HOST}:{RU_VK_PORT}"
-        f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={RU_VK_SNI}"
-        f"&fp=firefox&pbk={RU_VK_PBK}&sid={RU_VK_SID}#ru-vk"
-    )
-
-
 def build_mobile_links(links: list[str]) -> list[str]:
     """Добавить запись для белых списков живой подписке.
 
@@ -1282,12 +1254,6 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
     links, userinfo = resolved
     links = pin_addresses(links)
     configs = build_json_subscription(links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria)
-    vk_exit = ru_vk_link() if _token_username(token) in RU_VK_USERS else None
-    if configs and vk_exit:
-        vk_modes = build_ru_vk_configs(
-            links, vk_exit, exclude_hosts=balancer_exclusions(), hysteria=hysteria
-        )
-        configs = vk_modes + configs
     if configs:
         # Compact separators, because the size of this body decides whether a
         # Russian client can fetch it at all. The path from RU to the gateway is
