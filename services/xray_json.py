@@ -355,9 +355,11 @@ _RU_APPS_DIRECT = [
 ]
 
 
-def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False) -> dict:
+def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False, ru_outbound: str = "direct") -> dict:
     # Whatever `final_rule` sends traffic to (a single proxy outbound, or the
-    # balancer) is where the pinned domains must go too.
+    # balancer) is where the pinned domains must go too. `ru_outbound` is where
+    # Russian destinations leave: the device itself, or an RU exit (the VK
+    # experiment, see build_ru_vk_configs).
     destination = {
         key: value for key, value in final_rule.items() if key in ("outboundTag", "balancerTag")
     }
@@ -390,7 +392,7 @@ def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False) -> dict:
             {
                 "type": "field",
                 "domain": _RU_DIRECT_DOMAINS + (_RU_APPS_DIRECT if ru_apps_direct else []),
-                "outboundTag": "direct",
+                "outboundTag": ru_outbound,
             },
             # QUIC is refused for everything still undecided — that is, for
             # everything bound for the tunnel — so those applications fall back
@@ -423,7 +425,7 @@ def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False) -> dict:
             {"type": "field", "domain": _FORCE_PROXY_DOMAINS, **destination},
             # Catches Russian services this list never named, now that
             # IPIfNonMatch gives the rule an address to work with.
-            {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"},
+            {"type": "field", "ip": ["geoip:ru"], "outboundTag": ru_outbound},
             final_rule,
         ],
     }
@@ -769,6 +771,7 @@ def build_balancer_config(
     ru_apps_direct: bool = False,
     exclude_hosts: frozenset[str] | set[str] = frozenset(),
     hysteria: bool | None = None,
+    ru_via: str | None = None,
 ) -> dict | None:
     """The one automatic entry: balances over one server per exit, healthiest first.
 
@@ -795,21 +798,51 @@ def build_balancer_config(
     if not outbounds:
         return None
     strategy, prober = _health_check(BALANCER_STRATEGY, len(outbounds))
+    # Russian exit outside the balancer: its tag must not start with "proxy-",
+    # or the prober and the balancer would treat it as one more foreign server.
+    ru_exit = build_outbound(ru_via, RU_VIA_TAG) if ru_via else None
     return {
         "remarks": remarks,
         "log": {"loglevel": "warning"},
         "dns": _DNS,
         "inbounds": _INBOUNDS,
-        "outbounds": [*outbounds, *_tail_outbounds()],
+        "outbounds": [*outbounds, *([ru_exit] if ru_exit else []), *_tail_outbounds()],
         "routing": {
             **_split_routing(
                 {"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
                 ru_apps_direct=ru_apps_direct,
+                ru_outbound=RU_VIA_TAG if ru_exit else "direct",
             ),
             "balancers": [{"tag": "auto", "selector": ["proxy-"], "strategy": strategy}],
         },
         **prober,
     }
+
+
+RU_VIA_TAG = "ru-vk"
+
+
+def build_ru_vk_configs(
+    uris: list[str],
+    ru_via: str,
+    *,
+    exclude_hosts: frozenset[str] | set[str] = frozenset(),
+    hysteria: bool | None = None,
+) -> list[dict]:
+    """Эксперимент 03.10.2026: оба автоматических режима, где российский трафик
+    выходит не с устройства, а через `ru_via` — вход на VK Cloud, который
+    выпускает этого клиента прямо со своего российского адреса. Зарубежное
+    идёт как обычно, напрямую на наши серверы, так что через VK (где трафик
+    платный) едет только российское."""
+
+    configs = []
+    for remarks, ru_apps in ((f"{AUTO_REMARKS} · РУ через VK", False), (f"{SPLIT_REMARKS} · через VK", True)):
+        config = build_balancer_config(
+            uris, remarks, ru_apps_direct=ru_apps, exclude_hosts=exclude_hosts, hysteria=hysteria, ru_via=ru_via
+        )
+        if config is not None:
+            configs.append(config)
+    return configs
 
 
 # One per exit plus a UDP one. Measured, not guessed: see build_balancer_config.

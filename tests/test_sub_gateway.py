@@ -1451,3 +1451,47 @@ def test_hysteria_master_switch_still_wins(monkeypatch):
     monkeypatch.setattr(sub_gateway, "HY2_JSON_RULES", sub_gateway.parse_hy2_rules("happ/ios>=5.1.0"))
     monkeypatch.setattr(sub_gateway, "HY2_IN_JSON", False)
     assert sub_gateway.hysteria_in_json("Happ/5.9.0/ios/2609171647606") is False
+
+
+# --- эксперимент 03.10.2026: «РУ через VK» для одной ссылки -----------------------
+
+def _vk_experiment(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "RU_VK_USERS", frozenset({"exp_ruvk_1"}))
+    monkeypatch.setattr(sub_gateway, "RU_VK_HOST", "212.233.122.241")
+    monkeypatch.setattr(sub_gateway, "RU_VK_UUID", "11111111-2222-3333-4444-555555555555")
+    monkeypatch.setattr(sub_gateway, "RU_VK_PBK", "PBK")
+    monkeypatch.setattr(sub_gateway, "RU_VK_SID", "SID")
+    links = [
+        f"vless://uuid@{h}:2096?security=reality&type=tcp&sni={h}&pbk=PBK&sid=SID#{h}"
+        for h in ("78.17.154.225", "166.0.28.132")
+    ]
+    monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: (links, None))
+
+
+def _remarks(token: str) -> list[str]:
+    body, _, is_json = sub_gateway.build_auto_json(token)
+    assert is_json
+    return [c["remarks"] for c in json.loads(body)]
+
+
+def test_the_experimental_link_gets_vk_modes_first_and_keeps_the_ordinary_ones(monkeypatch):
+    _vk_experiment(monkeypatch)
+    remarks = _remarks(_panel_token("exp_ruvk_1"))
+    assert remarks[:2] == ["⚡️ Авто-обход · РУ через VK", "🇷🇺 Режим РУ-сервисов · через VK"]
+    assert "⚡️ Авто-обход" in remarks[2:], "обычный Авто-обход остаётся в той же ссылке"
+
+
+def test_ordinary_subscriptions_never_get_the_vk_modes(monkeypatch):
+    _vk_experiment(monkeypatch)
+    assert not any("VK" in r for r in _remarks(_panel_token("tg_555")))
+
+
+def test_the_vk_modes_need_the_exit_configured(monkeypatch):
+    _vk_experiment(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "RU_VK_UUID", "")
+    assert not any("VK" in r for r in _remarks(_panel_token("exp_ruvk_1")))
+
+
+def test_experimental_account_names_are_recognised():
+    assert sub_gateway._token_username(_panel_token("exp_ruvk_1")) == "exp_ruvk_1"
+
