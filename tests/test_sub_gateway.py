@@ -1451,3 +1451,81 @@ def test_hysteria_master_switch_still_wins(monkeypatch):
     monkeypatch.setattr(sub_gateway, "HY2_JSON_RULES", sub_gateway.parse_hy2_rules("happ/ios>=5.1.0"))
     monkeypatch.setattr(sub_gateway, "HY2_IN_JSON", False)
     assert sub_gateway.hysteria_in_json("Happ/5.9.0/ios/2609171647606") is False
+
+
+# --- тестовая подписка 03.10.2026: РУ-релей через VK Cloud ------------------------
+# «✅ РУ сервисы» тестовой ссылки идут не через московский релей, а через релей на
+# VK Cloud: тот же принцип (российское выходит с релея, остальное — в страну
+# пункта), только страну выбирает ключ клиента, а не порт — у VK открыт один 443.
+
+VK_IDS = {
+    "78.17.154.225.sslip.io": "aaaaaaaa-0000-0000-0000-000000000001",
+    "166.0.28.132.sslip.io": "aaaaaaaa-0000-0000-0000-000000000002",
+    "172.86.119.133.sslip.io": "aaaaaaaa-0000-0000-0000-000000000003",
+}
+
+
+def _vk_relay(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_USERS", frozenset({"exp_ruvk_1"}))
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_PBK", "VKPBK")
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_SID", "VKSID")
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_IDS", dict(VK_IDS))
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", True)
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: set())
+
+
+def test_vk_relay_links_pick_the_country_by_client_key(monkeypatch):
+    _vk_relay(monkeypatch)
+    links = sub_gateway.build_vk_relay_links(["vless://u@78.17.154.225.sslip.io:2087#PL"])
+    assert len(links) == 3
+    for link in links:
+        assert link.startswith("vless://")
+        assert "@212.233.122.241.sslip.io:443?" in link
+        assert "sni=212.233.122.241.sslip.io" in link and "pbk=VKPBK" in link and "sid=VKSID" in link
+        assert "max.ru" not in link, "без маскировки под max.ru"
+    assert VK_IDS["78.17.154.225.sslip.io"] in links[0]
+    assert urllib.parse.unquote(links[0].partition("#")[2]) == "🇵🇱 Польша ✅ РУ сервисы · VK"
+
+
+def test_vk_relay_skips_a_country_whose_exit_is_down(monkeypatch):
+    _vk_relay(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {"166.0.28.132.sslip.io"})
+    links = sub_gateway.build_vk_relay_links(["vless://u@78.17.154.225.sslip.io:2087#PL"])
+    assert not any(VK_IDS["166.0.28.132.sslip.io"] in link for link in links)
+
+
+def test_vk_relay_needs_its_keys(monkeypatch):
+    _vk_relay(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_PBK", "")
+    assert sub_gateway.build_vk_relay_links(["vless://u@78.17.154.225.sslip.io:2087#PL"]) == []
+
+
+def test_the_test_link_gets_the_vk_relay_instead_of_the_moscow_one(monkeypatch):
+    _vk_relay(monkeypatch)
+    upstream = "\n".join(
+        f"vless://u@{h}:2087?security=reality&type=tcp&sni={h}&pbk=P&sid=S#{h}"
+        for h in ("78.17.154.225.sslip.io", "166.0.28.132.sslip.io")
+    )
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "filter_alive", lambda links: links)
+    monkeypatch.setattr(sub_gateway, "_register_probe_targets", lambda links: None)
+
+    test_links, _ = sub_gateway.resolve_links(_panel_token("exp_ruvk_1"))
+    hosts = {sub_gateway._uri_host(link) for link in test_links}
+    assert "212.233.122.241.sslip.io" in hosts
+    assert sub_gateway.RU_RELAY_HOST not in hosts, "московский релей тестовой ссылке не нужен"
+
+    ordinary, _ = sub_gateway.resolve_links(_panel_token("tg_555"))
+    hosts = {sub_gateway._uri_host(link) for link in ordinary}
+    assert sub_gateway.RU_RELAY_HOST in hosts, "основные подписки — через обычный релей"
+    assert "212.233.122.241.sslip.io" not in hosts
+
+
+def test_vk_relay_sorts_where_the_moscow_relay_does():
+    assert sub_gateway.NODE_PRIORITY[sub_gateway.VK_RELAY_HOST] == sub_gateway.NODE_PRIORITY[sub_gateway.RU_RELAY_HOST]
+
+
+def test_experimental_account_names_are_recognised():
+    assert sub_gateway._token_username(_panel_token("exp_ruvk_1")) == "exp_ruvk_1"
+

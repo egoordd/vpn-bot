@@ -254,9 +254,10 @@ def _token_username(token: str) -> str | None:
         except Exception:
             continue
         name = decoded.decode("utf-8", "replace").split(",", 1)[0].strip()
-        # corp_… — корпоративные учётные записи (см. CORP_USERS), заведены в панели
+        # corp_… — корпоративные учётные записи (см. CORP_USERS), exp_… —
+        # экспериментальные (см. VK_RELAY_USERS); те и другие заведены в панели
         # вручную, без аккаунта в боте.
-        if re.fullmatch(r"tg_-?\d{1,20}|corp_[a-z0-9_]{1,24}", name):
+        if re.fullmatch(r"tg_-?\d{1,20}|(corp|exp)_[a-z0-9_]{1,24}", name):
             return name
     return None
 
@@ -765,6 +766,25 @@ def build_cascade_links(links: list[str]) -> list[str]:
     ]
 
 
+def build_vk_relay_links(links: list[str]) -> list[str]:
+    """«✅ РУ сервисы» через релей на VK Cloud — для тестовой подписки (VK_RELAY_USERS).
+
+    Те же страны и та же проверка живости выхода, что у московского каскада;
+    отличие — один порт и свой ключ клиента на каждую страну. Пусто, пока релей
+    не настроен: тогда тестовая ссылка получает обычный каскад."""
+    if not (VK_RELAY_PBK and VK_RELAY_IDS) or not links:
+        return []
+    dead = _probed_dead_hosts()
+    return [
+        f"vless://{VK_RELAY_IDS[exit_host]}@{VK_RELAY_HOST}:{VK_RELAY_PORT}"
+        f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={VK_RELAY_HOST}"
+        f"&fp=firefox&pbk={VK_RELAY_PBK}&sid={VK_RELAY_SID}"
+        f"#{urllib.parse.quote(f'{remark} · VK')}"
+        for _port, remark, exit_host in CASCADE_COUNTRIES
+        if exit_host in VK_RELAY_IDS and exit_host not in dead
+    ]
+
+
 # --- учёт устройств -------------------------------------------------------------
 # Тариф обещает «до 3 устройств», но до сих пор это была только надпись: ссылку
 # можно было раздать кому угодно, и один оплаченный доступ работал на десятке
@@ -841,6 +861,18 @@ def _limits(raw: str) -> dict[str, int]:
 # Своя цифра устройств для отдельной корпоративной ссылки (03.10.2026: пробная на
 # 20 устройств), чтобы не поднимать CORP_DEVICE_LIMIT действующему заказчику.
 CORP_DEVICE_LIMITS = _limits(os.environ.get("CORP_DEVICE_LIMITS", ""))
+
+# Тестовая подписка (03.10.2026): её «✅ РУ сервисы» идут не через московский релей,
+# а через релей на VK Cloud. Принцип тот же — российское выходит с релея, остальное
+# уходит в страну пункта, — но у VK открыт только 443, поэтому страну выбирает не
+# порт, а ключ клиента (VK_RELAY_IDS: «хост выхода:uuid,…»). На 443 VK разводит
+# соединения по имени в TLS: это имя ведёт в релей, без маскировки под чужой сайт.
+VK_RELAY_USERS = _names(os.environ.get("VK_RELAY_USERS", ""))
+VK_RELAY_HOST = os.environ.get("VK_RELAY_HOST", "212.233.122.241.sslip.io")
+VK_RELAY_PORT = int(os.environ.get("VK_RELAY_PORT", "443") or 443)
+VK_RELAY_PBK = os.environ.get("VK_RELAY_PBK", "")
+VK_RELAY_SID = os.environ.get("VK_RELAY_SID", "")
+VK_RELAY_IDS = _logins(os.environ.get("VK_RELAY_IDS", ""))
 
 
 # Hysteria2 на корпоративных серверах — у каждой учётной записи свой логин
@@ -1184,6 +1216,7 @@ NODE_PRIORITY = {
     # так что первое место ей ничего не стоит.
     "2.59.162.34.sslip.io": -1,     # 🇱🇹 Литва
     RU_RELAY_HOST: 0,               # 🇷🇺→🇩🇪 каскад — первый, только когда включён
+    VK_RELAY_HOST: 0,               # тот же каскад через VK — у тестовой подписки
     "78.17.154.225.sslip.io": 1,    # 🇵🇱 Польша (Варшава — ближе всего европ. части РФ)
     "166.0.28.132.sslip.io": 2,     # 🇩🇪 Германия (Франкфурт)
     "107.189.22.160.sslip.io": 3,   # 🇳🇱 Нидерланды
@@ -1223,7 +1256,8 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     if corporate:
         combined = combined + build_corp_hy2_links(username, combined)
     else:
-        combined = combined + build_cascade_links(combined) + build_mobile_links(combined)
+        relay = build_vk_relay_links(combined) if username in VK_RELAY_USERS else []
+        combined = combined + (relay or build_cascade_links(combined)) + build_mobile_links(combined)
     _register_probe_targets(combined)
     return reorder_by_proximity(filter_alive(combined)), userinfo
 
