@@ -56,14 +56,22 @@ _PROBE_URL = "http://www.gstatic.com/generate_204"
 # old 3m let a node black-hole traffic for three minutes — "connected but
 # nothing loads", switch by hand.
 #
-# 15s was the first correction and overshot: a probe round dials *every* proxy,
-# so with a location per entry that is a burst of tunnel setups four times a
-# minute, running forever in the background. On a phone that reads as an app
-# that never idles, which is what battery optimisers kill — and a killed app is
-# itself reported as "the VPN disconnects on its own". 60s still detects a dead
-# node three times faster than the original while leaving the client mostly
-# quiet.
-_PROBE_INTERVAL = "60s"
+# 15s was the first correction and was dropped for fear of an app that never
+# idles, which is what battery optimisers kill — and a killed app is itself
+# reported as "the VPN disconnects on its own".
+#
+# _RECHECK_SECONDS is how long one server may go between two of its own probes.
+# For burstObservatory that is its interval as written. The plain observatory
+# behind leastPing reads it differently: probing one outbound at a time, it
+# sleeps probeInterval after *each* of them (xray app/observatory/observer.go),
+# so "60s" over five outbounds re-probed every server once in five minutes —
+# 02.10.2026 the owner sat on a dead exit «очень долго» before it came round.
+# Its step is therefore derived from the outbound count (see _probe_step).
+_RECHECK_SECONDS = 60
+_PROBE_INTERVAL = f"{_RECHECK_SECONDS}s"
+# A step below the probe's own 5s timeout gains nothing: a dead node's probe
+# already takes that long.
+_MIN_PROBE_STEP_SECONDS = 5
 _PROBE_TIMEOUT = "4s"
 # Samples kept per server: the strategy judges on the recent window, so a node
 # that degrades (rather than dies outright) is demoted after a couple of bad
@@ -700,7 +708,16 @@ def build_server_config(uri: str, tag_index: int, *, hysteria: bool | None = Non
     }
 
 
-def _health_check(strategy: str) -> tuple[dict, dict]:
+def _probe_step(outbound_count: int) -> str:
+    """Pause after each probe of the sequential observatory, so that one full
+    round — every server probed once — takes _RECHECK_SECONDS. Five outbounds
+    give 12s: five probes a minute, close to the 15s step that ran in late July,
+    spread evenly instead of in a burst."""
+    seconds = _RECHECK_SECONDS // max(1, outbound_count)
+    return f"{max(_MIN_PROBE_STEP_SECONDS, seconds)}s"
+
+
+def _health_check(strategy: str, outbound_count: int) -> tuple[dict, dict]:
     """(balancer strategy, health-probe block) for the configured strategy.
 
     leastLoad needs `burstObservatory` (rolling samples + a timeout), leastPing
@@ -714,14 +731,14 @@ def _health_check(strategy: str) -> tuple[dict, dict]:
                 "observatory": {
                     "subjectSelector": ["proxy-"],
                     "probeUrl": _PROBE_URL,
-                    "probeInterval": _PROBE_INTERVAL,
+                    "probeInterval": _probe_step(outbound_count),
                     # Probes run one after another rather than all at once. Ten
                     # simultaneous tunnel handshakes every minute is a burst of
                     # memory and radio on a sleeping phone — the shape of
                     # background work that gets an app reclaimed, and on iOS
-                    # the extension has ~50 MB for everything. Sequentially a
-                    # full round still finishes in a few seconds, well inside
-                    # the interval, so nothing is lost in failover speed.
+                    # the extension has ~50 MB for everything. Sequential mode
+                    # sleeps probeInterval after every single probe, which is
+                    # why the interval above is a per-probe step, not a round.
                     "enableConcurrency": False,
                 }
             },
@@ -777,7 +794,7 @@ def build_balancer_config(
             outbounds.append(outbound)
     if not outbounds:
         return None
-    strategy, prober = _health_check(BALANCER_STRATEGY)
+    strategy, prober = _health_check(BALANCER_STRATEGY, len(outbounds))
     return {
         "remarks": remarks,
         "log": {"loglevel": "warning"},

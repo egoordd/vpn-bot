@@ -174,17 +174,53 @@ def _prober(config):
     return config.get("burstObservatory") or config["observatory"]
 
 
-def _interval(config):
+def _seconds(value):
+    assert value.endswith("s"), f"expected seconds granularity, got {value}"
+    return int(value.rstrip("s"))
+
+
+def _proxy_count(config):
+    return sum(1 for o in config["outbounds"] if o["tag"].startswith("proxy-"))
+
+
+def _recheck_seconds(config):
+    """How long one server goes between two of its own probes.
+
+    Not simply the configured interval: the plain observatory, probing one
+    outbound at a time, sleeps probeInterval after *each* of them
+    (xray app/observatory/observer.go), so a server comes round again only
+    after interval × outbounds. burstObservatory spreads its samples so that
+    every outbound gets one per interval."""
     b = config.get("burstObservatory")
-    return b["pingConfig"]["interval"] if b else config["observatory"]["probeInterval"]
+    if b:
+        return _seconds(b["pingConfig"]["interval"])
+    obs = config["observatory"]
+    step = _seconds(obs["probeInterval"])
+    return step if obs.get("enableConcurrency") else step * _proxy_count(config)
 
 
-def test_probe_interval_is_short_enough_to_fail_over():
-    """The probe interval IS the outage a user sits through when a node dies:
-    the balancer cannot route around it until a fresh sample judges it."""
-    interval = _interval(_balancer())
-    assert interval.endswith("s"), f"expected seconds granularity, got {interval}"
-    assert int(interval.rstrip("s")) <= 60, "failover would take over a minute"
+@pytest.mark.parametrize("count", [1, 2, 3, 5, 8])
+def test_each_server_is_rechecked_within_a_minute(count):
+    """The recheck gap IS the outage a user sits through when the selected node
+    dies: the balancer cannot route around it until a fresh probe judges it.
+    02.10.2026: "60s" with five outbounds re-probed each server once in five
+    minutes, and the owner sat on a dead exit until it came round."""
+    config = _balancer(tuple(f"h{i}" for i in range(count)))
+    assert _recheck_seconds(config) <= 60, "failover would take over a minute"
+
+
+@pytest.mark.parametrize("strategy", ["leastping", "leastload"])
+def test_recheck_holds_for_either_strategy(monkeypatch, strategy):
+    monkeypatch.setattr(xray_json, "BALANCER_STRATEGY", strategy)
+    assert _recheck_seconds(_balancer(("h1", "h2", "h3", "h4", "h5"))) <= 60
+
+
+def test_probes_stay_spread_out():
+    """Faster failover must not turn into a constant stream of handshakes: with
+    the full set of outbounds there is still a pause of 10s+ between probes."""
+    config = _balancer(tuple(f"h{i}" for i in range(xray_json.BALANCER_MAX_OUTBOUNDS)))
+    assert _proxy_count(config) == xray_json.BALANCER_MAX_OUTBOUNDS
+    assert _seconds(config["observatory"]["probeInterval"]) >= 10
 
 
 def test_probe_url_is_plain_http():
