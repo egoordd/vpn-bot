@@ -39,6 +39,12 @@ const CATALOG: Record<Platform, AppEntry[]> = {
       guide: true,
     },
     {
+      name: "INCY",
+      note: "есть в российском App Store",
+      scheme: (u) => `incy://add/${u}`,
+      store: { ios: "https://apps.apple.com/ru/app/incy/id6756943388" },
+    },
+    {
       name: "Streisand",
       note: "без рекламы",
       scheme: (u) => `streisand://import/${u}`,
@@ -52,6 +58,12 @@ const CATALOG: Record<Platform, AppEntry[]> = {
       recommended: true,
       scheme: (u) => `happ://add/${u}`,
       store: { android: "https://play.google.com/store/apps/details?id=com.happproxy" },
+    },
+    {
+      name: "INCY",
+      note: "альтернатива Happ",
+      scheme: (u) => `incy://add/${u}`,
+      store: { android: "https://play.google.com/store/apps/details?id=llc.itdev.incy" },
     },
     {
       name: "V2RayTun",
@@ -81,6 +93,12 @@ const CATALOG: Record<Platform, AppEntry[]> = {
       guide: true,
     },
     {
+      name: "INCY",
+      note: "альтернатива Happ",
+      scheme: (u) => `incy://add/${u}`,
+      store: { windows: "https://incy.cc" },
+    },
+    {
       name: "Hiddify",
       note: "кросс-платформенный",
       scheme: (u) => `hiddify://import/${u}`,
@@ -103,6 +121,12 @@ const CATALOG: Record<Platform, AppEntry[]> = {
       guide: true,
     },
     {
+      name: "INCY",
+      note: "есть в российском App Store",
+      scheme: (u) => `incy://add/${u}`,
+      store: { macos: "https://apps.apple.com/ru/app/incy/id6756943388" },
+    },
+    {
       name: "Streisand",
       note: "без рекламы",
       scheme: (u) => `streisand://import/${u}`,
@@ -123,6 +147,12 @@ const CATALOG: Record<Platform, AppEntry[]> = {
       scheme: (u) => `happ://add/${u}`,
       store: { linux: "/download" },
       guide: true,
+    },
+    {
+      name: "INCY",
+      note: "альтернатива Happ",
+      scheme: (u) => `incy://add/${u}`,
+      store: { linux: "https://incy.cc" },
     },
     {
       name: "Hiddify",
@@ -219,7 +249,7 @@ export function ConnectClient() {
           <p>
             Выберите одно из приложений ниже — рекомендованное отмечено. Happ пропал из
             российского App Store, а в поиске вместо него подделки:{" "}
-            <a href="/download">где скачать настоящий</a>.
+            <a href="/download">где скачать настоящий</a>. INCY в российском App Store есть.
           </p>
         </li>
 

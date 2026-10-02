@@ -13,9 +13,12 @@ const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 const APPS = [
-  { name: "Happ", scheme: (url: string) => `happ://add/${encodeURIComponent(url)}` },
-  { name: "V2RayTun", scheme: (url: string) => `v2raytun://import/${encodeURIComponent(url)}` },
-  { name: "Hiddify", scheme: (url: string) => `hiddify://import/${encodeURIComponent(url)}` },
+  // These clients expect the nested subscription URL verbatim. Percent-encoding it
+  // makes Happ reject the link as an invalid subscription before any HTTP request.
+  { name: "Happ", scheme: (url: string) => `happ://add/${url}` },
+  { name: "INCY", scheme: (url: string) => `incy://add/${url}` },
+  { name: "V2RayTun", scheme: (url: string) => `v2raytun://import/${url}` },
+  { name: "Hiddify", scheme: (url: string) => `hiddify://import/${url}` },
 ];
 
 interface OrderSubscription {
