@@ -93,6 +93,27 @@ def test_corporate_links_get_their_own_device_limit(monkeypatch):
     assert sub_gateway.plan_device_limit("corp_fi_1") == 3
 
 
+def test_one_corporate_link_can_get_its_own_device_limit(monkeypatch):
+    """03.10.2026: пробная корпоративная ссылка на 20 устройств — без того, чтобы
+    поднять лимит действующему заказчику, у которого по договору 3."""
+    monkeypatch.setattr(sub_gateway, "CORP_USERS", frozenset({"corp_fi_1", "corp_fi_trial"}))
+    monkeypatch.setattr(sub_gateway, "CORP_DEVICE_LIMIT", 3)
+    monkeypatch.setattr(sub_gateway, "CORP_DEVICE_LIMITS", sub_gateway._limits("corp_fi_trial:20, мусор, x:abc"))
+    sub_gateway._PLAN_LIMITS.clear()
+
+    assert sub_gateway.plan_device_limit("corp_fi_trial") == 20
+    assert sub_gateway.plan_device_limit("corp_fi_1") == 3, "остальным — общая цифра"
+
+
+def test_a_device_limit_for_a_non_corporate_name_changes_nothing(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "CORP_USERS", frozenset({"corp_fi_1"}))
+    monkeypatch.setattr(sub_gateway, "CORP_DEVICE_LIMITS", {"tg_555": 50})
+    monkeypatch.setattr(sub_gateway, "DEVICE_LIMIT_API", "")
+    monkeypatch.setattr(sub_gateway, "DEVICE_LIMIT", 3)
+
+    assert sub_gateway.plan_device_limit("tg_555") == 3
+
+
 # --- Hysteria2 на корпоративных серверах (18.09.2026) --------------------------
 # У каждой корпоративной ссылки свой логин и пароль: общий пароль, как на
 # польском узле, не отозвать у одного клиента, когда кончится его срок.

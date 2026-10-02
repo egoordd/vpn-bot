@@ -832,6 +832,17 @@ def _logins(raw: str) -> dict[str, str]:
     return {name: secret for name, sep, secret in pairs if name and sep and secret}
 
 
+def _limits(raw: str) -> dict[str, int]:
+    """«corp_fi_trial:20, corp_x:5» → {имя: число}; записи без числа пропускаются."""
+
+    return {name: int(value) for name, value in _logins(raw).items() if value.isdigit()}
+
+
+# Своя цифра устройств для отдельной корпоративной ссылки (03.10.2026: пробная на
+# 20 устройств), чтобы не поднимать CORP_DEVICE_LIMIT действующему заказчику.
+CORP_DEVICE_LIMITS = _limits(os.environ.get("CORP_DEVICE_LIMITS", ""))
+
+
 # Hysteria2 на корпоративных серверах — у каждой учётной записи свой логин
 # (userpass на сервере), а не общий пароль, как на польском узле: общий не
 # отозвать у одного клиента, когда закончится его срок.
@@ -908,7 +919,7 @@ def plan_device_limit(username: str) -> int:
     """
 
     if username in CORP_USERS:
-        return CORP_DEVICE_LIMIT
+        return CORP_DEVICE_LIMITS.get(username, CORP_DEVICE_LIMIT)
     if not DEVICE_LIMIT_API:
         return DEVICE_LIMIT
     cached = _PLAN_LIMITS.get(username)
