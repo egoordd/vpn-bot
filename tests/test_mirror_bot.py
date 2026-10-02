@@ -165,7 +165,7 @@ def test_about_claims_only_what_the_service_really_offers() -> None:
 
     assert "от 149 ₽ в месяц" in text
     assert "200 ГБ" in text
-    assert "3 устройств" in text
+    assert "5 устройств" in text
     for claim in ("безлимит", "24/7", "тысяч", "лучшие цены"):
         assert claim not in lowered, claim
 
@@ -300,10 +300,10 @@ def test_bot_profile_texts_fit_telegram_limits() -> None:
 
 def test_device_limits_are_stated_per_term_not_as_a_vague_range() -> None:
     """«до 3–5 устройств» читалось как «до 5 на любом тарифе» — жалоба 01.10.2026.
-    Пишем прямо: сколько на коротких тарифах и с какого срока больше."""
+    С 02.10.2026 у всех платных сроков одна цифра — она и пишется, без оговорок."""
     from services import mirror_legal
 
-    summary = "до 3 устройств, от 6 месяцев — до 5"
+    summary = "до 5 устройств"
     assert mirror_legal.devices_summary() == summary
     assert summary in mirror_bot._about_text()
     assert summary in mirror_bot._welcome_text().lower()

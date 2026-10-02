@@ -455,3 +455,14 @@ async def test_yookassa_change_email_flow_reissues_invoice(session_pool, fake_bo
         assert refreshed.email == "fixed@mail.ru"
     assert created.get("receipt_email") == "fixed@mail.ru"
     incoming.answer.assert_awaited()
+
+
+@pytest.mark.unit
+def test_tariff_texts_promise_the_devices_every_paid_tariff_gives():
+    """02.10.2026: на обычной подписке любого срока — до 5 устройств. Текст в боте
+    не должен обещать ни меньше, ни «5, но только от полугода»."""
+    for text in (buy.TIER_TEXTS["standard"], buy.EXTRA_TEXT):
+        lowered = text.lower()
+        assert "до 5 устройств" in lowered
+        assert "до 3" not in lowered
+        assert "6 и 12 месяцев" not in lowered

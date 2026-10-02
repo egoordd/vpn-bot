@@ -63,7 +63,7 @@ def test_the_tariff_decides_how_many_devices_a_subscription_gets():
     paid = SimpleNamespace(plan="standard_1m", device_limit=None)
     trial = SimpleNamespace(plan="trial", device_limit=1)
 
-    assert _device_limit(paid) == 3
+    assert _device_limit(paid) == 5
     assert _device_limit(trial) == 2, "старая цифра из базы не должна пережить смену тарифа"
 
 
