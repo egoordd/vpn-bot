@@ -23,7 +23,12 @@ from services.panel_gateway import PanelGatewayError, get_panel_gateway
 from services import mailer
 from services.alerts import send_alert
 from services import subscription_slots as slots
-from services.subscription import connect_page_url, to_gateway_subscription_url, to_happ_import_url
+from services.subscription import (
+    connect_page_url,
+    to_gateway_subscription_url,
+    to_happ_import_url,
+    to_incy_import_url,
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -53,6 +58,7 @@ def _connect_device_keyboard(
     sub_id: int | None = None,
     site_url: str | None = None,
     auto_url: str | None = None,
+    incy_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     suffix = f":{sub_id}" if sub_id is not None else ""
     rows: list[list[InlineKeyboardButton]] = []
@@ -60,6 +66,9 @@ def _connect_device_keyboard(
         rows.append([InlineKeyboardButton(text="🔗 Подключить VPN", url=site_url)])
     if auto_url:
         rows.append([InlineKeyboardButton(text="⚡️ Авто-обход — все локации", url=auto_url)])
+    if incy_url:
+        # Тот же «Авто-обход», только импорт в INCY: кнопка выше открывает Happ.
+        rows.append([InlineKeyboardButton(text="⚡️ Авто-обход в INCY", url=incy_url)])
     # A customer in Russia cannot open Telegram without a working tunnel, so the
     # screen that hands out the link is unreachable exactly when it is needed —
     # "чтобы подключить VPN, надо включить другой". Mail puts the link somewhere
@@ -140,6 +149,7 @@ async def _send_subscription_screen(callback: CallbackQuery, subscription: Subsc
             subscription.id,
             site_url=connect_page_url(url),
             auto_url=to_happ_import_url(url, auto=True),
+            incy_url=to_incy_import_url(url, auto=True),
         ),
     )
 

@@ -153,3 +153,16 @@ def test_connect_keyboard_omits_urls_when_absent():
     urls = [b.url for row in connect_device._connect_device_keyboard().inline_keyboard for b in row if b.url]
     assert "connect_help" in datas
     assert urls == []
+
+
+def test_connect_keyboard_offers_a_direct_incy_import():
+    """02.10.2026: прямое подключение должно быть не только в Happ, но и в INCY."""
+    kb = connect_device._connect_device_keyboard(
+        sub_id=7,
+        site_url="https://site/connect",
+        auto_url="https://sub.example/happ/x/auto",
+        incy_url="https://sub.example/incy/x/auto",
+    )
+    buttons = [b for row in kb.inline_keyboard for b in row if b.url]
+    incy = [b for b in buttons if b.url == "https://sub.example/incy/x/auto"]
+    assert incy and "INCY" in incy[0].text

@@ -1291,16 +1291,37 @@ def build_test_json(token: str) -> tuple[str, str | None, bool] | None:
     return json.dumps(configs, ensure_ascii=False, separators=(",", ":")), userinfo, True
 
 
-def happ_redirect_page(sub_url: str) -> str:
-    """HTML that bounces the browser into Happ's `happ://add/<sub_url>` deep link.
+# Приложения, которые забирают подписку по прямой ссылке `<схема>://add/<ссылка>`
+# (адрес подписки вкладывается как есть, без процентного кодирования). Страница
+# `/<ключ>/<токен>` открывает своё приложение и предлагает остальные.
+_IMPORT_APPS = {
+    "happ": ("Happ", "happ://add/"),
+    "incy": ("INCY", "incy://add/"),
+}
+
+
+def app_redirect_page(app: str, sub_url: str) -> str:
+    """HTML that bounces the browser into the app's `<scheme>://add/<sub_url>` deep link.
 
     Telegram rejects custom URL schemes in inline buttons, so the bot button is a
-    plain HTTPS link to `/happ/<token>` which serves this page; the page then
+    plain HTTPS link to `/<app>/<token>` which serves this page; the page then
     hands off to the app (JS + meta-refresh) with a tappable fallback.
+
+    The other app gets a button of its own: a subscription link opened in a
+    browser lands on the Happ page whoever opens it, and a page that knows only
+    one app leaves an INCY user at «не удаётся открыть».
     """
-    happ_url = f"happ://add/{sub_url}"
-    href = html.escape(happ_url, quote=True)
-    js_url = json.dumps(happ_url)
+    name, scheme = _IMPORT_APPS[app]
+    deep_url = f"{scheme}{sub_url}"
+    href = html.escape(deep_url, quote=True)
+    js_url = json.dumps(deep_url)
+    others = "".join(
+        f"<p style=\"margin-top:18px\">Пользуетесь {other}? "
+        f"<a href=\"{html.escape(other_scheme + sub_url, quote=True)}\" "
+        f"style=\"color:#111;font-weight:600\">Открыть в {other}</a></p>"
+        for key, (other, other_scheme) in _IMPORT_APPS.items()
+        if key != app
+    )
     return (
         "<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
@@ -1309,15 +1330,20 @@ def happ_redirect_page(sub_url: str) -> str:
         f"<meta http-equiv=\"refresh\" content=\"0;url={href}\"></head>"
         "<body style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
         "text-align:center;padding:48px 20px;color:#1a1a1a\">"
-        "<h2>Открываю Happ…</h2>"
+        f"<h2>Открываю {name}…</h2>"
         "<p>Если приложение не открылось автоматически:</p>"
         f"<p><a href=\"{href}\" style=\"display:inline-block;padding:13px 24px;"
         "background:#111;color:#fff;border-radius:12px;text-decoration:none;"
-        "font-weight:600\">Открыть в Happ</a></p>"
+        f"font-weight:600\">Открыть в {name}</a></p>"
+        f"{others}"
         "<p style=\"color:#888;font-size:14px;margin-top:28px\">Нет приложения? "
-        "Установите Happ из App Store или Google Play и нажмите кнопку снова.</p>"
+        f"Установите {name} из App Store или Google Play и нажмите кнопку снова.</p>"
         "</body></html>"
     )
+
+
+def happ_redirect_page(sub_url: str) -> str:
+    return app_redirect_page("happ", sub_url)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1334,9 +1360,11 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/health", "/healthz"):
             self._send(200, b"ok", "text/plain")
             return
-        happ_prefix = "/happ/"
-        if path.startswith(happ_prefix):
-            token, _, tail = path[len(happ_prefix):].partition("/")
+        for app in _IMPORT_APPS:
+            app_prefix = f"/{app}/"
+            if not path.startswith(app_prefix):
+                continue
+            token, _, tail = path[len(app_prefix):].partition("/")
             if not _TOKEN_RE.match(token):
                 self._send(404, b"not found", "text/plain")
                 return
@@ -1344,7 +1372,7 @@ class Handler(BaseHTTPRequestHandler):
             sub_url = f"{base}/sub/{token}"
             if tail.rstrip("/") == "auto":
                 sub_url += "/auto"
-            page = happ_redirect_page(sub_url)
+            page = app_redirect_page(app, sub_url)
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
             return
         prefix = "/sub/"

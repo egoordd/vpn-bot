@@ -110,6 +110,61 @@ def test_happ_redirect_page_embeds_add_deeplink():
     assert "Открыть в Happ" in page
 
 
+def test_incy_redirect_page_embeds_add_deeplink():
+    page = sub_gateway.app_redirect_page("incy", "https://unlockru.site/sub/abc123")
+    assert "incy://add/https://unlockru.site/sub/abc123" in page
+    assert "location.replace" in page
+    assert "Открыть в INCY" in page
+
+
+def test_each_app_page_offers_the_other_app():
+    """Ссылку в браузере открывают и те, у кого INCY, и те, у кого Happ: со
+    страницы одного приложения должен быть путь в другое — иначе человек
+    упирается в «не удаётся открыть» и пишет в поддержку."""
+    url = "https://unlockru.site/sub/abc123"
+    assert f"incy://add/{url}" in sub_gateway.app_redirect_page("happ", url)
+    assert f"happ://add/{url}" in sub_gateway.app_redirect_page("incy", url)
+
+
+def _open_page(path: str, monkeypatch) -> tuple[int | None, str]:
+    import io
+
+    class _Probe(sub_gateway.Handler):
+        def __init__(self):
+            self.path = path
+            self.headers = {"User-Agent": "Mozilla/5.0 (iPhone) Safari/604.1", "Host": "unlockru.site"}
+            self.code = None
+            self.wfile = io.BytesIO()
+
+        def send_response(self, code):
+            self.code = code
+
+        def send_header(self, key, value):
+            pass
+
+        def end_headers(self):
+            pass
+
+    monkeypatch.setattr(sub_gateway, "PUBLIC_BASE", "https://unlockru.site")
+    probe = _Probe()
+    probe.do_GET()
+    return probe.code, probe.wfile.getvalue().decode("utf-8")
+
+
+@pytest.mark.parametrize("app", ["happ", "incy"])
+def test_app_page_imports_the_subscription_into_that_app(monkeypatch, app):
+    code, page = _open_page(f"/{app}/abc123", monkeypatch)
+    assert code == 200
+    assert f"{app}://add/https://unlockru.site/sub/abc123" in page
+    _, page = _open_page(f"/{app}/abc123/auto", monkeypatch)
+    assert f"{app}://add/https://unlockru.site/sub/abc123/auto" in page
+
+
+def test_app_page_rejects_a_malformed_token(monkeypatch):
+    code, _ = _open_page("/incy/bad%20token!", monkeypatch)
+    assert code == 404
+
+
 def test_happ_redirect_page_is_valid_html_document():
     page = happ_redirect_page("https://sub.unlockvpn.org:8444/sub/a-b_c")
     assert page.startswith("<!doctype html>")

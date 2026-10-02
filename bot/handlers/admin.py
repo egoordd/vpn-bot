@@ -160,6 +160,7 @@ async def stats_handler(message: Message, session_pool: async_sessionmaker[Async
         )
         + "\n\n🔑 <b>Активные подписки</b>\n"
         + bq(f"Всего: {active_total}", f"По тарифам: {tier_lines}")
+        + "\n\nЗдесь бот, сайт и зеркало вместе. По отдельности — /channels"
     )
     await message.answer(text)
 

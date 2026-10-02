@@ -68,10 +68,19 @@ def to_happ_import_url(gateway_url: str | None, auto: bool = False) -> str | Non
     (`/sub/<token>/auto`): the gateway serves it with Happ app-management
     headers that make the app auto-connect to the lowest-latency server.
     """
+    return _to_app_page_url(gateway_url, "happ", auto)
+
+
+def to_incy_import_url(gateway_url: str | None, auto: bool = False) -> str | None:
+    """То же для INCY: страница `/incy/<token>` шлюза открывает `incy://add/...`."""
+    return _to_app_page_url(gateway_url, "incy", auto)
+
+
+def _to_app_page_url(gateway_url: str | None, app: str, auto: bool) -> str | None:
     if not gateway_url or "/sub/" not in gateway_url:
         return None
-    happ_url = gateway_url.replace("/sub/", "/happ/", 1)
-    return f"{happ_url.rstrip('/')}/auto" if auto else happ_url
+    page_url = gateway_url.replace("/sub/", f"/{app}/", 1)
+    return f"{page_url.rstrip('/')}/auto" if auto else page_url
 
 
 async def sync_default_plans(session: AsyncSession) -> None:

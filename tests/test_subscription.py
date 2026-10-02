@@ -15,6 +15,7 @@ from services.subscription import (
     get_subscription_info,
     to_gateway_subscription_url,
     to_happ_import_url,
+    to_incy_import_url,
 )
 
 
@@ -480,3 +481,13 @@ async def test_paid_renewal_does_not_revive_a_historical_limited_term(db_session
     assert now <= _aware(renewed.started_at) <= datetime.now(timezone.utc)
     assert _aware(renewed.expires_at) == _aware(renewed.started_at) + timedelta(days=30)
     assert _aware(renewed.expires_at) < _aware(old.expires_at)
+
+
+def test_to_incy_import_url_points_at_the_incy_page():
+    assert to_incy_import_url("https://unlockru.site/sub/abc123") == "https://unlockru.site/incy/abc123"
+    assert (
+        to_incy_import_url("https://unlockru.site/sub/abc123", auto=True)
+        == "https://unlockru.site/incy/abc123/auto"
+    )
+    assert to_incy_import_url(None) is None
+    assert to_incy_import_url("https://panel/no-token") is None

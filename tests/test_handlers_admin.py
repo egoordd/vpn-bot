@@ -118,6 +118,7 @@ async def test_stats_handler_summarizes(session_pool, monkeypatch):
     text = message.answer.await_args.args[0]
     assert "Статистика" in text
     assert "Всего: 1" in text
+    assert "/channels" in text, "в общей сводке — подсказка, где разбивка бот/сайт/зеркало"
 
 
 @pytest.mark.integration
