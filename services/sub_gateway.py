@@ -203,6 +203,58 @@ PROFILE_WEB_PAGE_URL = os.environ.get("SUB_WEB_PAGE_URL", "https://unlockproject
 #                exactly how a name-filtered host fails.
 # Kept on a domain-independent host so one blocklist entry cannot take out both.
 HAPP_PROVIDER_ID = os.environ.get("HAPP_PROVIDER_ID", "")
+# Российские приложения мимо VPN на Android (03.10.2026). С 15.04.2026 крупные
+# российские сервисы по требованию Минцифры сами ищут VPN на телефоне и отказываются
+# работать: MAX спрашивает систему о VPN и проверяет, открываются ли Telegram и
+# WhatsApp, Самокат отправляет на сервер признак VPN. Маршрутизация трафика тут не
+# помогает — российский трафик и так идёт с телефона напрямую. Happ на Android
+# выводит приложения из-под VPN по списку из подписки (per-app-proxy-*, только с
+# providerid), и тогда приложение VPN не видит; iOS так не умеет.
+# PER_APP_PROXY_MODE: «bypass» — включить, «off» — вернуть все приложения под VPN
+# (откат), пусто — заголовки не слать. Браузеров в списке нет и быть не должно:
+# через них открывают заблокированные сайты.
+PER_APP_PROXY_MODE = os.environ.get("PER_APP_PROXY_MODE", "").strip().lower()
+_RU_APPS_BYPASS = (
+    "ru.oneme.app",                     # MAX
+    "ru.ozon.app.android",              # Озон
+    "ru.sbcs.store",                    # Самокат
+    "com.wildberries.ru",               # Wildberries
+    "ru.sberbankmobile",                # СберБанк Онлайн
+    "com.idamob.tinkoff.android",       # Т-Банк
+    "ru.vtb24.mobilebanking.android",   # ВТБ Онлайн
+    "ru.alfabank.mobile.android",       # Альфа-Банк
+    "ru.raiffeisennews",                # Райффайзен
+    "ru.rostel",                        # Госуслуги
+    "com.vkontakte.android",            # ВКонтакте
+    "com.vk.vkvideo",                   # VK Видео
+    "ru.ok.android",                    # Одноклассники
+    "ru.mail.mailapp",                  # Почта Mail
+    "ru.yandex.taxi",                   # Яндекс Go
+    "ru.beru.android",                  # Яндекс Маркет
+    "ru.yandex.music",                  # Яндекс Музыка
+    "ru.kinopoisk",                     # Кинопоиск
+    "ru.yandex.yandexmaps",             # Яндекс Карты
+    "ru.yandex.mail",                   # Яндекс Почта
+    "ru.yandex.disk",                   # Яндекс Диск
+    "ru.dublgis.dgismobile",            # 2ГИС
+    "com.avito.android",                # Авито
+    "ru.rzd.pass",                      # РЖД Пассажирам
+    "ru.dns.shop.android",              # DNS
+    "ru.pyaterochka.app.browser",       # Пятёрочка (приложение магазина, не браузер)
+    "ru.perekrestok.app",               # Перекрёсток
+    "ru.instamart",                     # Купер
+    "ru.rt.video.app.mobile",           # Wink
+    "ru.more.play",                     # Okko
+    "ru.mts.mymts",                     # Мой МТС
+    "ru.megafon.mlk",                   # МегаФон
+    "ru.beeline.services",              # Мой Билайн
+)
+PER_APP_PROXY_LIST = tuple(
+    package.strip()
+    for package in os.environ.get("PER_APP_PROXY_LIST", ",".join(_RU_APPS_BYPASS)).split(",")
+    if package.strip()
+)
+
 # Where installs are moved to: scheme and host of the working subscription
 # address, e.g. https://unlockru.site.
 SUB_NEW_BASE = os.environ.get("SUB_NEW_BASE", "")
@@ -282,6 +334,10 @@ def _client_headers(token: str | None = None, flavor: str = "") -> dict[str, str
             headers["new-url"] = f"{SUB_NEW_BASE.rstrip('/')}/sub/{token}{suffix}"
         if SUB_FALLBACK_BASE and token:
             headers["fallback-url"] = f"{SUB_FALLBACK_BASE.rstrip('/')}/sub/{token}{suffix}"
+        if PER_APP_PROXY_MODE in ("bypass", "off"):
+            headers["per-app-proxy-mode"] = PER_APP_PROXY_MODE
+            if PER_APP_PROXY_MODE == "bypass" and PER_APP_PROXY_LIST:
+                headers["per-app-proxy-list"] = ",".join(PER_APP_PROXY_LIST)
     if SUB_ANNOUNCE.strip():
         announce = SUB_ANNOUNCE.strip()[:200]
         headers["announce"] = "base64:" + base64.b64encode(

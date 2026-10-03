@@ -1529,3 +1529,51 @@ def test_vk_relay_sorts_where_the_moscow_relay_does():
 def test_experimental_account_names_are_recognised():
     assert sub_gateway._token_username(_panel_token("exp_ruvk_1")) == "exp_ruvk_1"
 
+
+
+# --- 03.10.2026: российские приложения мимо VPN на Android -------------------------
+# С 15.04.2026 крупные российские сервисы по требованию Минцифры сами ищут VPN на
+# телефоне и отказываются работать (MAX, Озон, Самокат…) — маршрутизация трафика тут
+# не помогает. Happ на Android умеет выводить приложения из-под VPN по списку из
+# подписки; тогда приложение VPN не видит.
+
+def test_happ_gets_the_bypass_list_when_switched_on(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HAPP_PROVIDER_ID", "Prov1234")
+    monkeypatch.setattr(sub_gateway, "PER_APP_PROXY_MODE", "bypass")
+    headers = sub_gateway._client_headers("tok")
+    assert headers["per-app-proxy-mode"] == "bypass"
+    apps = headers["per-app-proxy-list"].split(",")
+    for package in ("ru.oneme.app", "ru.ozon.app.android", "ru.sbcs.store"):
+        assert package in apps, package
+
+
+def test_browsers_never_bypass_the_vpn():
+    """Через браузер открывают заблокированные сайты — его из-под VPN выводить нельзя."""
+    browsers = {
+        "com.android.chrome", "com.yandex.browser", "ru.yandex.searchplugin", "org.mozilla.firefox",
+        "com.opera.browser", "com.microsoft.emmx", "com.brave.browser", "com.sec.android.app.sbrowser",
+    }
+    assert not browsers & set(sub_gateway.PER_APP_PROXY_LIST)
+
+
+def test_no_per_app_headers_until_switched_on(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HAPP_PROVIDER_ID", "Prov1234")
+    monkeypatch.setattr(sub_gateway, "PER_APP_PROXY_MODE", "")
+    headers = sub_gateway._client_headers("tok")
+    assert "per-app-proxy-mode" not in headers and "per-app-proxy-list" not in headers
+
+
+def test_per_app_headers_need_the_provider_id(monkeypatch):
+    """Без providerid Happ эти заголовки не применяет — и слать их незачем."""
+    monkeypatch.setattr(sub_gateway, "HAPP_PROVIDER_ID", "")
+    monkeypatch.setattr(sub_gateway, "PER_APP_PROXY_MODE", "bypass")
+    assert "per-app-proxy-mode" not in sub_gateway._client_headers("tok")
+
+
+def test_switching_off_tells_the_app_to_stop_bypassing(monkeypatch):
+    """Откат: «off» возвращает все приложения под VPN, список не шлётся."""
+    monkeypatch.setattr(sub_gateway, "HAPP_PROVIDER_ID", "Prov1234")
+    monkeypatch.setattr(sub_gateway, "PER_APP_PROXY_MODE", "off")
+    headers = sub_gateway._client_headers("tok")
+    assert headers["per-app-proxy-mode"] == "off"
+    assert "per-app-proxy-list" not in headers
