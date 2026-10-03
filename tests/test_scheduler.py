@@ -232,6 +232,40 @@ async def test_check_expiring_subscriptions_catches_send_errors(session_pool):
 
 
 @pytest.mark.integration
+async def test_reminder_is_not_retried_for_someone_who_blocked_the_bot(session_pool):
+    """Заблокировавшему бота напоминание не дойдёт никогда, а без отметки оно
+    повторялось каждый час (sub 364: 15 ошибок в сутки). Временный сбой сети —
+    другое дело: там отметку не ставим, чтобы напомнить в следующий раз."""
+    from aiogram.exceptions import TelegramForbiddenError
+    from aiogram.methods import SendMessage
+
+    bot = AsyncMock()
+    bot.send_message = AsyncMock(
+        side_effect=TelegramForbiddenError(
+            method=SendMessage(chat_id=602, text="x"), message="Forbidden: bot was blocked by the user"
+        )
+    )
+    async with session_pool() as session:
+        repo = Repository(session)
+        user = await repo.create_user(telegram_id=602)
+        subscription = await repo.create_subscription(
+            user.id,
+            "1m",
+            datetime.now(timezone.utc),
+            datetime.now(timezone.utc) + timedelta(days=2),
+            True,
+        )
+
+    await tasks.check_expiring_subscriptions(bot, session_pool)
+    await tasks.check_expiring_subscriptions(bot, session_pool)
+
+    assert bot.send_message.await_count == 1, "второй раз писать заблокировавшему не нужно"
+    async with session_pool() as session:
+        refreshed = await Repository(session).get_subscription(subscription.id)
+        assert refreshed.last_reminded_at is not None
+
+
+@pytest.mark.integration
 async def test_deactivate_expired_subscriptions_notifies(fake_bot, session_pool):
     async with session_pool() as session:
         repo = Repository(session)

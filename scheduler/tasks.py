@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -76,6 +77,11 @@ async def check_expiring_subscriptions(
             try:
                 await bot.send_message(chat_id=subscription.user.telegram_id, text=text)
                 await repo.mark_subscription_reminded(subscription.id)
+            except TelegramForbiddenError:
+                # Бот заблокирован или аккаунт удалён — напоминание не дойдёт
+                # никогда, а без отметки оно повторялось бы каждый час.
+                await repo.mark_subscription_reminded(subscription.id)
+                logger.info("Expiration reminder skipped, chat unavailable: subscription_id=%s", subscription.id)
             except Exception:
                 logger.exception("Failed to send expiration reminder for subscription_id=%s", subscription.id)
 
