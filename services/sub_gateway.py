@@ -323,9 +323,16 @@ def _migrates(token: str | None) -> bool:
     return _token_username(token) in SUB_MIGRATE_USERS
 
 
+def _title_header(token: str | None) -> str:
+    """Название подписки в приложении; у ссылок из UNBRANDED_USERS — без нашей марки."""
+    if token and _token_username(token) in UNBRANDED_USERS:
+        return "base64:" + base64.b64encode(UNBRANDED_TITLE.encode("utf-8")).decode("ascii")
+    return PROFILE_TITLE_HEADER
+
+
 def _client_headers(token: str | None = None, flavor: str = "") -> dict[str, str]:
     """Presentation headers every subscription response carries."""
-    headers = {"profile-title": PROFILE_TITLE_HEADER, **APP_HEADERS}
+    headers = {"profile-title": _title_header(token), **APP_HEADERS}
     if HAPP_PROVIDER_ID:
         headers["providerid"] = HAPP_PROVIDER_ID
         # Keep the flavor: moving or falling back must not silently downgrade a
@@ -339,7 +346,8 @@ def _client_headers(token: str | None = None, flavor: str = "") -> dict[str, str
             headers["per-app-proxy-mode"] = PER_APP_PROXY_MODE
             if PER_APP_PROXY_MODE == "bypass" and PER_APP_PROXY_LIST:
                 headers["per-app-proxy-list"] = ",".join(PER_APP_PROXY_LIST)
-    if SUB_ANNOUNCE.strip():
+    unbranded = bool(token) and _token_username(token) in UNBRANDED_USERS
+    if SUB_ANNOUNCE.strip() and not unbranded:
         announce = SUB_ANNOUNCE.strip()[:200]
         headers["announce"] = "base64:" + base64.b64encode(
             announce.encode("utf-8")
@@ -918,6 +926,12 @@ def _limits(raw: str) -> dict[str, int]:
 # Своя цифра устройств для отдельной корпоративной ссылки (03.10.2026: пробная на
 # 20 устройств), чтобы не поднимать CORP_DEVICE_LIMIT действующему заказчику.
 CORP_DEVICE_LIMITS = _limits(os.environ.get("CORP_DEVICE_LIMITS", ""))
+
+# Ссылки без нашей марки (просьба заказчика 04.10.2026, corp_fi_trial): в Happ и
+# INCY нейтральное название вместо «UnLock VPN» и без объявления над серверами
+# (Авто-обход, «Не грузит?», реферальная программа). Только для перечисленных имён.
+UNBRANDED_USERS = _names(os.environ.get("UNBRANDED_USERS", ""))
+UNBRANDED_TITLE = os.environ.get("UNBRANDED_TITLE", "VPN")[:25]
 
 # Тестовая подписка (03.10.2026): её «✅ РУ сервисы» идут не через московский релей,
 # а через релей на VK Cloud. Принцип тот же — российское выходит с релея, остальное
@@ -1745,7 +1759,7 @@ class Handler(BaseHTTPRequestHandler):
             blocked.encode("ascii"),
             "text/plain; charset=utf-8",
             {
-                "profile-title": PROFILE_TITLE_HEADER,
+                "profile-title": _title_header(token),
                 "announce": "base64:"
                 + base64.b64encode(DEVICE_LIMIT_ANNOUNCE.encode("utf-8")).decode("ascii"),
             },

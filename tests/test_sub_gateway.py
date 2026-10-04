@@ -1802,3 +1802,38 @@ def test_handler_turns_away_the_device_over_the_static_limit(static_ind, device_
 
     shown = urllib.parse.unquote(base64.b64decode(second.sent["body"]).decode())
     assert "устройств" in shown.lower()
+
+
+# --- ссылки без нашей марки (просьба заказчика 04.10.2026) -----------------------
+
+def test_unbranded_link_gets_a_neutral_title_and_no_announcement(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_USERS", frozenset({"corp_fi_trial"}))
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_TITLE", "VPN")
+    monkeypatch.setattr(sub_gateway, "SUB_ANNOUNCE", "🎁 Друг по вашей ссылке — 20%")
+
+    headers = sub_gateway._client_headers(_panel_token("corp_fi_trial"))
+
+    title = base64.b64decode(headers["profile-title"].removeprefix("base64:")).decode()
+    assert title == "VPN"
+    assert "announce" not in headers
+
+
+def test_other_links_keep_the_brand_and_the_announcement(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_USERS", frozenset({"corp_fi_trial"}))
+    monkeypatch.setattr(sub_gateway, "SUB_ANNOUNCE", "🎁 Друг по вашей ссылке — 20%")
+
+    for name in ("corp_fi_1", "tg_1"):
+        headers = sub_gateway._client_headers(_panel_token(name))
+        assert headers["profile-title"] == sub_gateway.PROFILE_TITLE_HEADER, name
+        assert "announce" in headers, name
+
+
+def test_unbranded_link_over_the_device_limit_is_not_branded_either(monkeypatch, device_store):
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_USERS", frozenset({"corp_fi_trial"}))
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_TITLE", "VPN")
+    handler = _FakeHandler("/sub/x", {})
+
+    handler._send_device_limit(_panel_token("corp_fi_trial"), "Happ/3.5.0/ios", "Ym9keQ==")
+
+    title = handler.sent["extra"]["profile-title"].removeprefix("base64:")
+    assert base64.b64decode(title).decode() == "VPN"
