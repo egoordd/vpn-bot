@@ -1748,6 +1748,84 @@ def test_static_link_without_end_date_never_expires(static_ind):
     assert len(json.loads(body)) == 3
 
 
+def _static_hysteria_profile() -> dict:
+    return {
+        "remarks": "🇩🇪 Германия · Hysteria2",
+        "outbounds": [
+            {"tag": "proxy", "protocol": "hysteria",
+             "settings": {"address": "194.87.157.197", "port": 443, "version": 2},
+             "streamSettings": {"network": "hysteria", "hysteriaSettings": {"version": 2, "auth": "pw"},
+                                "security": "tls", "tlsSettings": {"serverName": "194.87.157.197.sslip.io"}}},
+            {"tag": "direct", "protocol": "freedom"},
+        ],
+        "routing": {"rules": [{"type": "field", "network": "tcp,udp", "outboundTag": "proxy"}]},
+    }
+
+
+@pytest.fixture
+def static_ind_hy2(static_ind, tmp_path):
+    """Та же ссылка, но среди профилей есть Hysteria2, а для прочих приложений — свои ссылки."""
+    profiles = tmp_path / "ind_x.json"
+    profiles.write_text(
+        json.dumps([*_static_profiles(), _static_hysteria_profile()], ensure_ascii=False), encoding="utf-8"
+    )
+    registry = tmp_path / "individual.json"
+    entry = json.loads(registry.read_text(encoding="utf-8"))[STATIC_TOKEN]
+    entry["links"] = [
+        f"vless://{STATIC_UUID}@194.87.157.197:2083?security=reality#%F0%9F%87%A9%F0%9F%87%AA%20VLESS",
+        "hysteria2://pw@194.87.157.197:443?sni=194.87.157.197.sslip.io#Hysteria2",
+    ]
+    registry.write_text(json.dumps({STATIC_TOKEN: entry}), encoding="utf-8")
+
+
+def test_static_link_hides_hysteria_from_apps_with_an_old_core(static_ind_hy2):
+    static = sub_gateway.individual_static(STATIC_TOKEN)
+
+    old, _, _ = sub_gateway.build_static_individual(static, json_ok=True, hysteria=False)
+    new, _, _ = sub_gateway.build_static_individual(static, json_ok=True, hysteria=True)
+
+    assert "🇩🇪 Германия · Hysteria2" not in [c["remarks"] for c in json.loads(old)], (
+        "старое ядро не разбирает outbound hysteria и бросает весь импорт"
+    )
+    assert [c["remarks"] for c in json.loads(new)][-1] == "🇩🇪 Германия · Hysteria2"
+
+
+def test_static_link_gives_other_apps_the_links_from_the_registry(static_ind_hy2):
+    body, ctype, _ = sub_gateway.build_static_individual(
+        sub_gateway.individual_static(STATIC_TOKEN), json_ok=False
+    )
+    links = base64.b64decode(body).decode().splitlines()
+
+    assert ctype.startswith("text/plain")
+    assert [urllib.parse.urlsplit(link).scheme for link in links] == ["vless", "hysteria2"], (
+        "ссылки из реестра как есть: Hysteria2 и XHTTP из профилей не вывести"
+    )
+
+
+def test_static_link_registry_links_must_be_a_list_of_strings(static_ind, tmp_path):
+    registry = tmp_path / "individual.json"
+    entry = json.loads(registry.read_text(encoding="utf-8"))[STATIC_TOKEN]
+    entry["links"] = "vless://не-список"
+    registry.write_text(json.dumps({STATIC_TOKEN: entry}), encoding="utf-8")
+
+    assert sub_gateway.individual_static(STATIC_TOKEN) is None, "испорченная запись — как неизвестная"
+
+
+def test_handler_gives_hysteria_only_to_the_apps_the_rule_names(static_ind_hy2, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: None)
+    monkeypatch.setattr(sub_gateway, "HY2_JSON_RULES", sub_gateway.parse_hy2_rules("happ/ios>=5.1.0"))
+    monkeypatch.setattr(sub_gateway, "_XRAY_JSON_UA", ("happ", "incy"))
+
+    def remarks(ua: str) -> list[str]:
+        handler = _FakeHandler(f"/sub/{STATIC_TOKEN}", {"User-Agent": ua})
+        handler.do_GET()
+        return [c["remarks"] for c in json.loads(handler.sent["body"])]
+
+    assert "🇩🇪 Германия · Hysteria2" in remarks("Happ/5.9.0/ios/2609171647606")
+    assert "🇩🇪 Германия · Hysteria2" not in remarks("Happ/4.4.1/android")
+    assert "🇩🇪 Германия · Hysteria2" not in remarks("INCY/2.6.2/ios CFNetwork/1.0")
+
+
 def test_static_link_counts_devices_against_its_own_limit(static_ind, device_store):
     static_ind(devices=2)
     static = sub_gateway.individual_static(STATIC_TOKEN)

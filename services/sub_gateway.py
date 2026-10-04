@@ -987,7 +987,11 @@ def ind_ru_exit_link(username: str | None) -> str | None:
 # РУ-режим через Москву). Эти серверы не состоят в панели, поэтому ссылку, срок и
 # лимит устройств шлюз берёт из реестра IND_STATIC_FILE:
 #   {"<токен>": {"name": "ind_…", "expire": <unix, 0 — бессрочно>, "devices": 3,
-#                "profiles": "<путь к JSON-профилям>", "title": "<имя в приложении>"}}
+#                "profiles": "<путь к JSON-профилям>", "title": "<имя в приложении>",
+#                "links": ["vless://…", "hysteria2://…"]}}
+# `links` (необязательно) — готовые ссылки для приложений без xray-JSON. Без них
+# ссылки выводятся из профилей, но так выражается только VLESS по TCP: ни XHTTP,
+# ни Hysteria2, ни РУ-режим с выходом через наш сервер в РФ из профиля не вывести.
 # Реестр читается на каждый запрос, так что продление — правка файла без
 # перезапуска. Сами серверы раз в несколько минут спрашивают срок по этой же
 # ссылке и гасят свою службу, когда он вышел (deploy/individual/ind-guard.sh):
@@ -1002,6 +1006,7 @@ class StaticIndividual:
     devices: int
     title: str
     profiles: tuple[dict, ...]
+    links: tuple[str, ...] = ()
 
 
 def individual_static(token: str) -> StaticIndividual | None:
@@ -1019,12 +1024,16 @@ def individual_static(token: str) -> StaticIndividual | None:
             profiles = json.load(fh)
         if not isinstance(profiles, list) or not profiles:
             raise ValueError("пустой файл профилей")
+        links = entry.get("links") or []
+        if not isinstance(links, list) or not all(isinstance(link, str) for link in links):
+            raise ValueError("links — не список ссылок")
         return StaticIndividual(
             name=str(entry["name"]),
             expire=int(entry.get("expire") or 0),
             devices=int(entry.get("devices") or 0),
             title=str(entry.get("title") or SUB_TITLE)[:25],
             profiles=tuple(profiles),
+            links=tuple(links),
         )
     except Exception as exc:  # noqa: BLE001 — сломанный реестр не должен ронять выдачу всем
         print(f"individual: реестр не прочитать ({type(exc).__name__}: {exc})", flush=True)
@@ -1061,22 +1070,29 @@ def _profile_uri(profile: dict) -> str | None:
     return None
 
 
+def _uses_hysteria(profile: dict) -> bool:
+    return any(outbound.get("protocol") == "hysteria" for outbound in profile.get("outbounds", []))
+
+
 def build_static_individual(
-    static: StaticIndividual, *, json_ok: bool, now: float | None = None
+    static: StaticIndividual, *, json_ok: bool, hysteria: bool = False, now: float | None = None
 ) -> tuple[str, str, str]:
     """(тело, Content-Type, subscription-userinfo) для ссылки из реестра.
 
     Трафик без лимита (total=0). Истёкшей ссылке — пустой список и дата, как
-    панель отвечает по истёкшей подписке: приложение покажет «истекла»."""
+    панель отвечает по истёкшей подписке: приложение покажет «истекла».
+    Профили с Hysteria2 уходят в JSON только при `hysteria` (см.
+    hysteria_in_json): старое ядро на них бросает весь импорт."""
 
     now = time.time() if now is None else now
     userinfo = f"upload=0; download=0; total=0; expire={static.expire}"
     if static.expire and static.expire <= now:
         return "", "text/plain; charset=utf-8", userinfo
     if json_ok:
-        body = json.dumps(list(static.profiles), ensure_ascii=False, separators=(",", ":"))
+        profiles = [profile for profile in static.profiles if hysteria or not _uses_hysteria(profile)]
+        body = json.dumps(profiles, ensure_ascii=False, separators=(",", ":"))
         return body, "application/json; charset=utf-8", userinfo
-    links = [uri for uri in map(_profile_uri, static.profiles) if uri]
+    links = list(static.links) or [uri for uri in map(_profile_uri, static.profiles) if uri]
     return base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii"), "text/plain; charset=utf-8", userinfo
 
 
@@ -1774,7 +1790,9 @@ class Handler(BaseHTTPRequestHandler):
         if blocked is not None:
             self._send_device_limit(token, ua, blocked)
             return
-        body, ctype, userinfo = build_static_individual(static, json_ok=json_ok)
+        body, ctype, userinfo = build_static_individual(
+            static, json_ok=json_ok, hysteria=hysteria_in_json(ua)
+        )
         extra = _client_headers(token, flavor)
         # Общие объявления (реферальная программа, пробник) этому заказу не про него.
         extra.pop("announce", None)
