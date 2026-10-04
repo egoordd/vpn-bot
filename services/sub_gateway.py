@@ -39,10 +39,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # script's own dir is on sys.path), so fall back to a flat import.
 try:
     from services.competitor_profile import build_bridge_test_config, build_test_config
-    from services.xray_json import build_json_subscription
+    from services.xray_json import build_individual_subscription, build_json_subscription
 except ImportError:  # pragma: no cover - standalone deploy path
     from competitor_profile import build_bridge_test_config, build_test_config
-    from xray_json import build_json_subscription
+    from xray_json import build_individual_subscription, build_json_subscription
 
 MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://panel.23.95.3.18.sslip.io").rstrip("/")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8090"))
@@ -307,9 +307,9 @@ def _token_username(token: str) -> str | None:
             continue
         name = decoded.decode("utf-8", "replace").split(",", 1)[0].strip()
         # corp_… — корпоративные учётные записи (см. CORP_USERS), exp_… —
-        # экспериментальные (см. VK_RELAY_USERS); те и другие заведены в панели
-        # вручную, без аккаунта в боте.
-        if re.fullmatch(r"tg_-?\d{1,20}|(corp|exp)_[a-z0-9_]{1,24}", name):
+        # экспериментальные (см. VK_RELAY_USERS), ind_… — индивидуальные (см.
+        # IND_USERS); все заведены в панели вручную, без аккаунта в боте.
+        if re.fullmatch(r"tg_-?\d{1,20}|(corp|exp|ind)_[a-z0-9_]{1,24}", name):
             return name
     return None
 
@@ -930,6 +930,42 @@ VK_RELAY_PBK = os.environ.get("VK_RELAY_PBK", "")
 VK_RELAY_SID = os.environ.get("VK_RELAY_SID", "")
 VK_RELAY_IDS = _logins(os.environ.get("VK_RELAY_IDS", ""))
 
+# Индивидуальные подписки (04.10.2026, заказ «свой VPN со статичным IP»): серверы
+# берутся из учётки в панели (у неё только нужные входы), Hysteria2 — свой логин
+# на отдельном экземпляре на польском узле (общий пароль не отозвать у одного
+# клиента), а российский трафик всех пунктов выходит через наш московский сервер
+# по своему ключу клиента (IND_RU_IDS «имя:uuid») — так у клиента статичный
+# российский адрес. Общих Trojan/Hy2, каскада и входа для белых списков нет.
+IND_USERS = _names(os.environ.get("IND_USERS", ""))
+IND_HY2 = _logins(os.environ.get("IND_HY2", ""))
+IND_HY2_HOST = os.environ.get("IND_HY2_HOST", "78.17.154.225.sslip.io")
+IND_HY2_PORT = int(os.environ.get("IND_HY2_PORT", "8443") or 8443)
+IND_HY2_REMARK = os.environ.get("IND_HY2_REMARK", "🇵🇱 Польша · Hysteria2")
+IND_RU_IDS = _logins(os.environ.get("IND_RU_IDS", ""))
+IND_RU_PORT = int(os.environ.get("IND_RU_PORT", "2096") or 2096)
+
+
+def ind_hy2_link(username: str | None) -> str | None:
+    secret = IND_HY2.get(username or "")
+    if not secret:
+        return None
+    return (
+        f"hysteria2://{username}:{secret}@{IND_HY2_HOST}:{IND_HY2_PORT}"
+        f"?sni={IND_HY2_HOST}&insecure=0#{urllib.parse.quote(IND_HY2_REMARK)}"
+    )
+
+
+def ind_ru_exit_link(username: str | None) -> str | None:
+    """Выход российского трафика через московский сервер — свой ключ клиента."""
+    uid = IND_RU_IDS.get(username or "")
+    if not (uid and CASCADE_PBK):
+        return None
+    return (
+        f"vless://{uid}@{RU_RELAY_HOST}:{IND_RU_PORT}"
+        f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={RU_RELAY_HOST}"
+        f"&fp=firefox&pbk={CASCADE_PBK}&sid={CASCADE_SID}#ru-exit"
+    )
+
 
 # Hysteria2 на корпоративных серверах — у каждой учётной записи свой логин
 # (userpass на сервере), а не общий пароль, как на польском узле: общий не
@@ -1311,6 +1347,10 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
         return [], userinfo
     if corporate:
         combined = combined + build_corp_hy2_links(username, combined)
+    elif username in IND_USERS:
+        # Только серверы учётки (без общих Hy2/Trojan) и свой логин Hysteria2.
+        hy2 = ind_hy2_link(username)
+        combined = [link for link in combined if link.split("://", 1)[0] == "vless"] + ([hy2] if hy2 else [])
     else:
         relay = build_vk_relay_links(combined) if username in VK_RELAY_USERS else []
         combined = combined + (relay or build_cascade_links(combined)) + build_mobile_links(combined)
@@ -1343,7 +1383,12 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
         return None
     links, userinfo = resolved
     links = pin_addresses(links)
-    configs = build_json_subscription(links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria)
+    username = _token_username(token)
+    ru_exit = ind_ru_exit_link(username) if username in IND_USERS else None
+    if ru_exit and links:
+        configs = build_individual_subscription(links, ru_exit, hysteria=hysteria)
+    else:
+        configs = build_json_subscription(links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria)
     if configs:
         # Compact separators, because the size of this body decides whether a
         # Russian client can fetch it at all. The path from RU to the gateway is

@@ -1577,3 +1577,47 @@ def test_switching_off_tells_the_app_to_stop_bypassing(monkeypatch):
     headers = sub_gateway._client_headers("tok")
     assert headers["per-app-proxy-mode"] == "off"
     assert "per-app-proxy-list" not in headers
+
+
+# --- индивидуальная подписка (04.10.2026) ---------------------------------------
+
+def _ind(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "IND_USERS", frozenset({"ind_test_1"}))
+    monkeypatch.setattr(sub_gateway, "IND_HY2", {"ind_test_1": "s3cret"})
+    monkeypatch.setattr(sub_gateway, "IND_RU_IDS", {"ind_test_1": "11111111-2222-3333-4444-555555555555"})
+    monkeypatch.setattr(sub_gateway, "CASCADE_PBK", "PBK")
+    monkeypatch.setattr(sub_gateway, "CASCADE_SID", "SID")
+    upstream = "\n".join([
+        "vless://u@166.0.28.132.sslip.io:2096?security=reality&type=tcp&sni=166.0.28.132.sslip.io&pbk=P&sid=S#DE",
+    ])
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "filter_alive", lambda links: links)
+    monkeypatch.setattr(sub_gateway, "_register_probe_targets", lambda links: None)
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: set())
+
+
+def test_individual_link_gets_its_own_hysteria_login_and_nothing_shared(monkeypatch):
+    _ind(monkeypatch)
+    links, _ = sub_gateway.resolve_links(_panel_token("ind_test_1"))
+    schemes = [link.split("://")[0] for link in links]
+    assert "trojan" not in schemes, "общий Trojan с паролем на всех индивидуальной ссылке не нужен"
+    hy2 = [link for link in links if link.startswith("hysteria2://")]
+    assert len(hy2) == 1 and hy2[0].startswith("hysteria2://ind_test_1:s3cret@78.17.154.225.sslip.io:8443")
+    assert sub_gateway.RU_RELAY_HOST not in {sub_gateway._uri_host(l) for l in links}, "без общего каскада"
+
+
+def test_individual_link_json_is_auto_plus_each_server(monkeypatch):
+    _ind(monkeypatch)
+    body, _, is_json = sub_gateway.build_auto_json(_panel_token("ind_test_1"), hysteria=True)
+    configs = json.loads(body)
+    assert is_json
+    assert [c["remarks"] for c in configs][0] == "⚡️ Авто-обход"
+    assert len(configs) == 3
+    for config in configs:
+        assert any(o["tag"] == "ru-exit" for o in config["outbounds"]), config["remarks"]
+
+
+def test_individual_account_names_are_recognised():
+    assert sub_gateway._token_username(_panel_token("ind_test_1")) == "ind_test_1"
+

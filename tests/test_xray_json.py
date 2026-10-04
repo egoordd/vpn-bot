@@ -768,3 +768,42 @@ def test_a_left_out_link_does_not_break_the_balancer():
     config = xray_json.build_balancer_config([REALITY, WS_URI.replace("type=ws", "type=kcp")])
     proxies = [o for o in config["outbounds"] if o["tag"].startswith("proxy")]
     assert len(proxies) == 1
+
+
+# --- индивидуальная подписка (04.10.2026) ---------------------------------------
+# «Авто-обход» из своих серверов и каждый сервер отдельно, всё в РУ-режиме, где
+# российское выходит через наш московский сервер (статичный российский адрес).
+
+RU_EXIT = (
+    "vless://11111111-2222-3333-4444-555555555555@130.49.143.41:2096"
+    "?security=reality&type=tcp&flow=xtls-rprx-vision&sni=130.49.143.41.sslip.io&fp=firefox&pbk=PBK&sid=SID#ru"
+)
+IND_LINKS = [
+    "vless://uuid@166.0.28.132:2096?security=reality&type=tcp&sni=166.0.28.132.sslip.io&pbk=P&sid=S#%F0%9F%87%A9%F0%9F%87%AA%20%D0%93%D0%B5%D1%80%D0%BC%D0%B0%D0%BD%D0%B8%D1%8F",
+    "hysteria2://ind_x:secret@78.17.154.225:8443?sni=78.17.154.225.sslip.io&insecure=0#%F0%9F%87%B5%F0%9F%87%B1%20%D0%9F%D0%BE%D0%BB%D1%8C%D1%88%D0%B0%20%C2%B7%20Hysteria2",
+]
+
+
+def _ru_rules_go_to(config, tag):
+    rules = config["routing"]["rules"]
+    geo = next(r for r in rules if r.get("ip") == ["geoip:ru"])
+    apps = next(r for r in rules if "domain:tbank.com" in r.get("domain", []))
+    private = next(r for r in rules if r.get("ip") == ["geoip:private"])
+    return geo["outboundTag"] == tag and apps["outboundTag"] == tag and private["outboundTag"] == "direct"
+
+
+def test_individual_subscription_is_auto_plus_each_server_all_in_ru_mode():
+    configs = xray_json.build_individual_subscription(IND_LINKS, RU_EXIT, hysteria=True)
+    assert [c["remarks"] for c in configs] == ["⚡️ Авто-обход", "🇩🇪 Германия", "🇵🇱 Польша · Hysteria2"]
+    auto = configs[0]
+    assert len([o for o in auto["outbounds"] if o["tag"].startswith("proxy-")]) == 2, "автовыбор из двух серверов"
+    for config in configs:
+        exit_ = next(o for o in config["outbounds"] if o["tag"] == xray_json.RU_VIA_TAG)
+        assert exit_["settings"]["vnext"][0]["address"] == "130.49.143.41"
+        assert _ru_rules_go_to(config, xray_json.RU_VIA_TAG), config["remarks"]
+
+
+def test_without_an_ru_exit_ordinary_configs_still_leave_russian_traffic_on_the_device():
+    server = xray_json.build_server_config(IND_LINKS[0], 0)
+    assert next(r for r in server["routing"]["rules"] if r.get("ip") == ["geoip:ru"])["outboundTag"] == "direct"
+    assert xray_json.RU_VIA_TAG not in [o["tag"] for o in server["outbounds"]]

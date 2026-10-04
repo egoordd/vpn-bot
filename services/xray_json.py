@@ -355,9 +355,11 @@ _RU_APPS_DIRECT = [
 ]
 
 
-def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False) -> dict:
+def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False, ru_outbound: str = "direct") -> dict:
     # Whatever `final_rule` sends traffic to (a single proxy outbound, or the
-    # balancer) is where the pinned domains must go too.
+    # balancer) is where the pinned domains must go too. `ru_outbound` is where
+    # Russian destinations leave: the device itself, or our Russian server for
+    # an individual subscription (see build_individual_subscription).
     destination = {
         key: value for key, value in final_rule.items() if key in ("outboundTag", "balancerTag")
     }
@@ -390,7 +392,7 @@ def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False) -> dict:
             {
                 "type": "field",
                 "domain": _RU_DIRECT_DOMAINS + (_RU_APPS_DIRECT if ru_apps_direct else []),
-                "outboundTag": "direct",
+                "outboundTag": ru_outbound,
             },
             # QUIC is refused for everything still undecided — that is, for
             # everything bound for the tunnel — so those applications fall back
@@ -423,7 +425,7 @@ def _split_routing(final_rule: dict, *, ru_apps_direct: bool = False) -> dict:
             {"type": "field", "domain": _FORCE_PROXY_DOMAINS, **destination},
             # Catches Russian services this list never named, now that
             # IPIfNonMatch gives the rule an address to work with.
-            {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"},
+            {"type": "field", "ip": ["geoip:ru"], "outboundTag": ru_outbound},
             final_rule,
         ],
     }
@@ -691,21 +693,37 @@ def _remark(uri: str, fallback: str) -> str:
     return parsed[5] if parsed else fallback
 
 
-def build_server_config(uri: str, tag_index: int, *, hysteria: bool | None = None) -> dict | None:
+def build_server_config(
+    uri: str,
+    tag_index: int,
+    *,
+    hysteria: bool | None = None,
+    ru_apps_direct: bool = False,
+    ru_via: str | None = None,
+) -> dict | None:
     """A standalone single-server xray config (so the user can still pick one)."""
     outbound = build_outbound(uri, "proxy", hysteria=hysteria)
     if outbound is None:
         return None
+    ru_exit = build_outbound(ru_via, RU_VIA_TAG) if ru_via else None
     return {
         "remarks": _remark(uri, f"Сервер {tag_index + 1}"),
         "log": {"loglevel": "warning"},
         "dns": _DNS,
         "inbounds": _INBOUNDS,
-        "outbounds": [outbound, *_tail_outbounds()],
+        "outbounds": [outbound, *([ru_exit] if ru_exit else []), *_tail_outbounds()],
         "routing": _split_routing(
-            {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"}
+            {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"},
+            ru_apps_direct=ru_apps_direct,
+            ru_outbound=RU_VIA_TAG if ru_exit else "direct",
         ),
     }
+
+
+# Выход российского трафика через наш сервер в РФ (индивидуальная подписка).
+# Тег не начинается с «proxy-»: иначе пробник и балансировщик сочли бы его ещё
+# одним зарубежным сервером.
+RU_VIA_TAG = "ru-exit"
 
 
 def _probe_step(outbound_count: int) -> str:
@@ -769,6 +787,7 @@ def build_balancer_config(
     ru_apps_direct: bool = False,
     exclude_hosts: frozenset[str] | set[str] = frozenset(),
     hysteria: bool | None = None,
+    ru_via: str | None = None,
 ) -> dict | None:
     """The one automatic entry: balances over one server per exit, healthiest first.
 
@@ -795,16 +814,18 @@ def build_balancer_config(
     if not outbounds:
         return None
     strategy, prober = _health_check(BALANCER_STRATEGY, len(outbounds))
+    ru_exit = build_outbound(ru_via, RU_VIA_TAG) if ru_via else None
     return {
         "remarks": remarks,
         "log": {"loglevel": "warning"},
         "dns": _DNS,
         "inbounds": _INBOUNDS,
-        "outbounds": [*outbounds, *_tail_outbounds()],
+        "outbounds": [*outbounds, *([ru_exit] if ru_exit else []), *_tail_outbounds()],
         "routing": {
             **_split_routing(
                 {"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
                 ru_apps_direct=ru_apps_direct,
+                ru_outbound=RU_VIA_TAG if ru_exit else "direct",
             ),
             "balancers": [{"tag": "auto", "selector": ["proxy-"], "strategy": strategy}],
         },
@@ -917,6 +938,25 @@ def build_json_subscription(
         configs.append(split)
     for index, uri in enumerate(links):
         server = build_server_config(uri, index, hysteria=hysteria)
+        if server is not None:
+            configs.append(server)
+    return configs
+
+
+def build_individual_subscription(
+    uris: list[str], ru_via: str, *, hysteria: bool | None = None
+) -> list[dict]:
+    """Индивидуальная подписка (04.10.2026): «⚡️ Авто-обход» из её серверов и
+    каждый сервер отдельно — всё в РУ-режиме (российские сайты и приложения,
+    включая банки на зарубежных доменах), где российское выходит не с
+    устройства, а через `ru_via` — наш сервер в РФ со статичным адресом."""
+
+    configs = []
+    auto = build_balancer_config(uris, AUTO_REMARKS, ru_apps_direct=True, hysteria=hysteria, ru_via=ru_via)
+    if auto is not None:
+        configs.append(auto)
+    for index, uri in enumerate(uris):
+        server = build_server_config(uri, index, hysteria=hysteria, ru_apps_direct=True, ru_via=ru_via)
         if server is not None:
             configs.append(server)
     return configs
