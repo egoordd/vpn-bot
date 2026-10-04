@@ -32,6 +32,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # In the repo this is the services package; on the VPS the gateway runs
@@ -967,6 +968,104 @@ def ind_ru_exit_link(username: str | None) -> str | None:
     )
 
 
+# Индивидуальные подписки на своих серверах клиента (04.10.2026, заказ «свой VPN со
+# статичным IP»: свой немецкий сервер, к нему запасной вход через Финляндию и
+# РУ-режим через Москву). Эти серверы не состоят в панели, поэтому ссылку, срок и
+# лимит устройств шлюз берёт из реестра IND_STATIC_FILE:
+#   {"<токен>": {"name": "ind_…", "expire": <unix, 0 — бессрочно>, "devices": 3,
+#                "profiles": "<путь к JSON-профилям>", "title": "<имя в приложении>"}}
+# Реестр читается на каждый запрос, так что продление — правка файла без
+# перезапуска. Сами серверы раз в несколько минут спрашивают срок по этой же
+# ссылке и гасят свою службу, когда он вышел (deploy/individual/ind-guard.sh):
+# иначе истёкшая ссылка продолжала бы работать в приложении.
+IND_STATIC_FILE = os.environ.get("IND_STATIC_FILE", "")
+
+
+@dataclass(frozen=True)
+class StaticIndividual:
+    name: str
+    expire: int
+    devices: int
+    title: str
+    profiles: tuple[dict, ...]
+
+
+def individual_static(token: str) -> StaticIndividual | None:
+    """Запись реестра для этой ссылки; None — ссылка обычная (её знает панель)."""
+
+    if not IND_STATIC_FILE or not token:
+        return None
+    try:
+        with open(IND_STATIC_FILE, encoding="utf-8") as fh:
+            registry = json.load(fh)
+        entry = registry.get(token) if isinstance(registry, dict) else None
+        if not isinstance(entry, dict):
+            return None
+        with open(entry["profiles"], encoding="utf-8") as fh:
+            profiles = json.load(fh)
+        if not isinstance(profiles, list) or not profiles:
+            raise ValueError("пустой файл профилей")
+        return StaticIndividual(
+            name=str(entry["name"]),
+            expire=int(entry.get("expire") or 0),
+            devices=int(entry.get("devices") or 0),
+            title=str(entry.get("title") or SUB_TITLE)[:25],
+            profiles=tuple(profiles),
+        )
+    except Exception as exc:  # noqa: BLE001 — сломанный реестр не должен ронять выдачу всем
+        print(f"individual: реестр не прочитать ({type(exc).__name__}: {exc})", flush=True)
+        return None
+
+
+def _profile_uri(profile: dict) -> str | None:
+    """Профиль с одним сервером — ссылкой vless:// для приложений без xray-JSON.
+
+    Авто-обход (балансировщик) ссылкой не выразить, он только в JSON."""
+
+    if profile.get("routing", {}).get("balancers"):
+        return None
+    for outbound in profile.get("outbounds", []):
+        if outbound.get("tag") != "proxy" or outbound.get("protocol") != "vless":
+            continue
+        server = outbound["settings"]["vnext"][0]
+        user = server["users"][0]
+        stream = outbound.get("streamSettings", {})
+        reality = stream.get("realitySettings", {})
+        query = {
+            "security": stream.get("security", "none"),
+            "type": "tcp" if stream.get("network") in (None, "raw") else stream["network"],
+            "encryption": user.get("encryption", "none"),
+            "flow": user.get("flow", ""),
+            "sni": reality.get("serverName", ""),
+            "fp": reality.get("fingerprint", ""),
+            "pbk": reality.get("publicKey", ""),
+            "sid": reality.get("shortId", ""),
+        }
+        params = urllib.parse.urlencode({key: value for key, value in query.items() if value})
+        remark = urllib.parse.quote(profile.get("remarks", ""))
+        return f"vless://{user['id']}@{server['address']}:{server['port']}?{params}#{remark}"
+    return None
+
+
+def build_static_individual(
+    static: StaticIndividual, *, json_ok: bool, now: float | None = None
+) -> tuple[str, str, str]:
+    """(тело, Content-Type, subscription-userinfo) для ссылки из реестра.
+
+    Трафик без лимита (total=0). Истёкшей ссылке — пустой список и дата, как
+    панель отвечает по истёкшей подписке: приложение покажет «истекла»."""
+
+    now = time.time() if now is None else now
+    userinfo = f"upload=0; download=0; total=0; expire={static.expire}"
+    if static.expire and static.expire <= now:
+        return "", "text/plain; charset=utf-8", userinfo
+    if json_ok:
+        body = json.dumps(list(static.profiles), ensure_ascii=False, separators=(",", ":"))
+        return body, "application/json; charset=utf-8", userinfo
+    links = [uri for uri in map(_profile_uri, static.profiles) if uri]
+    return base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii"), "text/plain; charset=utf-8", userinfo
+
+
 # Hysteria2 на корпоративных серверах — у каждой учётной записи свой логин
 # (userpass на сервере), а не общий пароль, как на польском узле: общий не
 # отозвать у одного клиента, когда закончится его срок.
@@ -1074,9 +1173,17 @@ def plan_device_limit(username: str) -> int:
 
 
 def device_allowed(
-    username: str | None, hwid: str | None, *, model: str | None = None, os_name: str | None = None
+    username: str | None,
+    hwid: str | None,
+    *,
+    model: str | None = None,
+    os_name: str | None = None,
+    limit: int | None = None,
 ) -> bool:
-    """Запомнить устройство и сказать, помещается ли оно в лимит подписки."""
+    """Запомнить устройство и сказать, помещается ли оно в лимит подписки.
+
+    limit — цифра, известная заранее (ссылки из реестра IND_STATIC_FILE); без
+    неё лимит спрашиваем у тарифа (plan_device_limit)."""
 
     if DEVICE_LIMIT <= 0 or not username or not hwid:
         return True
@@ -1090,7 +1197,8 @@ def device_allowed(
     conn = _device_store()
     if conn is None:
         return True
-    limit = plan_device_limit(username)
+    if limit is None:
+        limit = plan_device_limit(username)
     if limit <= 0:
         return True
     now = time.time()
@@ -1166,21 +1274,28 @@ def forget_devices(username: str, hwid: str | None = None) -> int:
     return cur.rowcount or 0
 
 
-def device_gate(token: str, headers) -> str | None:
+def device_gate(
+    token: str, headers, *, username: str | None = None, limit: int | None = None
+) -> str | None:
     """Тело-заглушка, если устройство не помещается в лимит подписки, иначе None.
 
     Отдельной функцией, чтобы решение можно было проверить тестом, не поднимая
     HTTP-сервер: именно здесь решается, увидит человек серверы или объяснение.
+    username и limit передаёт ссылка из реестра: имени в её токене нет.
     """
 
     if DEVICE_LIMIT <= 0:
         return None
     hwid = (headers.get("x-hwid") or "").strip()
-    username = _token_username(token)
+    username = username or _token_username(token)
     if not hwid or username is None:
         return None
     if device_allowed(
-        username, hwid, model=headers.get("x-device-model"), os_name=headers.get("x-device-os")
+        username,
+        hwid,
+        model=headers.get("x-device-model"),
+        os_name=headers.get("x-device-os"),
+        limit=limit,
     ):
         return None
     return device_limit_body()
@@ -1568,6 +1683,12 @@ class Handler(BaseHTTPRequestHandler):
         # that is what the /hy2 flavor above exists to hand over. Other clients
         # keep the base64 URI list, Hysteria2 included.
         ua = self.headers.get("User-Agent", "")
+        static = individual_static(token)
+        if static is not None:
+            self._serve_static_individual(static, token, flavor, ua, json_ok=not force_plain and (
+                is_auto or _supports_xray_json(ua)
+            ))
+            return
         wants_json = not force_plain and (
             is_auto or is_split or is_test or (AUTO_IN_SUB and _supports_xray_json(ua))
         )
@@ -1592,17 +1713,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         blocked = device_gate(token, self.headers)
         if blocked is not None:
-            _log_served(token, ua, "device-limit", blocked)
-            self._send(
-                200,
-                blocked.encode("ascii"),
-                "text/plain; charset=utf-8",
-                {
-                    "profile-title": PROFILE_TITLE_HEADER,
-                    "announce": "base64:"
-                    + base64.b64encode(DEVICE_LIMIT_ANNOUNCE.encode("utf-8")).decode("ascii"),
-                },
-            )
+            self._send_device_limit(token, ua, blocked)
             return
         if wants_json:
             body, userinfo, is_json = built
@@ -1626,6 +1737,38 @@ class Handler(BaseHTTPRequestHandler):
             extra["subscription-userinfo"] = _normalise_userinfo(userinfo)
         _log_served(token, ua, "base64", payload)
         self._send(200, payload.encode("ascii"), "text/plain; charset=utf-8", extra)
+
+    def _send_device_limit(self, token: str, ua: str, blocked: str) -> None:
+        _log_served(token, ua, "device-limit", blocked)
+        self._send(
+            200,
+            blocked.encode("ascii"),
+            "text/plain; charset=utf-8",
+            {
+                "profile-title": PROFILE_TITLE_HEADER,
+                "announce": "base64:"
+                + base64.b64encode(DEVICE_LIMIT_ANNOUNCE.encode("utf-8")).decode("ascii"),
+            },
+        )
+
+    def _serve_static_individual(
+        self, static: StaticIndividual, token: str, flavor: str, ua: str, *, json_ok: bool
+    ) -> None:
+        """Ссылка из реестра IND_STATIC_FILE: панель её не знает и не спрашивается."""
+
+        blocked = device_gate(token, self.headers, username=static.name, limit=static.devices)
+        if blocked is not None:
+            self._send_device_limit(token, ua, blocked)
+            return
+        body, ctype, userinfo = build_static_individual(static, json_ok=json_ok)
+        extra = _client_headers(token, flavor)
+        # Общие объявления (реферальная программа, пробник) этому заказу не про него.
+        extra.pop("announce", None)
+        extra["profile-title"] = "base64:" + base64.b64encode(static.title.encode("utf-8")).decode("ascii")
+        extra["subscription-userinfo"] = userinfo
+        is_json = ctype.startswith("application/json")
+        _log_served(token, ua, "json" if is_json else "base64", body)
+        self._send(200, body.encode("utf-8"), ctype, extra)
 
     def _send(self, code: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
         self.send_response(code)

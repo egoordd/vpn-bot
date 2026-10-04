@@ -1,0 +1,8 @@
+[Unit]
+Description=Individual VPN: stop the service once the subscription expires
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ind-guard.sh

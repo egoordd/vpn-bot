@@ -1621,3 +1621,184 @@ def test_individual_link_json_is_auto_plus_each_server(monkeypatch):
 def test_individual_account_names_are_recognised():
     assert sub_gateway._token_username(_panel_token("ind_test_1")) == "ind_test_1"
 
+
+
+# --- индивидуальная подписка на своих серверах (04.10.2026) ----------------------
+
+STATIC_TOKEN = "IndStaticToken0Abcdefghijklmnop12"
+STATIC_UUID = "11111111-2222-3333-4444-555555555555"
+
+
+def _static_proxy(tag: str, address: str, port: int) -> dict:
+    return {
+        "tag": tag,
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": address, "port": port, "users": [
+            {"id": STATIC_UUID, "encryption": "none", "flow": "xtls-rprx-vision"}]}]},
+        "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {
+            "serverName": f"{address}.sslip.io", "publicKey": "PBK", "shortId": "ab12",
+            "spiderX": "", "fingerprint": "firefox"}},
+    }
+
+
+def _static_profiles() -> list[dict]:
+    auto = {
+        "remarks": "⚡️ Авто-обход",
+        "outbounds": [_static_proxy("proxy-0", "194.87.157.197", 2096),
+                      _static_proxy("proxy-1", "89.125.86.10", 21443),
+                      {"tag": "direct", "protocol": "freedom"}],
+        "routing": {"balancers": [{"tag": "auto", "selector": ["proxy-"]}],
+                    "rules": [{"type": "field", "network": "tcp,udp", "balancerTag": "auto"}]},
+    }
+    single = [
+        {"remarks": remark, "outbounds": [_static_proxy("proxy", address, port),
+                                          {"tag": "direct", "protocol": "freedom"}],
+         "routing": {"rules": [{"type": "field", "network": "tcp,udp", "outboundTag": "proxy"}]}}
+        for remark, address, port in (("🇩🇪 Германия", "194.87.157.197", 2096),
+                                      ("🇫🇮 Резервный вход", "89.125.86.10", 21443))
+    ]
+    return [auto, *single]
+
+
+@pytest.fixture
+def static_ind(tmp_path, monkeypatch):
+    """Реестр с одной ссылкой; вызов fixture(expire=…, devices=…) переписывает запись."""
+    profiles = tmp_path / "ind_x.json"
+    profiles.write_text(json.dumps(_static_profiles(), ensure_ascii=False), encoding="utf-8")
+    registry = tmp_path / "individual.json"
+    monkeypatch.setattr(sub_gateway, "IND_STATIC_FILE", str(registry))
+
+    def write(expire: int | None = None, devices: int = 3) -> None:
+        entry = {
+            "name": "ind_x",
+            "expire": int(time.time()) + 3 * 86400 if expire is None else expire,
+            "devices": devices,
+            "profiles": str(profiles),
+            "title": "Индивидуальный VPN",
+        }
+        registry.write_text(json.dumps({STATIC_TOKEN: entry}), encoding="utf-8")
+
+    write()
+    return write
+
+
+def test_static_link_is_found_only_by_its_own_token(static_ind):
+    found = sub_gateway.individual_static(STATIC_TOKEN)
+
+    assert found is not None and found.name == "ind_x" and found.devices == 3
+    assert sub_gateway.individual_static("ДругойТокен") is None
+    assert sub_gateway.individual_static(_panel_token("tg_1")) is None, "обычные ссылки идут в панель"
+
+
+def test_static_link_registry_trouble_means_unknown_not_a_crash(static_ind, monkeypatch, tmp_path):
+    broken = tmp_path / "broken.json"
+    broken.write_text("{не json", encoding="utf-8")
+    monkeypatch.setattr(sub_gateway, "IND_STATIC_FILE", str(broken))
+    assert sub_gateway.individual_static(STATIC_TOKEN) is None
+
+    monkeypatch.setattr(sub_gateway, "IND_STATIC_FILE", "")
+    assert sub_gateway.individual_static(STATIC_TOKEN) is None, "без реестра — выключено"
+
+
+def test_static_link_gives_happ_its_profiles_and_the_end_date(static_ind):
+    expire = int(time.time()) + 3 * 86400
+    static_ind(expire=expire)
+
+    body, ctype, userinfo = sub_gateway.build_static_individual(
+        sub_gateway.individual_static(STATIC_TOKEN), json_ok=True
+    )
+
+    assert ctype.startswith("application/json")
+    assert [c["remarks"] for c in json.loads(body)] == ["⚡️ Авто-обход", "🇩🇪 Германия", "🇫🇮 Резервный вход"]
+    assert f"expire={expire}" in userinfo and "total=0" in userinfo, "срок виден, трафик без лимита"
+
+
+def test_static_link_gives_other_apps_plain_server_links(static_ind):
+    body, ctype, _ = sub_gateway.build_static_individual(
+        sub_gateway.individual_static(STATIC_TOKEN), json_ok=False
+    )
+    links = base64.b64decode(body).decode().splitlines()
+
+    assert ctype.startswith("text/plain")
+    assert len(links) == 2, "Авто-обход ссылкой не выразить — только отдельные серверы"
+    de = urllib.parse.urlsplit(links[0])
+    query = dict(urllib.parse.parse_qsl(de.query))
+    assert (de.scheme, de.username, de.hostname, de.port) == ("vless", STATIC_UUID, "194.87.157.197", 2096)
+    assert query["fp"] == "firefox" and query["pbk"] == "PBK" and query["sid"] == "ab12"
+    assert query["flow"] == "xtls-rprx-vision" and query["sni"] == "194.87.157.197.sslip.io"
+    assert urllib.parse.unquote(de.fragment) == "🇩🇪 Германия"
+
+
+def test_expired_static_link_shows_the_date_and_no_servers(static_ind):
+    static_ind(expire=int(time.time()) - 60)
+
+    body, _, userinfo = sub_gateway.build_static_individual(
+        sub_gateway.individual_static(STATIC_TOKEN), json_ok=True
+    )
+
+    assert body == ""
+    assert "expire=" in userinfo
+
+
+def test_static_link_without_end_date_never_expires(static_ind):
+    static_ind(expire=0)
+    body, _, _ = sub_gateway.build_static_individual(
+        sub_gateway.individual_static(STATIC_TOKEN), json_ok=True
+    )
+    assert len(json.loads(body)) == 3
+
+
+def test_static_link_counts_devices_against_its_own_limit(static_ind, device_store):
+    static_ind(devices=2)
+    static = sub_gateway.individual_static(STATIC_TOKEN)
+
+    def gate(hwid: str) -> str | None:
+        return sub_gateway.device_gate(
+            STATIC_TOKEN, {"x-hwid": hwid}, username=static.name, limit=static.devices
+        )
+
+    assert gate("hw-a") is None and gate("hw-b") is None
+    assert gate("hw-c") is not None, "третье устройство при лимите 2 получает объяснение"
+    assert gate("hw-a") is None, "своё устройство продолжает работать"
+
+
+class _FakeHandler(sub_gateway.Handler):
+    """Обработчик без сокета: путь и заголовки на входе, ответ — в полях."""
+
+    def __init__(self, path: str, headers: dict):  # noqa: D401 — без super(): сокета нет
+        self.path = path
+        self.headers = headers
+        self.sent: dict = {}
+
+    def _send(self, code, body, ctype, extra=None):
+        self.sent = {"code": code, "body": body, "ctype": ctype, "extra": extra or {}}
+
+
+def test_handler_serves_the_static_link_without_asking_the_panel(static_ind, monkeypatch):
+    def no_panel(token):
+        raise AssertionError("индивидуальную ссылку панель не знает — не спрашивать")
+
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", no_panel)
+    monkeypatch.setattr(sub_gateway, "SUB_ANNOUNCE", "🎁 Реферальная программа")
+    handler = _FakeHandler(f"/sub/{STATIC_TOKEN}", {"User-Agent": "Happ/3.5.0/ios"})
+
+    handler.do_GET()
+
+    assert handler.sent["code"] == 200
+    assert len(json.loads(handler.sent["body"])) == 3
+    extra = handler.sent["extra"]
+    assert "expire=" in extra["subscription-userinfo"]
+    title = base64.b64decode(extra["profile-title"].removeprefix("base64:")).decode()
+    assert title == "Индивидуальный VPN"
+    assert "announce" not in extra, "общие объявления (рефералка, пробник) не для этого заказа"
+
+
+def test_handler_turns_away_the_device_over_the_static_limit(static_ind, device_store):
+    static_ind(devices=1)
+    _FakeHandler(f"/sub/{STATIC_TOKEN}", {"User-Agent": "Happ/3.5.0/ios", "x-hwid": "a"}).do_GET()
+    second = _FakeHandler(f"/sub/{STATIC_TOKEN}", {"User-Agent": "Happ/3.5.0/ios", "x-hwid": "b"})
+
+    second.do_GET()
+
+    shown = urllib.parse.unquote(base64.b64decode(second.sent["body"]).decode())
+    assert "устройств" in shown.lower()
