@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
@@ -35,6 +36,10 @@ from services.tariffs import resolve_tariff
 
 logger = logging.getLogger(__name__)
 PANEL_INACTIVE_STATUSES = {"DISABLED", "LIMITED", "EXPIRED"}
+
+# Учётки, которые выдаёт бот: tg_<id> и дополнительные подписки tg_<id>_sN
+# (у покупателей с сайта id отрицательный). Остальные заведены вручную.
+_BOT_ACCOUNT_RE = re.compile(r"^tg_-?\d+(_s\d+)?$")
 
 
 async def check_expiring_subscriptions(
@@ -348,6 +353,12 @@ async def check_inbound_drift() -> None:
     try:
         for user in await gateway.client.list_users():
             if user.get("status") != "active":
+                continue
+            # Вручную заведённые учётки (ind_…, corp_…, exp_…, ссылки для друзей)
+            # настроены так нарочно: у индивидуального пробника, например, одна
+            # Германия (05.10.2026 ложная тревога по ind_trial_1). Аудит — только
+            # для того, что выдаёт бот.
+            if not _BOT_ACCOUNT_RE.match(str(user.get("username") or "")):
                 continue
             held = {tag for tags in (user.get("inbounds") or {}).values() for tag in tags}
             if held and held <= private:

@@ -531,9 +531,10 @@ async def test_drift_check_audits_the_accounts_not_only_the_setting(monkeypatch)
             get_inbounds=AsyncMock(return_value={"vless": [{"tag": "A"}, {"tag": "B"}]}),
             list_users=AsyncMock(
                 return_value=[
-                    {"username": "shortchanged", "status": "active", "inbounds": {"vless": ["A"]}},
-                    {"username": "fine", "status": "active", "inbounds": {"vless": ["A", "B"]}},
-                    {"username": "gone", "status": "disabled", "inbounds": {"vless": []}},
+                    {"username": "tg_101", "status": "active", "inbounds": {"vless": ["A"]}},
+                    {"username": "tg_102", "status": "active", "inbounds": {"vless": ["A", "B"]}},
+                    {"username": "tg_103", "status": "disabled", "inbounds": {"vless": []}},
+                    {"username": "tg_104_s2", "status": "active", "inbounds": {"vless": ["B"]}},
                 ]
             ),
         ),
@@ -546,9 +547,37 @@ async def test_drift_check_audits_the_accounts_not_only_the_setting(monkeypatch)
     await tasks.check_inbound_drift()
 
     sent = " ".join(str(call.args[0]) for call in alert.await_args_list)
-    assert "shortchanged" in sent
-    assert "fine" not in sent, "a fully provisioned account is not a problem"
-    assert "gone" not in sent, "disabled accounts are not customers"
+    assert "tg_101" in sent
+    assert "tg_104_s2" in sent, "дополнительная подписка аккаунта — тоже выдана ботом"
+    assert "tg_102" not in sent, "a fully provisioned account is not a problem"
+    assert "tg_103" not in sent, "disabled accounts are not customers"
+
+
+@pytest.mark.integration
+async def test_drift_check_leaves_hand_made_accounts_alone(monkeypatch):
+    """05.10.2026: тревога по ind_trial_1 — у индивидуального пробника нарочно
+    только Германия. Учётки, заведённые вручную (ind_…, corp_…, exp_…, ссылки для
+    друзей), настроены так специально; «выровнять» их — значит раздать лишнее."""
+    gateway = SimpleNamespace(
+        provider="marzban",
+        client=SimpleNamespace(
+            get_inbounds=AsyncMock(return_value={"vless": [{"tag": "A"}, {"tag": "B"}]}),
+            list_users=AsyncMock(
+                return_value=[
+                    {"username": name, "status": "active", "inbounds": {"vless": ["A"]}}
+                    for name in ("ind_trial_1", "corp_fi_1", "exp_ruvk_1", "friends_unlim3", "month6_1")
+                ]
+            ),
+        ),
+    )
+    monkeypatch.setattr(tasks, "get_panel_gateway", lambda: gateway)
+    monkeypatch.setattr(tasks.settings, "MARZBAN_DEFAULT_INBOUNDS", '{"vless": ["A", "B"]}')
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr(tasks, "send_alert", alert)
+
+    await tasks.check_inbound_drift()
+
+    alert.assert_not_awaited()
 
 
 @pytest.mark.integration
