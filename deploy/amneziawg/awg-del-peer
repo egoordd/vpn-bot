@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Отозвать клиента AmneziaWG, заведённого awg-add-peer: убирает его из живого
+# интерфейса и блок «# <имя>» из конфига.
+# Использование: awg-del-peer <имя> [интерфейс, по умолчанию awg0]
+set -euo pipefail
+NAME="$1"; IF="${2:-awg0}"
+CFG="/etc/amnezia/amneziawg/$IF.conf"
+PUB=$(awk -v n="# $NAME" '$0==n{f=1; next} f&&/^PublicKey/{print $3; exit}' "$CFG")
+[ -n "$PUB" ] || { echo "клиент $NAME не найден в $CFG" >&2; exit 1; }
+awg set "$IF" peer "$PUB" remove
+cp -p "$CFG" "$CFG.bak-$(date +%Y%m%d-%H%M%S)"
+python3 - "$CFG" "$NAME" <<'PY'
+import os, re, shutil, sys
+f, name = sys.argv[1], sys.argv[2]
+s = open(f).read()
+out = re.sub(r"\n# " + re.escape(name) + r"\n\[Peer\]\n(?:[^\n\[#]+\n?)*", "\n", s)
+assert out != s
+tmp = f + ".tmp"
+open(tmp, "w").write(out)
+shutil.copymode(f, tmp)
+os.replace(tmp, f)
+PY
+echo "клиент $NAME отозван ($IF)"

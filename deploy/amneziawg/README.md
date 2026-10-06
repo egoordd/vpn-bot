@@ -16,6 +16,7 @@ same values, and a mismatch breaks the handshake.
 | US | `144.172.101.217:51820` | `10.13.13.0/24` (clients `10.13.13.2+`) | `tpTvM9Vk7yz8u/f3whF66AcJKgvGXTXFX2zp1GzUMyU=` |
 | NL | `107.189.22.160:51820` | `10.13.14.0/24` (clients `10.13.14.2+`) | `ZaHOMPke/MfJTBVcwqUCg80qIGcMJ+dtCv7FfhGcXnU=` |
 | PL (routers) | `78.17.154.225:40001` | `10.13.15.0/24` (clients `10.13.15.2+`) | `syg9lBxe5gT1DGR0LCiIzja7OL+E/EBGuTPqG1LJ6Ag=` |
+| PL (routers, RU mode) `awg1` | `78.17.154.225:40002` | `10.13.16.0/24` (clients `10.13.16.2+`) | `VNI7RQdp1Iz77XH6br7B81cmwaDgZ4B1GDmuoUtu80E=` |
 
 The PL node (2026-10-06) serves hand-issued router files (Keenetic imports an
 AmneziaWG `.conf` natively, no USB/Entware). It uses its own obfuscation
@@ -23,6 +24,16 @@ params, not the bot's defaults, so bot-provisioned peers would not handshake
 there. Issue a client on the node with `awg-add-peer <name> 78.17.154.225`
 (installed at `/usr/local/sbin/awg-add-peer`): it adds the peer live, appends
 it to `awg0.conf` under a `# <name>` comment and prints the client `.conf`.
+Revoke with `awg-del-peer <name> [iface]`.
+
+`awg1` is the same with Russian services split off on the node (a router can't
+split by site itself): its TCP is redirected into the `awg-ru` xray container
+(`/opt/awg-ru`, `ru-split/setup-pl.sh`, config from `ru-split/gen_xray_config.py`
+— the phone RU-mode lists), which sends Russian names and addresses through the
+VK Cloud relay (key `relay-ru`, rule "all direct" → exits 212.233.122.241) and
+everything else straight out of PL. If VK is down the balancer falls back to
+the PL exit. QUIC (UDP 443) from `awg1` is rejected so apps fall back to TCP
+and get split. Issue: `awg-add-peer <name> 78.17.154.225 awg1`.
 
 Server private keys live only on the nodes at `/etc/amnezia/amneziawg/server_private.key`.
 
