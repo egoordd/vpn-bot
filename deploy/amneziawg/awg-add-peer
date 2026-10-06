@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Новый клиент AmneziaWG на этом узле; печатает готовый .conf клиента в stdout.
+# Использование: awg_add_peer.sh <имя> <публичный адрес узла>
+set -euo pipefail
+NAME="$1"; ENDPOINT_HOST="$2"
+CFG=/etc/amnezia/amneziawg/awg0.conf
+umask 077
+PORT=$(awk -F' *= *' '/^ListenPort/{print $2}' "$CFG")
+PREFIX=$(awk -F' *= *' '/^Address/{print $2}' "$CFG" | cut -d/ -f1 | cut -d. -f1-3)
+USED=$(awg show awg0 allowed-ips | { grep -oE "$PREFIX\.[0-9]+" || true; } | cut -d. -f4 | sort -n | tail -1)
+NEXT=$(( ${USED:-1} + 1 ))
+[ "$NEXT" -lt 255 ] || { echo "подсеть заполнена" >&2; exit 1; }
+CLIENT_IP="$PREFIX.$NEXT"
+PRIV=$(awg genkey); PUB=$(printf '%s' "$PRIV" | awg pubkey); PSK=$(awg genpsk)
+PSKF=$(mktemp); printf '%s' "$PSK" > "$PSKF"
+awg set awg0 peer "$PUB" preshared-key "$PSKF" allowed-ips "$CLIENT_IP/32"
+rm -f "$PSKF"
+printf '\n# %s\n[Peer]\nPublicKey = %s\nPresharedKey = %s\nAllowedIPs = %s/32\n' "$NAME" "$PUB" "$PSK" "$CLIENT_IP" >> "$CFG"
+SRVPUB=$(cat /etc/amnezia/amneziawg/server_public.key)
+param() { awk -F' *= *' -v k="$1" '$1==k{print $2; exit}' "$CFG"; }
+cat <<CONF
+[Interface]
+Address = $CLIENT_IP/32
+DNS = 1.1.1.1, 1.0.0.1
+PrivateKey = $PRIV
+Jc = $(param Jc)
+Jmin = $(param Jmin)
+Jmax = $(param Jmax)
+S1 = $(param S1)
+S2 = $(param S2)
+H1 = $(param H1)
+H2 = $(param H2)
+H3 = $(param H3)
+H4 = $(param H4)
+
+[Peer]
+PublicKey = $SRVPUB
+PresharedKey = $PSK
+AllowedIPs = 0.0.0.0/0
+Endpoint = $ENDPOINT_HOST:$PORT
+PersistentKeepalive = 25
+CONF
