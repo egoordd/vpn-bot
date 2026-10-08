@@ -14,8 +14,8 @@ def _links():
     return [
         REALITY.format(host="78.17.154.225"),
         HY2,
-        REALITY.format(host="80.253.251.87"),
-        REALITY.format(host="80.253.251.87").replace(":2087", ":2098"),
+        REALITY.format(host="178.17.58.232"),
+        REALITY.format(host="178.17.58.232").replace(":2087", ":2098"),
         REALITY.format(host="107.189.22.160"),
     ]
 

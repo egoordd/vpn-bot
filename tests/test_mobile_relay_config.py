@@ -26,7 +26,7 @@ TEMPLATE = {
         {
             "tag": "de",
             "protocol": "vless",
-            "settings": {"vnext": [{"address": "80.253.251.87.sslip.io", "port": 2096,
+            "settings": {"vnext": [{"address": "178.17.58.232.sslip.io", "port": 2096,
                                     "users": [{"id": "de-uuid"}]}]},
             "streamSettings": {"security": "reality"},
         },
