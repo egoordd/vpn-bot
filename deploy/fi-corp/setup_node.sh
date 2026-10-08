@@ -24,12 +24,17 @@ CERT="$(cat)"
 [ -n "$CERT" ] || { echo "нет сертификата панели на stdin"; exit 1; }
 
 echo "== $IP: вход только по ключу"
-cat > /etc/ssh/sshd_config.d/99-keyonly.conf <<'EOF'
+# sshd берёт ПЕРВОЕ встреченное значение, а файлы sshd_config.d читает по
+# алфавиту: «99-…» проигрывал облачному 50-cloud-init.conf с
+# PasswordAuthentication yes (08.10.2026, новый немецкий сервер). Поэтому 01-.
+rm -f /etc/ssh/sshd_config.d/99-keyonly.conf
+cat > /etc/ssh/sshd_config.d/01-keyonly.conf <<'EOF'
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
 EOF
 sshd -t && systemctl reload ssh
+sshd -T | grep -q '^passwordauthentication no$' || { echo "вход по паролю НЕ отключился"; exit 1; }
 
 echo "== $IP: пакеты"
 apt-get -o DPkg::Lock::Timeout=1800 update -qq

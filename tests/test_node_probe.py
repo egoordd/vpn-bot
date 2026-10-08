@@ -165,11 +165,11 @@ def test_extra_links_are_probed_alongside_the_subscription(monkeypatch):
 def test_alert_on_node_dropped():
     """Pulling a node silently is how the Amsterdam week happened: the owner
     heard it from customers instead of from us."""
-    prev = {"nodes": {"166.0.28.132.sslip.io": True}}
-    text, notified = node_probe.compose_alert(prev, {"166.0.28.132.sslip.io": False}, 1000.0)
+    prev = {"nodes": {"80.253.251.87.sslip.io": True}}
+    text, notified = node_probe.compose_alert(prev, {"80.253.251.87.sslip.io": False}, 1000.0)
     assert "Убраны из выдачи" in text
     assert "Германия" in text
-    assert notified["166.0.28.132.sslip.io"] == 1000.0
+    assert notified["80.253.251.87.sslip.io"] == 1000.0
 
 
 def test_alert_on_node_restored():
@@ -205,9 +205,9 @@ def test_a_retired_box_does_not_borrow_a_live_location_name():
 
 
 def test_several_nodes_flip_in_one_message():
-    prev = {"nodes": {"166.0.28.132": True, "78.17.154.225": False}}
+    prev = {"nodes": {"80.253.251.87": True, "78.17.154.225": False}}
     text, _ = node_probe.compose_alert(
-        prev, {"166.0.28.132": False, "78.17.154.225": True}, 1000.0
+        prev, {"80.253.251.87": False, "78.17.154.225": True}, 1000.0
     )
     assert "Убраны из выдачи" in text and "Вернулись в выдачу" in text
 
@@ -246,10 +246,10 @@ def test_verdicts_are_written_before_the_alert_is_sent(monkeypatch):
     order = []
     monkeypatch.setattr(node_probe, "PROBE_SUB_URL", "https://example/sub")
     monkeypatch.setattr(node_probe, "PROBE_EXTRA_LINKS", "")
-    monkeypatch.setattr(node_probe, "fetch_links", lambda url: [_uri("166.0.28.132", 2087)])
+    monkeypatch.setattr(node_probe, "fetch_links", lambda url: [_uri("80.253.251.87", 2087)])
     monkeypatch.setattr(node_probe.os.path, "exists", lambda p: True)
-    monkeypatch.setattr(node_probe, "load_previous", lambda: {"nodes": {"166.0.28.132": True},
-                                                             "streaks": {"166.0.28.132": -1}})
+    monkeypatch.setattr(node_probe, "load_previous", lambda: {"nodes": {"80.253.251.87": True},
+                                                             "streaks": {"80.253.251.87": -1}})
     monkeypatch.setattr(node_probe, "probe_node", lambda node: False)
     monkeypatch.setattr(node_probe.os, "replace", lambda a, b: order.append("written"))
 
@@ -442,7 +442,7 @@ def test_staff_chats_come_from_the_environment():
 # точек «умерли» разом, потому что релей (точка проверки) не пускал по SSH.
 # Через него в те же минуты шли 120–220 подключений клиентов в минуту.
 
-HOSTS = ["130.49.143.41", "166.0.28.132", "78.17.154.225"]
+HOSTS = ["130.49.143.41", "80.253.251.87", "78.17.154.225"]
 
 
 def _run_round(monkeypatch, tmp_path, *, passing: set[str], streak: int = -1):
@@ -475,10 +475,10 @@ def test_a_round_where_every_host_fails_changes_nothing(monkeypatch, tmp_path):
 
 
 def test_one_live_host_makes_the_round_count(monkeypatch, tmp_path):
-    code, saved, _ = _run_round(monkeypatch, tmp_path, passing={"166.0.28.132"})
+    code, saved, _ = _run_round(monkeypatch, tmp_path, passing={"80.253.251.87"})
 
     assert code == 0
-    assert saved["nodes"]["166.0.28.132"] is True
+    assert saved["nodes"]["80.253.251.87"] is True
     assert saved["nodes"]["130.49.143.41"] is False
     assert saved["nodes"]["78.17.154.225"] is False
 
@@ -487,7 +487,7 @@ def test_an_ssh_refusal_is_not_a_dead_node(monkeypatch):
     import subprocess
 
     monkeypatch.setattr(node_probe, "PROBE_FROM_HOST", "root@relay")
-    node = node_probe.parse_vless(_uri("166.0.28.132", 2087))
+    node = node_probe.parse_vless(_uri("80.253.251.87", 2087))
 
     refused = subprocess.CompletedProcess([], 255, stdout="", stderr="Connection closed by relay port 22")
     monkeypatch.setattr(node_probe.subprocess, "run", lambda *a, **kw: refused)

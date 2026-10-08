@@ -779,7 +779,7 @@ RU_EXIT = (
     "?security=reality&type=tcp&flow=xtls-rprx-vision&sni=130.49.143.41.sslip.io&fp=firefox&pbk=PBK&sid=SID#ru"
 )
 IND_LINKS = [
-    "vless://uuid@166.0.28.132:2096?security=reality&type=tcp&sni=166.0.28.132.sslip.io&pbk=P&sid=S#%F0%9F%87%A9%F0%9F%87%AA%20%D0%93%D0%B5%D1%80%D0%BC%D0%B0%D0%BD%D0%B8%D1%8F",
+    "vless://uuid@80.253.251.87:2096?security=reality&type=tcp&sni=80.253.251.87.sslip.io&pbk=P&sid=S#%F0%9F%87%A9%F0%9F%87%AA%20%D0%93%D0%B5%D1%80%D0%BC%D0%B0%D0%BD%D0%B8%D1%8F",
     "hysteria2://ind_x:secret@78.17.154.225:8443?sni=78.17.154.225.sslip.io&insecure=0#%F0%9F%87%B5%F0%9F%87%B1%20%D0%9F%D0%BE%D0%BB%D1%8C%D1%88%D0%B0%20%C2%B7%20Hysteria2",
 ]
 

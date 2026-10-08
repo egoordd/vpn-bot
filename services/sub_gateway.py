@@ -380,9 +380,9 @@ NODES = {
         "trojan_port": 8444,
         "trojan_pass": os.environ.get("PL_TROJAN_PASS", ""),
     },
-    "166.0.28.132.sslip.io": {
+    "80.253.251.87.sslip.io": {
         "flag": "🇩🇪", "name": "Германия",
-        "hy2_host": "166.0.28.132.sslip.io", "hy2_port": 443,
+        "hy2_host": "80.253.251.87.sslip.io", "hy2_port": 443,
         "hy2_pass": os.environ.get("DE_HY2_PASS", ""),
     },
 }
@@ -445,7 +445,7 @@ CASCADE_SID = os.environ.get("CASCADE_SID", "9a5e913a359a98a8")
 # climbing 24 GB a day. Poland has two idle cores and 3 GB free.
 CASCADE_COUNTRIES = (
     (2091, "🇵🇱 Польша ✅ РУ сервисы", "78.17.154.225.sslip.io"),
-    (2096, "🇩🇪 Германия ✅ РУ сервисы", "166.0.28.132.sslip.io"),
+    (2096, "🇩🇪 Германия ✅ РУ сервисы", "80.253.251.87.sslip.io"),
     # 🇳🇱 restored 2026-07-28 at the owner's call: it works from their vantage
     # point, which counts for more than one test line. Note it still measured
     # 1-3/10 from a Novosibirsk MTS line the same day, so if the silent
@@ -1455,7 +1455,7 @@ NODE_PRIORITY = {
     RU_RELAY_HOST: 0,               # 🇷🇺→🇩🇪 каскад — первый, только когда включён
     VK_RELAY_HOST: 0,               # тот же каскад через VK — у тестовой подписки
     "78.17.154.225.sslip.io": 1,    # 🇵🇱 Польша (Варшава — ближе всего европ. части РФ)
-    "166.0.28.132.sslip.io": 2,     # 🇩🇪 Германия (Франкфурт)
+    "80.253.251.87.sslip.io": 2,     # 🇩🇪 Германия (Франкфурт)
     "107.189.22.160.sslip.io": 3,   # 🇳🇱 Нидерланды
     "172.86.119.133.sslip.io": 4,   # 🇺🇸 США (дальше всего)
 }

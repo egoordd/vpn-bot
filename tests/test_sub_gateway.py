@@ -441,7 +441,7 @@ def test_reorder_by_proximity_unknown_host_before_us():
 
 # --- 🇷🇺→🇩🇪 cascade -----------------------------------------------------------
 
-DE_HOST = "166.0.28.132.sslip.io"
+DE_HOST = "80.253.251.87.sslip.io"
 
 
 def _de_reality(uuid: str = "uuid", port: int = 2096) -> str:
@@ -735,7 +735,7 @@ def test_cascade_is_dropped_when_its_exit_is_down(monkeypatch):
     Frankfurt was switched off on 2026-08-06 its direct entries were pruned
     correctly while «🇩🇪 Германия ✅ РУ сервисы» stayed — first in the list and
     first in «Авто-обход», pointing at a machine that was off."""
-    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {"166.0.28.132.sslip.io"})
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {"80.253.251.87.sslip.io"})
     import urllib.parse
     links = sub_gateway.build_cascade_links(["vless://u@h:443#x"])
     joined = urllib.parse.unquote(" ".join(links))
@@ -817,7 +817,7 @@ def test_lithuania_leads_the_location_list():
     LT, PL, DE, US = (
         "2.59.162.34.sslip.io",
         "78.17.154.225.sslip.io",
-        "166.0.28.132.sslip.io",
+        "80.253.251.87.sslip.io",
         "172.86.119.133.sslip.io",
     )
     links = [
@@ -840,7 +840,7 @@ def test_the_replacement_us_node_sorts_as_far_away_as_the_old_one():
     середину списка — впереди Германии, до которой из России вчетверо ближе.
     """
     assert sub_gateway.NODE_PRIORITY["172.86.119.133.sslip.io"] > sub_gateway.NODE_PRIORITY[
-        "166.0.28.132.sslip.io"
+        "80.253.251.87.sslip.io"
     ]
 
 
@@ -1372,21 +1372,21 @@ def test_servers_are_addressed_by_ip_so_no_name_lookup_can_fail():
     """«Сервер с указанным именем хоста не удалось найти» (24.09.2026): адрес — IP, имя — только в sni."""
     reality = "vless://u@78.17.154.225.sslip.io:2087?security=reality&type=tcp&sni=78.17.154.225.sslip.io&pbk=K&sid=1#PL"
     hy2 = "hysteria2://pass@78.17.154.225.sslip.io:443?sni=78.17.154.225.sslip.io&insecure=0#PL%20Hy2"
-    bare = "vless://u@166.0.28.132.sslip.io:2098?security=reality&type=xhttp&path=%2Fp&pbk=K#DE"
+    bare = "vless://u@80.253.251.87.sslip.io:2098?security=reality&type=xhttp&path=%2Fp&pbk=K#DE"
     foreign = "vless://u@example.com:443?security=tls&sni=example.com#X"
 
     pinned = sub_gateway.pin_addresses([reality, hy2, bare, foreign])
 
     assert pinned[0] == reality.replace("@78.17.154.225.sslip.io:", "@78.17.154.225:")
     assert pinned[1] == hy2.replace("@78.17.154.225.sslip.io:", "@78.17.154.225:")
-    assert pinned[2] == "vless://u@166.0.28.132:2098?security=reality&type=xhttp&path=%2Fp&pbk=K&sni=166.0.28.132.sslip.io#DE"
+    assert pinned[2] == "vless://u@80.253.251.87:2098?security=reality&type=xhttp&path=%2Fp&pbk=K&sni=80.253.251.87.sslip.io#DE"
     assert pinned[3] == foreign
 
 
 def test_both_subscription_bodies_carry_ip_addresses(monkeypatch):
     links = [
         "vless://u@78.17.154.225.sslip.io:2087?security=reality&type=tcp&sni=78.17.154.225.sslip.io&pbk=K&sid=1#PL",
-        "vless://u@166.0.28.132.sslip.io:2088?security=reality&type=tcp&sni=166.0.28.132.sslip.io&pbk=K&sid=1#DE",
+        "vless://u@80.253.251.87.sslip.io:2088?security=reality&type=tcp&sni=80.253.251.87.sslip.io&pbk=K&sid=1#DE",
     ]
     monkeypatch.setattr(sub_gateway, "resolve_links", lambda token: (links, None))
 
@@ -1402,7 +1402,7 @@ def test_both_subscription_bodies_carry_ip_addresses(monkeypatch):
         for o in config["outbounds"]
         if o.get("tag", "").startswith("proxy")
     }
-    assert addresses == {"78.17.154.225", "166.0.28.132"}
+    assert addresses == {"78.17.154.225", "80.253.251.87"}
 
 
 def test_build_auto_json_leaves_hysteria_out_unless_asked(monkeypatch):
@@ -1460,7 +1460,7 @@ def test_hysteria_master_switch_still_wins(monkeypatch):
 
 VK_IDS = {
     "78.17.154.225.sslip.io": "aaaaaaaa-0000-0000-0000-000000000001",
-    "166.0.28.132.sslip.io": "aaaaaaaa-0000-0000-0000-000000000002",
+    "80.253.251.87.sslip.io": "aaaaaaaa-0000-0000-0000-000000000002",
     "172.86.119.133.sslip.io": "aaaaaaaa-0000-0000-0000-000000000003",
 }
 
@@ -1489,9 +1489,9 @@ def test_vk_relay_links_pick_the_country_by_client_key(monkeypatch):
 
 def test_vk_relay_skips_a_country_whose_exit_is_down(monkeypatch):
     _vk_relay(monkeypatch)
-    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {"166.0.28.132.sslip.io"})
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {"80.253.251.87.sslip.io"})
     links = sub_gateway.build_vk_relay_links(["vless://u@78.17.154.225.sslip.io:2087#PL"])
-    assert not any(VK_IDS["166.0.28.132.sslip.io"] in link for link in links)
+    assert not any(VK_IDS["80.253.251.87.sslip.io"] in link for link in links)
 
 
 def test_vk_relay_needs_its_keys(monkeypatch):
@@ -1504,7 +1504,7 @@ def test_the_test_link_gets_the_vk_relay_instead_of_the_moscow_one(monkeypatch):
     _vk_relay(monkeypatch)
     upstream = "\n".join(
         f"vless://u@{h}:2087?security=reality&type=tcp&sni={h}&pbk=P&sid=S#{h}"
-        for h in ("78.17.154.225.sslip.io", "166.0.28.132.sslip.io")
+        for h in ("78.17.154.225.sslip.io", "80.253.251.87.sslip.io")
     )
     monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
     monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
@@ -1588,7 +1588,7 @@ def _ind(monkeypatch):
     monkeypatch.setattr(sub_gateway, "CASCADE_PBK", "PBK")
     monkeypatch.setattr(sub_gateway, "CASCADE_SID", "SID")
     upstream = "\n".join([
-        "vless://u@166.0.28.132.sslip.io:2096?security=reality&type=tcp&sni=166.0.28.132.sslip.io&pbk=P&sid=S#DE",
+        "vless://u@80.253.251.87.sslip.io:2096?security=reality&type=tcp&sni=80.253.251.87.sslip.io&pbk=P&sid=S#DE",
     ])
     monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
     monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)

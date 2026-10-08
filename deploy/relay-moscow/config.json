@@ -213,7 +213,7 @@
       "settings": {
         "vnext": [
           {
-            "address": "166.0.28.132.sslip.io",
+            "address": "80.253.251.87.sslip.io",
             "port": 2096,
             "users": [
               {
@@ -229,10 +229,13 @@
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "serverName": "166.0.28.132.sslip.io",
+          "serverName": "80.253.251.87.sslip.io",
           "fingerprint": "firefox",
           "publicKey": "GwB2zyoXmKCgEAVX5KUVBKxqAZkD5R0vDokGACJJ_2M",
           "shortId": "3f9c1e7a2b8d4056"
+        },
+        "sockopt": {
+          "dialerProxy": "pl"
         }
       }
     },
