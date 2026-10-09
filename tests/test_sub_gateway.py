@@ -1978,3 +1978,24 @@ def test_corporate_subscription_never_gets_the_shared_germany_entry(de_via, monk
     links, _ = sub_gateway.resolve_links(token)
 
     assert links and ("2.59.162.34.sslip.io", 2120) not in {sub_gateway._uri_endpoint(link) for link in links}
+
+
+def test_trojan_uri_pins_firefox_fingerprint():
+    # Без отпечатка или с chrome ТСПУ глушит Trojan после нескольких соединений.
+    node = {"flag": "🇵🇱", "name": "Польша", "hy2_host": "1.2.3.4.sslip.io",
+            "trojan_port": 8444, "trojan_pass": "pw"}
+    uri = sub_gateway._trojan_uri(node)
+    query = dict(urllib.parse.parse_qsl(uri.split("?", 1)[1].split("#", 1)[0]))
+    assert query["fp"] == "firefox"
+    assert query["sni"] == "1.2.3.4.sslip.io"
+    assert query["security"] == "tls"
+
+
+def test_trojan_json_outbound_gets_firefox_fingerprint():
+    from services import xray_json
+    node = {"flag": "🇵🇱", "name": "Польша", "hy2_host": "1.2.3.4.sslip.io",
+            "trojan_port": 8444, "trojan_pass": "pw"}
+    query = dict(urllib.parse.parse_qsl(
+        sub_gateway._trojan_uri(node).split("?", 1)[1].split("#", 1)[0]))
+    stream = xray_json._stream_settings(query)
+    assert stream["tlsSettings"]["fingerprint"] == "firefox"

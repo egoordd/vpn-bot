@@ -637,11 +637,14 @@ def _hy2_uri(node: dict) -> str:
 
 def _trojan_uri(node: dict) -> str:
     # Standalone per-node Trojan-TLS (not a Marzban inbound), hand-added like Hy2.
+    # fp=firefox обязателен: без отпечатка (Go TLS) и с chrome ТСПУ после 1–4
+    # соединений глушит обратный канал — пункт «Trojan» висел на ChatGPT/Instagram
+    # (проверено из Москвы 09.10.2026: firefox и safari 10/10, Go 4/10, chrome 1/10).
     remark = urllib.parse.quote(f"{node['flag']} {node['name']} · Trojan")
     host, port = node["hy2_host"], node["trojan_port"]
     return (
         f"trojan://{node['trojan_pass']}@{host}:{port}"
-        f"?security=tls&sni={host}&type=tcp#{remark}"
+        f"?security=tls&sni={host}&fp=firefox&type=tcp#{remark}"
     )
 
 
