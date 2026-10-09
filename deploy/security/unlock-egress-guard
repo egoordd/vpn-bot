@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# Защита от исходящего сканирования (09.10.2026).
+#
+# Старый немецкий сервер 166.0.28.132 хостер удалил за жалобу: 07.10 с нашего
+# адреса шло сканирование портов чужих серверов (SYN с исходным портом 61000 —
+# подпись сканера, который собирает пакеты сам, мимо ядра). Здесь — ограничения,
+# которые не дают серверу и клиентам VPN через него массово перебирать
+# порты/адреса, при этом не трогают обычный трафик:
+#   SPORT  TCP SYN с исходным портом 61000+ с самого сервера. Ядро таких портов
+#          не выдаёт (ip_local_port_range кончается на 60999) — так ходят только
+#          сканеры. Без лимита: любой такой пакет отбрасывается.
+#   VSCAN  >50 новых соединений/с (запас 200) к ОДНОМУ адресу на «редкие» порты —
+#          перебор портов одного сервера;
+#   HSCAN  >100/с (запас 400) на ОДИН «редкий» порт по разным адресам —
+#          перебор адресов (так выглядела жалоба: порты 59xx);
+#   FLOOD  >200/с (запас 1000) к одному адресу на любой порт — заливка.
+# «Редкие» = всё, кроме BUSY_PORTS (веб, DoT, пуши Apple/Google, WhatsApp,
+# Viber): туда сотни клиентов законно ходят к одним и тем же адресам.
+# Пики 09.10 на самом нагруженном узле (Польша): к одному адресу ≤15/с, к одному
+# порту ≤13/с — пороги с запасом в разы. Наши серверы и частные сети не
+# считаются вовсе. Срабатывания пишутся в журнал ядра: «unlock-egress <причина>».
+#
+# Второй слой — фильтр на выходе сетевой карты (tc egress): SYN с исходным портом
+# 61000+ отбрасывается и тогда, когда пакет собран в обход ядра. Исходный порт
+# 61000 — пример из инструкции masscan, а masscan шлёт кадры через сырой сокет
+# (AF_PACKET) мимо iptables: правило SPORT его не видит, tc — видит. Ставится
+# только там, где нет туннелей AWG/WG: роутеры клиентов законно ходят с портов
+# 61000+, и после NAT сервер шлёт их SYN дальше с теми же портами.
+#
+# ⚠️ Атакующий с root может снять и это. Главная защита от взлома — вход только
+# по ключу и автообновления; эти правила ловят скан, если взлом всё же случился.
+#
+# unlock-egress-guard start|stop|ensure|status
+set -euo pipefail
+
+CH=UNLOCK-EGRESS
+REASONS="SPORT VSCAN HSCAN FLOOD"
+# Наши серверы: панель/бот, ноды, релеи, фронты VK, сайт, корпоративные и
+# индивидуальные. Каскады и релеи между ними не должны упираться в лимиты.
+INFRA4="23.95.3.18,78.17.154.225,2.59.162.34,107.189.22.160,172.86.119.133,130.49.143.41,178.17.58.232,78.17.84.88,89.125.81.96,89.125.86.10,89.125.130.156,194.87.157.197,212.233.122.241,185.86.147.82,168.113.210.6"
+LOCAL4="127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10"
+LOCAL6="::1/128,fc00::/7,fe80::/10"
+BUSY_PORTS="80,443,853,5222,5223,5228,4244,5242"
+SPORT_MIN=61000
+# Откуда приходит чужой (клиентский) трафик, который сервер пересылает:
+# AmneziaWG/WireGuard-роутеры и docker-контейнеры в мостовой сети.
+FWD_IFACES="awg+ wg+ docker0 br-+"
+# tc-фильтр не встал (старое ядро/iproute2) — чтобы таймер не переставлял всё зря
+TC_SKIP=/run/unlock-egress-guard.tc-skip
+
+# Пересылаемый трафик: если есть docker — в DOCKER-USER (docker ставит его первым
+# в FORWARD при каждом старте и никогда не чистит), иначе в FORWARD.
+fwd_chain() { if $1 -n -L DOCKER-USER >/dev/null 2>&1; then echo DOCKER-USER; else echo FORWARD; fi; }
+
+sport_ok() {
+  local hi; hi=$(awk '{print $2}' /proc/sys/net/ipv4/ip_local_port_range)
+  [ "$hi" -lt "$SPORT_MIN" ]
+}
+
+remove_fam() {
+  local ipt=$1 chain rule rules r
+  for chain in OUTPUT FORWARD DOCKER-USER; do
+    $ipt -n -L "$chain" >/dev/null 2>&1 || continue
+    rules=$($ipt -S "$chain" | grep -E -- "-j $CH(-[A-Z]+)?\$" | sed 's/^-A /-D /' || true)
+    [ -n "$rules" ] || continue
+    while read -r rule; do
+      # shellcheck disable=SC2086
+      $ipt $rule
+    done <<< "$rules"
+  done
+  for r in "" $(printf -- '-%s ' $REASONS); do
+    $ipt -F "$CH$r" 2>/dev/null || true
+  done
+  for r in "" $(printf -- '-%s ' $REASONS); do
+    $ipt -X "$CH$r" 2>/dev/null || true
+  done
+}
+
+start_fam() {
+  local ipt=$1 infra=$2 local_nets=$3 r fwd ifc
+  remove_fam "$ipt"
+  for r in $REASONS; do
+    $ipt -N "$CH-$r"
+    $ipt -A "$CH-$r" -m limit --limit 6/min --limit-burst 5 \
+      -j LOG --log-prefix "unlock-egress $r: " --log-level 4
+    $ipt -A "$CH-$r" -j DROP
+  done
+  $ipt -N "$CH"
+  $ipt -A "$CH" ! -p tcp -j RETURN
+  $ipt -A "$CH" -p tcp ! --syn -j RETURN
+  [ -n "$infra" ] && $ipt -A "$CH" -d "$infra" -j RETURN
+  $ipt -A "$CH" -d "$local_nets" -j RETURN
+  $ipt -A "$CH" -p tcp -m multiport ! --dports "$BUSY_PORTS" \
+    -m hashlimit --hashlimit-name ue_vscan --hashlimit-mode dstip \
+    --hashlimit-above 50/sec --hashlimit-burst 200 -j "$CH-VSCAN"
+  $ipt -A "$CH" -p tcp -m multiport ! --dports "$BUSY_PORTS" \
+    -m hashlimit --hashlimit-name ue_hscan --hashlimit-mode dstport \
+    --hashlimit-above 100/sec --hashlimit-burst 400 -j "$CH-HSCAN"
+  $ipt -A "$CH" -p tcp \
+    -m hashlimit --hashlimit-name ue_flood --hashlimit-mode dstip \
+    --hashlimit-above 200/sec --hashlimit-burst 1000 -j "$CH-FLOOD"
+  # Переходы — в самом конце: если что-то выше упало, цепочки висят без дела
+  # и трафик не затронут.
+  $ipt -I OUTPUT 1 -j "$CH"
+  if sport_ok; then
+    $ipt -I OUTPUT 1 -p tcp --syn --sport "$SPORT_MIN:65535" -j "$CH-SPORT"
+  else
+    echo "внимание: диапазон исходящих портов доходит до $SPORT_MIN+ — правило SPORT пропущено" >&2
+  fi
+  # Пересылаемому трафику — только лимиты, без SPORT: у клиентских ОС свои
+  # диапазоны исходящих портов.
+  fwd=$(fwd_chain "$ipt")
+  for ifc in $FWD_IFACES; do $ipt -I "$fwd" 1 -i "$ifc" -j "$CH"; done
+}
+
+main_iface() { ip route get 1.1.1.1 2>/dev/null | grep -oP 'dev \K\S+' | head -1; }
+has_tunnels() { ip -o link show 2>/dev/null | grep -qE ': (awg|wg)[^:]*[:@]'; }
+
+tc_off() {
+  local dev; dev=$(main_iface); [ -n "$dev" ] || return 0
+  tc filter del dev "$dev" egress pref 61000 2>/dev/null || true
+  tc filter del dev "$dev" egress pref 61001 2>/dev/null || true
+}
+
+tc_on() {
+  local dev; dev=$(main_iface)
+  [ -n "$dev" ] || { echo "внимание: не нашёл основной интерфейс — tc пропущен" >&2; return 0; }
+  rm -f "$TC_SKIP"
+  if has_tunnels; then echo "tc: пропущено — на сервере есть туннели AWG/WG (клиентский NAT)"; tc_off; return 0; fi
+  sport_ok || { echo "внимание: диапазон исходящих портов доходит до $SPORT_MIN+ — tc пропущен" >&2; return 0; }
+  # clsact сам трафик не задерживает; если он уже есть — используем как есть
+  tc qdisc add dev "$dev" clsact 2>/dev/null || true
+  tc_off
+  tc filter add dev "$dev" egress pref 61000 protocol ip flower ip_proto tcp \
+    src_port "$SPORT_MIN-65535" tcp_flags 0x2/0x12 action drop \
+    || { echo "внимание: tc-фильтр IPv4 не встал (старый tc/ядро?)" >&2; touch "$TC_SKIP"; return 0; }
+  tc filter add dev "$dev" egress pref 61001 protocol ipv6 flower ip_proto tcp \
+    src_port "$SPORT_MIN-65535" tcp_flags 0x2/0x12 action drop \
+    || echo "внимание: tc-фильтр IPv6 не встал" >&2
+}
+
+tc_present() {
+  local dev; dev=$(main_iface); [ -n "$dev" ] || return 0
+  has_tunnels && return 0
+  [ -e "$TC_SKIP" ] && return 0
+  tc filter show dev "$dev" egress pref 61000 2>/dev/null | grep -q flower
+}
+
+start() {
+  start_fam iptables "$INFRA4" "$LOCAL4"
+  if command -v ip6tables >/dev/null 2>&1; then
+    start_fam ip6tables "" "$LOCAL6" || { echo "внимание: IPv6-правила не встали" >&2; remove_fam ip6tables || true; }
+  fi
+  tc_on
+}
+
+stop() {
+  remove_fam iptables
+  command -v ip6tables >/dev/null 2>&1 && remove_fam ip6tables || true
+  tc_off
+}
+
+# Для таймера: правила на месте → ничего не делать, пропали/сдвинуты → поставить заново.
+ensure() {
+  local fwd; fwd=$(fwd_chain iptables)
+  if iptables -C OUTPUT -j "$CH" 2>/dev/null && iptables -C "$fwd" -i awg+ -j "$CH" 2>/dev/null && tc_present; then
+    return 0
+  fi
+  echo "unlock-egress-guard: правил нет — ставлю заново"
+  start
+}
+
+status() {
+  local ipt r n
+  for ipt in iptables ip6tables; do
+    command -v $ipt >/dev/null 2>&1 || continue
+    echo "[$ipt]"
+    $ipt -S OUTPUT | grep -E -- "-j $CH" || echo "  в OUTPUT правил нет"
+    $ipt -S "$(fwd_chain $ipt)" | grep -E -- "-j $CH" || echo "  в пересылке правил нет"
+    for r in $REASONS; do
+      n=$($ipt -L "$CH-$r" -n -v -x 2>/dev/null | awk '$3=="DROP"{print $1}')
+      echo "  $r отброшено: ${n:-—}"
+    done
+  done
+  local dev; dev=$(main_iface)
+  echo "[tc egress ${dev:-?}]"
+  if has_tunnels; then echo "  не ставится — есть туннели AWG/WG"
+  else
+    n=$(tc -s filter show dev "$dev" egress pref 61000 2>/dev/null | awk '/Sent/{print $4; exit}')
+    if [ -n "$n" ]; then echo "  RAW-SPORT отброшено: $n"; else echo "  фильтра нет"; fi
+  fi
+}
+
+case "${1:-}" in
+  start) start; echo "unlock-egress-guard: включено" ;;
+  stop) stop; echo "unlock-egress-guard: выключено" ;;
+  ensure) ensure ;;
+  status) status ;;
+  *) echo "использование: $0 start|stop|ensure|status" >&2; exit 2 ;;
+esac

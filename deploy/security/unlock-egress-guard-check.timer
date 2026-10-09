@@ -1,0 +1,9 @@
+[Unit]
+Description=UnLock: раз в 5 минут проверять правила защиты от сканирования
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=UnLock: защита от исходящего сканирования портов
+After=network-online.target docker.service ufw.service netfilter-persistent.service vpn-egress-block.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/unlock-egress-guard start
+ExecStop=/usr/local/sbin/unlock-egress-guard stop
+
+[Install]
+WantedBy=multi-user.target

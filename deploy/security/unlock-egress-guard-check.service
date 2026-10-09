@@ -1,0 +1,7 @@
+[Unit]
+Description=UnLock: вернуть правила защиты от сканирования, если их сбросили
+After=unlock-egress-guard.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/unlock-egress-guard ensure
