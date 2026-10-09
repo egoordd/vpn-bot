@@ -831,6 +831,41 @@ def build_cascade_links(links: list[str]) -> list[str]:
     ]
 
 
+# 🇩🇪 Германия через польский релей (09.10.2026). Новый немецкий сервер
+# недоступен из российских сетей (вся сеть его хостера режется у провайдеров),
+# поэтому прямые пункты Германии выключены в панели. Вместо них обычная подписка
+# получает вход на нашем польском сервере: релей там (контейнер de-via) пересылает
+# всё в Германию, выход — немецкий адрес, а к самому немецкому адресу клиент не
+# ходит. Сначала релей стоял в Литве, но путь Литва → Германия давал 5–7 Мбит/с,
+# Польша → Германия — 75–240. Ключ общий, как у каскада, поэтому пункт получают
+# только живые подписки. Пока не задан ключ — пункта нет.
+DE_VIA_HOST = os.environ.get("DE_VIA_HOST", "78.17.154.225.sslip.io")
+DE_VIA_PORT = int(os.environ.get("DE_VIA_PORT", "2120") or 2120)
+DE_VIA_UUID = os.environ.get("DE_VIA_UUID", "")
+DE_VIA_PBK = os.environ.get("DE_VIA_PBK", "")
+DE_VIA_SID = os.environ.get("DE_VIA_SID", "")
+DE_VIA_EXIT_HOST = os.environ.get("DE_VIA_EXIT_HOST", "178.17.58.232.sslip.io")
+DE_VIA_REMARK = os.environ.get("DE_VIA_REMARK", "🇩🇪 Германия")
+
+
+def build_de_via_links(links: list[str]) -> list[str]:
+    """«🇩🇪 Германия» через польский релей — для живой обычной подписки.
+
+    Как у каскада: пустой (истёкшей) подписке общий ключ не выдаётся, а когда
+    пробер видит немецкий выход мёртвым, пункт убирается — живой релей ничего
+    не говорит о том, куда он пересылает."""
+    if not (DE_VIA_HOST and DE_VIA_UUID and DE_VIA_PBK) or not links:
+        return []
+    if DE_VIA_EXIT_HOST in _probed_dead_hosts():
+        return []
+    return [
+        f"vless://{DE_VIA_UUID}@{DE_VIA_HOST}:{DE_VIA_PORT}"
+        f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={DE_VIA_HOST}"
+        f"&fp=firefox&pbk={DE_VIA_PBK}&sid={DE_VIA_SID}"
+        f"#{urllib.parse.quote(DE_VIA_REMARK)}"
+    ]
+
+
 def build_vk_relay_links(links: list[str]) -> list[str]:
     """«✅ РУ сервисы» через релей на VK Cloud — для тестовой подписки (VK_RELAY_USERS).
 
@@ -1498,7 +1533,12 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
         combined = [link for link in combined if link.split("://", 1)[0] == "vless"] + ([hy2] if hy2 else [])
     else:
         relay = build_vk_relay_links(combined) if username in VK_RELAY_USERS else []
-        combined = combined + (relay or build_cascade_links(combined)) + build_mobile_links(combined)
+        combined = (
+            combined
+            + build_de_via_links(combined)
+            + (relay or build_cascade_links(combined))
+            + build_mobile_links(combined)
+        )
     _register_probe_targets(combined)
     return reorder_by_proximity(filter_alive(combined)), userinfo
 

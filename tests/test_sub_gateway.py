@@ -1915,3 +1915,66 @@ def test_unbranded_link_over_the_device_limit_is_not_branded_either(monkeypatch,
 
     title = handler.sent["extra"]["profile-title"].removeprefix("base64:")
     assert base64.b64decode(title).decode() == "VPN"
+
+
+# --- 🇩🇪 Германия через польский релей (09.10.2026) ---------------------------
+# Немецкий сервер недоступен из российских сетей: прямые пункты выключены в
+# панели, а обычной подписке выдаётся вход на польском сервере, который
+# пересылает всё в Германию — выход немецкий, к немецкому адресу клиент не ходит.
+
+
+@pytest.fixture
+def de_via(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "DE_VIA_HOST", "2.59.162.34.sslip.io")
+    monkeypatch.setattr(sub_gateway, "DE_VIA_PORT", 2120)
+    monkeypatch.setattr(sub_gateway, "DE_VIA_UUID", "via-uuid")
+    monkeypatch.setattr(sub_gateway, "DE_VIA_PBK", "via-pbk")
+    monkeypatch.setattr(sub_gateway, "DE_VIA_SID", "via-sid")
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: set())
+
+
+def test_de_via_link_targets_the_relay_with_its_own_reality(de_via):
+    [link] = sub_gateway.build_de_via_links([_vless("78.17.154.225.sslip.io")])
+
+    assert link.startswith("vless://via-uuid@2.59.162.34.sslip.io:2120?")
+    assert "sni=2.59.162.34.sslip.io" in link and "pbk=via-pbk" in link and "sid=via-sid" in link
+    assert "flow=xtls-rprx-vision" in link and "fp=firefox" in link
+    assert urllib.parse.unquote(link.rsplit("#", 1)[-1]) == "🇩🇪 Германия"
+
+
+def test_de_via_is_absent_for_a_blank_subscription(de_via):
+    assert sub_gateway.build_de_via_links([]) == []
+
+
+def test_de_via_is_off_until_configured(de_via, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "DE_VIA_UUID", "")
+
+    assert sub_gateway.build_de_via_links([_vless("78.17.154.225.sslip.io")]) == []
+
+
+def test_de_via_is_dropped_when_the_german_exit_is_down(de_via, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {sub_gateway.DE_VIA_EXIT_HOST})
+
+    assert sub_gateway.build_de_via_links([_vless("78.17.154.225.sslip.io")]) == []
+
+
+def test_regular_subscription_gets_germany_through_the_relay(de_via, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (_vless("78.17.154.225.sslip.io"), None))
+
+    links, _ = sub_gateway.resolve_links("tok")
+
+    assert ("2.59.162.34.sslip.io", 2120) in {sub_gateway._uri_endpoint(link) for link in links}
+
+
+def test_corporate_subscription_never_gets_the_shared_germany_entry(de_via, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "CORP_USERS", frozenset({"corp_fi_1"}))
+    monkeypatch.setattr(sub_gateway, "CORP_HOSTS", frozenset({"78.17.84.88.sslip.io"}))
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (_vless("78.17.84.88.sslip.io", 2111), None))
+    token = base64.urlsafe_b64encode(b"corp_fi_1,1788973596").decode().rstrip("=") + "rqtbHlK660"
+
+    links, _ = sub_gateway.resolve_links(token)
+
+    assert links and ("2.59.162.34.sslip.io", 2120) not in {sub_gateway._uri_endpoint(link) for link in links}
