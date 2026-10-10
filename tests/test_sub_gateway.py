@@ -2026,3 +2026,46 @@ def test_manual_link_gets_its_own_device_limit_without_asking_the_bot(monkeypatc
     monkeypatch.setattr(sub_gateway, "_PLAN_LIMITS", {})
 
     assert sub_gateway.plan_device_limit("corp_unl_vpn") == 5
+
+
+# --- точечные исключения для отдельных ссылок (11.10.2026) -------------------------
+
+def test_shared_corp_host_is_shown_only_to_the_named_link(monkeypatch):
+    links = [_vless("78.17.84.88.sslip.io", 2111), _vless("89.125.81.96.sslip.io", 2113), _vless("107.189.22.160.sslip.io", 2053)]
+    monkeypatch.setattr(sub_gateway, "CORP_HOSTS", frozenset({"78.17.84.88.sslip.io", "89.125.81.96.sslip.io"}))
+
+    shown = sub_gateway.corp_filter(links, corporate=False, shared=frozenset({"89.125.81.96.sslip.io"}))
+    default = sub_gateway.corp_filter(links, corporate=False)
+
+    assert {sub_gateway._uri_host(link) for link in shown} == {"89.125.81.96.sslip.io", "107.189.22.160.sslip.io"}
+    assert {sub_gateway._uri_host(link) for link in default} == {"107.189.22.160.sslip.io"}
+
+
+def test_hidden_exit_removes_direct_relay_and_cascade_entries(de_via, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", True)
+    monkeypatch.setattr(sub_gateway, "DE_VIA_EXIT_HOST", "178.17.58.232.sslip.io")
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "USER_HIDDEN_EXITS", {"corp_unl_vpn": frozenset({"178.17.58.232.sslip.io"})})
+    upstream = _vless("78.17.154.225.sslip.io") + "\n" + _vless("178.17.58.232.sslip.io", 2096)
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+
+    links, _ = sub_gateway.resolve_links(_panel_token("corp_unl_vpn"))
+    names = [urllib.parse.unquote(link.rsplit("#", 1)[-1]) for link in links]
+    endpoints = {sub_gateway._uri_endpoint(link) for link in links}
+
+    assert ("178.17.58.232.sslip.io", 2096) not in endpoints
+    assert ("2.59.162.34.sslip.io", 2120) not in endpoints, "Германия через польский релей спрятана"
+    assert not any("Германия" in n for n in names), names
+    assert any("Польша ✅ РУ сервисы" in n for n in names), "остальные каскады на месте"
+
+
+def test_other_links_keep_germany_when_one_link_hides_it(de_via, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "USER_HIDDEN_EXITS", {"corp_unl_vpn": frozenset({"178.17.58.232.sslip.io"})})
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (_vless("78.17.154.225.sslip.io"), None))
+
+    links, _ = sub_gateway.resolve_links(_panel_token("tg_1"))
+
+    assert ("2.59.162.34.sslip.io", 2120) in {sub_gateway._uri_endpoint(link) for link in links}

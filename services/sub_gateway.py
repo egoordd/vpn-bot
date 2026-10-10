@@ -813,7 +813,7 @@ def _cascade_link(port: int, remark: str) -> str:
     )
 
 
-def build_cascade_links(links: list[str]) -> list[str]:
+def build_cascade_links(links: list[str], *, hidden: frozenset[str] = frozenset()) -> list[str]:
     """Hand-add a 🇷🇺→<country> cascade entry per exit for an active subscription.
 
     Emitted only when enabled and the user already has at least one live link
@@ -833,7 +833,7 @@ def build_cascade_links(links: list[str]) -> list[str]:
     return [
         _cascade_link(port, remark)
         for port, remark, exit_host in CASCADE_COUNTRIES
-        if exit_host not in dead
+        if exit_host not in dead and exit_host not in hidden
     ]
 
 
@@ -1152,12 +1152,31 @@ CORP_HY2 = _logins(os.environ.get("CORP_HY2", ""))
 CORP_HY2_PORT = int(os.environ.get("CORP_HY2_PORT", "443") or 443)
 
 
-def corp_filter(links: list[str], *, corporate: bool) -> list[str]:
-    """Корпоративной ссылке — только её серверы, всем остальным — всё, кроме них."""
+def corp_filter(links: list[str], *, corporate: bool, shared: frozenset[str] = frozenset()) -> list[str]:
+    """Корпоративной ссылке — только её серверы, всем остальным — всё, кроме них.
+
+    shared — выделенные серверы, которые владелец разрешил показать этой
+    некорпоративной ссылке (USER_SHARED_CORP_HOSTS)."""
 
     if not CORP_HOSTS:
         return links
-    return [link for link in links if (_uri_host(link) in CORP_HOSTS) == corporate]
+    if corporate:
+        return [link for link in links if _uri_host(link) in CORP_HOSTS]
+    return [link for link in links if _uri_host(link) not in CORP_HOSTS or _uri_host(link) in shared]
+
+
+def _host_sets(raw: str) -> dict[str, frozenset[str]]:
+    """«имя:хост1|хост2, имя2:хост» → {имя: {хост1, хост2}}."""
+
+    return {name: frozenset(h.strip() for h in value.split("|") if h.strip()) for name, value in _logins(raw).items()}
+
+
+# Точечные исключения для отдельных ссылок (11.10.2026: тестовые доступы «UNL VPN» —
+# Финляндия-2 вместо проблемной Германии). USER_SHARED_CORP_HOSTS открывает ссылке
+# выделенный сервер, USER_HIDDEN_EXITS прячет страну целиком: прямые пункты, вход
+# через польский релей и каскад «✅ РУ сервисы» с этим выходом.
+USER_SHARED_CORP_HOSTS = _host_sets(os.environ.get("USER_SHARED_CORP_HOSTS", ""))
+USER_HIDDEN_EXITS = _host_sets(os.environ.get("USER_HIDDEN_EXITS", ""))
 
 
 def build_corp_hy2_links(username: str | None, links: list[str]) -> list[str]:
@@ -1538,7 +1557,11 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
         return [], userinfo
     username = _token_username(token)
     corporate = username in CORP_USERS
-    combined = corp_filter(combine_links(decoded), corporate=corporate)
+    hidden = USER_HIDDEN_EXITS.get(username or "", frozenset())
+    combined = corp_filter(
+        combine_links(decoded), corporate=corporate, shared=USER_SHARED_CORP_HOSTS.get(username or "", frozenset())
+    )
+    combined = [link for link in combined if _uri_host(link) not in hidden]
     if not combined:
         return [], userinfo
     if corporate:
@@ -1551,8 +1574,8 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
         relay = build_vk_relay_links(combined) if username in VK_RELAY_USERS else []
         combined = (
             combined
-            + build_de_via_links(combined)
-            + (relay or build_cascade_links(combined))
+            + (build_de_via_links(combined) if DE_VIA_EXIT_HOST not in hidden else [])
+            + (relay or build_cascade_links(combined, hidden=hidden))
             + build_mobile_links(combined)
         )
     _register_probe_targets(combined)
