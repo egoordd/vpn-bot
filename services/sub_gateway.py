@@ -325,7 +325,10 @@ def _migrates(token: str | None) -> bool:
 
 def _title_header(token: str | None) -> str:
     """Название подписки в приложении; у ссылок из UNBRANDED_USERS — без нашей марки."""
-    if token and _token_username(token) in UNBRANDED_USERS:
+    username = _token_username(token) if token else None
+    if username in SUB_TITLES:
+        return "base64:" + base64.b64encode(SUB_TITLES[username].encode("utf-8")).decode("ascii")
+    if username in UNBRANDED_USERS:
         return "base64:" + base64.b64encode(UNBRANDED_TITLE.encode("utf-8")).decode("ascii")
     return PROFILE_TITLE_HEADER
 
@@ -971,6 +974,14 @@ CORP_DEVICE_LIMITS = _limits(os.environ.get("CORP_DEVICE_LIMITS", ""))
 UNBRANDED_USERS = _names(os.environ.get("UNBRANDED_USERS", ""))
 UNBRANDED_TITLE = os.environ.get("UNBRANDED_TITLE", "VPN")[:25]
 
+# Своё название подписки для отдельной ссылки (11.10.2026: тестовые доступы двум
+# корпоративным заказчикам — «UNL VPN» и «UNL VPN trial»): «имя:Название, …».
+SUB_TITLES = {name: title.strip()[:25] for name, title in _logins(os.environ.get("SUB_TITLES", "")).items()}
+
+# Свой лимит устройств для ручной ссылки на наших общих серверах. Не CORP_USERS:
+# тем выдаются только выделенные серверы. Без записи ручная ссылка не ограничена.
+MANUAL_DEVICE_LIMITS = _limits(os.environ.get("MANUAL_DEVICE_LIMITS", ""))
+
 # Тестовая подписка (03.10.2026): её «✅ РУ сервисы» идут не через московский релей,
 # а через релей на VK Cloud. Принцип тот же — российское выходит с релея, остальное
 # уходит в страну пункта, — но у VK открыт только 443, поэтому страну выбирает не
@@ -1211,6 +1222,8 @@ def plan_device_limit(username: str) -> int:
 
     if username in CORP_USERS:
         return CORP_DEVICE_LIMITS.get(username, CORP_DEVICE_LIMIT)
+    if username in MANUAL_DEVICE_LIMITS:
+        return MANUAL_DEVICE_LIMITS[username]
     if not DEVICE_LIMIT_API:
         return DEVICE_LIMIT
     cached = _PLAN_LIMITS.get(username)

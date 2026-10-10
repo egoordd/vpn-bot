@@ -1999,3 +1999,30 @@ def test_trojan_json_outbound_gets_firefox_fingerprint():
         sub_gateway._trojan_uri(node).split("?", 1)[1].split("#", 1)[0]))
     stream = xray_json._stream_settings(query)
     assert stream["tlsSettings"]["fingerprint"] == "firefox"
+
+
+# --- своё название и свой лимит для ручных ссылок (11.10.2026) --------------------
+
+def test_link_with_its_own_title_shows_it_instead_of_ours(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "SUB_TITLES", {"corp_unl_vpn": "UNL VPN", "corp_unl_trial": "UNL VPN trial"})
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_USERS", frozenset({"corp_unl_vpn", "corp_unl_trial"}))
+    monkeypatch.setattr(sub_gateway, "SUB_ANNOUNCE", "🎁 Друг по вашей ссылке — 20%")
+
+    for name, title in (("corp_unl_vpn", "UNL VPN"), ("corp_unl_trial", "UNL VPN trial")):
+        headers = sub_gateway._client_headers(_panel_token(name))
+        assert base64.b64decode(headers["profile-title"].removeprefix("base64:")).decode() == title
+        assert "announce" not in headers, name
+
+
+def test_own_title_does_not_touch_other_links(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "SUB_TITLES", {"corp_unl_vpn": "UNL VPN"})
+    headers = sub_gateway._client_headers(_panel_token("tg_1"))
+    assert headers["profile-title"] == sub_gateway.PROFILE_TITLE_HEADER
+
+
+def test_manual_link_gets_its_own_device_limit_without_asking_the_bot(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "MANUAL_DEVICE_LIMITS", {"corp_unl_vpn": 5})
+    monkeypatch.setattr(sub_gateway, "DEVICE_LIMIT_API", "http://127.0.0.1:1/never-called/{telegram_id}")
+    monkeypatch.setattr(sub_gateway, "_PLAN_LIMITS", {})
+
+    assert sub_gateway.plan_device_limit("corp_unl_vpn") == 5
