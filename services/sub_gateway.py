@@ -1178,6 +1178,44 @@ def _host_sets(raw: str) -> dict[str, frozenset[str]]:
 USER_SHARED_CORP_HOSTS = _host_sets(os.environ.get("USER_SHARED_CORP_HOSTS", ""))
 USER_HIDDEN_EXITS = _host_sets(os.environ.get("USER_HIDDEN_EXITS", ""))
 
+# Ссылки «один сервер — один пункт» (11.10.2026, «UNL VPN»: владельцу не нужно
+# «множество протоколов»). По каждому серверу остаётся только VLESS Reality поверх
+# TCP — основной протокол, который понимает любой Happ; без XHTTP, Hysteria2,
+# Trojan, каскадов и входа через релей. В приложении: «Авто-обход», «Режим
+# РУ-сервисов» и по пункту на страну.
+COMPACT_USERS = _names(os.environ.get("COMPACT_USERS", ""))
+
+
+def _is_reality_tcp(uri: str) -> bool:
+    if not uri.startswith("vless://"):
+        return False
+    query = dict(urllib.parse.parse_qsl(uri.partition("?")[2].partition("#")[0]))
+    return query.get("security") == "reality" and query.get("type", "tcp") in ("", "tcp")
+
+
+def _country_only(uri: str) -> str:
+    """«🇫🇮 Финляндия 2» → «🇫🇮 Финляндия»: в такой ссылке у страны один сервер."""
+
+    base, sep, remark = uri.partition("#")
+    if not sep:
+        return uri
+    name = re.sub(r"\s+\d+$", "", urllib.parse.unquote(remark))
+    return f"{base}#{urllib.parse.quote(name)}"
+
+
+def compact_links(links: list[str]) -> list[str]:
+    """Первый VLESS Reality/TCP каждого сервера; если такого нет ни у одного — всё как было."""
+
+    chosen: list[str] = []
+    seen: set[str | None] = set()
+    for link in links:
+        host = _uri_host(link)
+        if host in seen or not _is_reality_tcp(link):
+            continue
+        seen.add(host)
+        chosen.append(_country_only(link))
+    return chosen or links
+
 
 def build_corp_hy2_links(username: str | None, links: list[str]) -> list[str]:
     """Hysteria2 на каждый корпоративный сервер из подписки — со своим логином."""
@@ -1564,7 +1602,9 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     combined = [link for link in combined if _uri_host(link) not in hidden]
     if not combined:
         return [], userinfo
-    if corporate:
+    if username in COMPACT_USERS:
+        combined = compact_links(combined)
+    elif corporate:
         combined = combined + build_corp_hy2_links(username, combined)
     elif username in IND_USERS:
         # Только серверы учётки (без общих Hy2/Trojan) и свой логин Hysteria2.

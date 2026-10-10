@@ -2069,3 +2069,60 @@ def test_other_links_keep_germany_when_one_link_hides_it(de_via, monkeypatch):
     links, _ = sub_gateway.resolve_links(_panel_token("tg_1"))
 
     assert ("2.59.162.34.sslip.io", 2120) in {sub_gateway._uri_endpoint(link) for link in links}
+
+
+def _xhttp(host: str, port: int = 2100) -> str:
+    return f"vless://uuid@{host}:{port}?type=xhttp&security=reality#xhttp"
+
+
+def test_compact_link_keeps_one_reality_entry_per_server(hy2_nodes, monkeypatch):
+    """«UNL VPN» (11.10.2026): по пункту на страну — без XHTTP, Hy2, Trojan и каскадов."""
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", True)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "COMPACT_USERS", frozenset({"corp_unl_vpn"}))
+    upstream = "\n".join([_vless(NL_HOST), _xhttp(NL_HOST), _xhttp(US_HOST), _vless(US_HOST, 2102)])
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+
+    links, _ = sub_gateway.resolve_links(_panel_token("corp_unl_vpn"))
+
+    assert sorted(sub_gateway._uri_endpoint(link) for link in links) == sorted([(NL_HOST, 2087), (US_HOST, 2102)])
+
+
+def test_compact_link_shows_auto_ru_mode_and_one_entry_per_server(hy2_nodes, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "COMPACT_USERS", frozenset({"corp_unl_vpn"}))
+    upstream = "\n".join([_vless(NL_HOST), _xhttp(NL_HOST), _vless(US_HOST, 2102)])
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+
+    body, _, is_json = sub_gateway.build_auto_json(_panel_token("corp_unl_vpn"), hysteria=True)
+    configs = json.loads(body)
+
+    assert is_json
+    assert len(configs) == 4, [c["remarks"] for c in configs]
+    assert [o["protocol"] for o in configs[0]["outbounds"] if o["tag"].startswith("proxy-")] == ["vless", "vless"]
+
+
+def test_other_links_keep_every_protocol_when_one_link_is_compact(hy2_nodes, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "COMPACT_USERS", frozenset({"corp_unl_vpn"}))
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (_vless(NL_HOST) + "\n" + _xhttp(NL_HOST), None))
+
+    links, _ = sub_gateway.resolve_links(_panel_token("tg_1"))
+
+    assert {link.split("://", 1)[0] for link in links} >= {"vless", "hysteria2"}
+    assert any("type=xhttp" in link for link in links)
+
+
+def test_compact_link_names_the_country_without_a_server_number(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "COMPACT_USERS", frozenset({"corp_unl_vpn"}))
+    fi2 = "vless://uuid@89.125.81.96.sslip.io:2113?security=reality#" + urllib.parse.quote("🇫🇮 Финляндия 2")
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (fi2, None))
+
+    links, _ = sub_gateway.resolve_links(_panel_token("corp_unl_vpn"))
+
+    assert [urllib.parse.unquote(link.rsplit("#", 1)[-1]) for link in links] == ["🇫🇮 Финляндия"]
