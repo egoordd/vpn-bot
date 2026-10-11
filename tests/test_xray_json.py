@@ -216,11 +216,11 @@ def test_recheck_holds_for_either_strategy(monkeypatch, strategy):
 
 
 def test_probes_stay_spread_out():
-    """Faster failover must not turn into a constant stream of handshakes: with
-    the full set of outbounds there is still a pause of 10s+ between probes."""
+    """Faster failover must not turn into a constant stream of handshakes: one
+    round of probes a minute, at most BALANCER_MAX_OUTBOUNDS tunnels in it."""
     config = _balancer(tuple(f"h{i}" for i in range(xray_json.BALANCER_MAX_OUTBOUNDS)))
     assert _proxy_count(config) == xray_json.BALANCER_MAX_OUTBOUNDS
-    assert _seconds(config["observatory"]["probeInterval"]) >= 10
+    assert _seconds(config["observatory"]["probeInterval"]) >= 60
 
 
 def test_probe_url_is_plain_http():
@@ -536,10 +536,12 @@ def test_smaller_buffers_from_the_panel_are_left_alone():
     assert extra["scMaxConcurrentPosts"] == 4
 
 
-def test_probes_do_not_dial_every_node_at_once():
-    """Ten simultaneous handshakes a minute is a memory and radio burst on a
-    sleeping phone — the shape of background work that gets an app reclaimed."""
-    assert _prober(_balancer()).get("enableConcurrency") is False
+def test_every_server_is_measured_right_after_connecting():
+    """11.10.2026, from Moscow: probing one server every 12s kept «Авто-обход» on
+    the Moscow cascade for the first 15s, then on Poland, and only at 26s reached
+    the Netherlands — Telegram «минуту грузил», calls lagged. Probing them all at
+    once picks the Netherlands from the first second."""
+    assert _prober(_balancer()).get("enableConcurrency") is True
 
 
 # --- the control build -------------------------------------------------------

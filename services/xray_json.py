@@ -62,16 +62,12 @@ _PROBE_URL = "http://www.gstatic.com/generate_204"
 #
 # _RECHECK_SECONDS is how long one server may go between two of its own probes.
 # For burstObservatory that is its interval as written. The plain observatory
-# behind leastPing reads it differently: probing one outbound at a time, it
-# sleeps probeInterval after *each* of them (xray app/observatory/observer.go),
-# so "60s" over five outbounds re-probed every server once in five minutes —
-# 02.10.2026 the owner sat on a dead exit «очень долго» before it came round.
-# Its step is therefore derived from the outbound count (see _probe_step).
+# behind leastPing probes all outbounds together once per probeInterval when
+# enableConcurrency is on; without it, it sleeps probeInterval after *each*
+# outbound (xray app/observatory/observer.go) — see _health_check for why that
+# mode was dropped.
 _RECHECK_SECONDS = 60
 _PROBE_INTERVAL = f"{_RECHECK_SECONDS}s"
-# A step below the probe's own 5s timeout gains nothing: a dead node's probe
-# already takes that long.
-_MIN_PROBE_STEP_SECONDS = 5
 _PROBE_TIMEOUT = "4s"
 # Samples kept per server: the strategy judges on the recent window, so a node
 # that degrades (rather than dies outright) is demoted after a couple of bad
@@ -726,16 +722,7 @@ def build_server_config(
 RU_VIA_TAG = "ru-exit"
 
 
-def _probe_step(outbound_count: int) -> str:
-    """Pause after each probe of the sequential observatory, so that one full
-    round — every server probed once — takes _RECHECK_SECONDS. Five outbounds
-    give 12s: five probes a minute, close to the 15s step that ran in late July,
-    spread evenly instead of in a burst."""
-    seconds = _RECHECK_SECONDS // max(1, outbound_count)
-    return f"{max(_MIN_PROBE_STEP_SECONDS, seconds)}s"
-
-
-def _health_check(strategy: str, outbound_count: int) -> tuple[dict, dict]:
+def _health_check(strategy: str) -> tuple[dict, dict]:
     """(balancer strategy, health-probe block) for the configured strategy.
 
     leastLoad needs `burstObservatory` (rolling samples + a timeout), leastPing
@@ -749,15 +736,16 @@ def _health_check(strategy: str, outbound_count: int) -> tuple[dict, dict]:
                 "observatory": {
                     "subjectSelector": ["proxy-"],
                     "probeUrl": _PROBE_URL,
-                    "probeInterval": _probe_step(outbound_count),
-                    # Probes run one after another rather than all at once. Ten
-                    # simultaneous tunnel handshakes every minute is a burst of
-                    # memory and radio on a sleeping phone — the shape of
-                    # background work that gets an app reclaimed, and on iOS
-                    # the extension has ~50 MB for everything. Sequential mode
-                    # sleeps probeInterval after every single probe, which is
-                    # why the interval above is a per-probe step, not a round.
-                    "enableConcurrency": False,
+                    "probeInterval": _PROBE_INTERVAL,
+                    # All servers at once, once a minute. Sequential probing (one
+                    # every 12s) was meant to spare a sleeping phone a burst, but
+                    # left the balancer half-blind right after connecting: on
+                    # 11.10.2026 from Moscow it sat on the Moscow cascade for the
+                    # first 15s, then on Poland, and reached the Netherlands only
+                    # at 26s — «Telegram минуту грузил», calls lagged. Five
+                    # handshakes in one burst a minute (BALANCER_MAX_OUTBOUNDS caps
+                    # the count) also wake the radio once instead of five times.
+                    "enableConcurrency": True,
                 }
             },
         )
@@ -813,7 +801,7 @@ def build_balancer_config(
             outbounds.append(outbound)
     if not outbounds:
         return None
-    strategy, prober = _health_check(BALANCER_STRATEGY, len(outbounds))
+    strategy, prober = _health_check(BALANCER_STRATEGY)
     ru_exit = build_outbound(ru_via, RU_VIA_TAG) if ru_via else None
     return {
         "remarks": remarks,
