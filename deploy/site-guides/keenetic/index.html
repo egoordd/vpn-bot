@@ -51,6 +51,9 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+img { max-width: 100%; }
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 body {
@@ -277,7 +280,8 @@ figure.real .zoom {
 figure.real .zoom:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 figure.real img { display: block; width: 100%; height: auto; }
 figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
-.credit { display: inline-block; margin-left: 4px; opacity: 0.75; }
+.credit { display: inline-block; margin-left: 4px; opacity: 0.8; }
+.credit a { color: inherit; }
 .opt { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 0 14px; }
 .opt summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
 .lightbox {
@@ -327,6 +331,12 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
 .topbar a.home { margin-left: auto; color: var(--muted); text-decoration: none; font-size: 14px; }
 .topbar a.home:hover { color: var(--accent); }
 @media (max-width: 860px) { .scr-split { grid-template-columns: minmax(0, 1fr); } }
+
+/* Narrow screens: let labels wrap and keep the file picker inside the column */
+.step ol.do > li { min-width: 0; }
+.path, .btnlabel { white-space: normal; overflow-wrap: anywhere; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.picker > * { min-width: 0; }
+.picker input[type="file"] { width: 100%; }
 </style>
 </head>
 <body>
@@ -421,25 +431,7 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
         <li>Напротив <b>«WireGuard VPN»</b> должно стоять «Установлен». Если нет, отметьте его и нажмите <span class="btnlabel">Установить обновление</span>. Роутер перезагрузится, интернет пропадёт на 2–3 минуты.</li>
       </ol>
       <div class="note">«WireGuard VPN-сервер» ставить не нужно. На старых прошивках кнопка находится в <span class="path">Управление → Общие настройки</span>.</div>
-      <figure class="shot">
-        <div class="screen" role="img" aria-label="Схема: окно компонентов, поиск wireguard, у WireGuard VPN отметка Установлен">
-          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Параметры системы</div></div>
-          <div class="scr-app">
-            <div class="scr-menu">
-              <span class="g">Интернет</span><span class="it">Другие подключения</span><span class="it">Приоритеты подключений</span>
-              <span class="g">Управление</span><span class="it on">Параметры системы</span><span class="it">Приложения</span>
-            </div>
-            <div class="scr-modal">
-              <div class="scr-title">Компоненты операционной системы</div>
-              <div class="scr-search hl" data-n="1">wireguard</div>
-              <div class="scr-sub">Сетевые функции</div>
-              <div class="scr-row hl" data-n="2"><b>WireGuard VPN</b><span class="scr-check">Установлен <span class="box on"></span></span></div>
-              <div class="scr-row"><span>WireGuard VPN-сервер</span><span class="scr-check scr-sub">Не установлен <span class="box"></span></span></div>
-            </div>
-          </div>
-        </div>
-        <figcaption>Схема экрана. Нужен только «WireGuard VPN».</figcaption>
-      </figure>
+      <figure class="real"><button class="zoom" type="button" aria-label="Увеличить скриншот"><img src="img/step-2-components.webp" width="1420" height="1206" alt="Окно «Компоненты операционной системы»: поиск wireguard, у WireGuard VPN стоит Установлен" loading="lazy" decoding="async"></button><figcaption>Поиск по слову wireguard, у WireGuard VPN галочка «Установлен». <span class="credit">Источник: <a href="https://wiki.rockblack.tech/" target="_blank" rel="noopener">wiki.rockblack.tech</a></span></figcaption></figure>
     </section>
 
     <section class="step" id="upload">
@@ -449,25 +441,7 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
         <li>В разделе <b>Wireguard</b> нажмите <span class="btnlabel">Загрузить из файла</span>.</li>
         <li>Выберите файл <b>UnLock-VPN.conf</b>. В таблице появится подключение <b>UnLock-VPN</b>.</li>
       </ol>
-      <figure class="shot">
-        <div class="screen" role="img" aria-label="Схема: раздел Wireguard с кнопкой Загрузить из файла и таблицей подключений">
-          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Другие подключения</div></div>
-          <div class="scr-app">
-            <div class="scr-menu">
-              <span class="g">Интернет</span><span class="it">Кабель Ethernet</span><span class="it on">Другие подключения</span><span class="it">Приоритеты подключений</span>
-            </div>
-            <div class="scr-body">
-              <div class="scr-title">Wireguard</div>
-              <div><span class="scr-btn">+ Добавить подключение</span> <span class="scr-btn hl" data-n="1">Загрузить из файла</span></div>
-              <div class="scr-table">
-                <div class="tr th"><span>Подключение</span><span>Принято</span><span>Рукопожатие</span></div>
-                <div class="tr"><span><span class="tog"></span> UnLock-VPN</span><span>0 Б</span><span>—</span></div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <figcaption>Схема экрана. После загрузки подключение появится в таблице выключенным.</figcaption>
-      </figure>
+      <figure class="real"><button class="zoom" type="button" aria-label="Увеличить скриншот"><img src="img/step-3-upload.webp" width="1424" height="630" alt="Страница «Другие подключения», раздел Wireguard с кнопкой «Загрузить из файла»" loading="lazy" decoding="async"></button><figcaption>Кнопка «Загрузить из файла» рядом с «Добавить подключение». <span class="credit">Источник: <a href="https://wiki.rockblack.tech/" target="_blank" rel="noopener">wiki.rockblack.tech</a></span></figcaption></figure>
     </section>
 
     <section class="step" id="setup">
@@ -479,22 +453,7 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
         <li>Пролистайте панель вниз и нажмите <span class="btnlabel">Сохранить</span>.</li>
         <li>В таблице включите переключатель слева от UnLock-VPN.</li>
       </ol>
-      <figure class="shot">
-        <div class="screen" role="img" aria-label="Схема: панель Настройки подключения с отмеченной галочкой Использовать для выхода в интернет">
-          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Другие подключения</div></div>
-          <div class="scr-body">
-            <div class="scr-title">Настройки подключения</div>
-            <div class="scr-field"><span class="lbl">Имя</span><span class="val">UnLock-VPN</span></div>
-            <div class="scr-check hl" data-n="1"><span class="box on"></span>Использовать для выхода в интернет</div>
-            <div class="scr-field"><span class="lbl">Частный ключ</span><span class="val">Частный ключ установлен</span></div>
-            <div class="scr-field"><span class="lbl">IPv4-адрес</span><span class="val">заполнен из файла</span></div>
-            <div class="scr-sub">Настройка пира</div>
-            <div class="scr-field"><span class="lbl">Имя пира (можно пусто)</span><span class="val">&nbsp;</span></div>
-            <div><span class="scr-btn pri hl" data-n="2">Сохранить</span></div>
-          </div>
-        </div>
-        <figcaption>Схема экрана. Меняется только галочка, остальное уже заполнено из файла.</figcaption>
-      </figure>
+      <figure class="real"><button class="zoom" type="button" aria-label="Увеличить скриншот"><img src="img/step-4-settings.webp" width="1420" height="1224" alt="Панель «Настройки подключения» с отмеченной галочкой «Использовать для выхода в интернет»" loading="lazy" decoding="async"></button><figcaption>На скриншоте подключение называется awg2tr40, у вас будет UnLock-VPN. <span class="credit">Источник: <a href="https://wiki.rockblack.tech/" target="_blank" rel="noopener">wiki.rockblack.tech</a></span></figcaption></figure>
     </section>
 
     <section class="step" id="priority">
@@ -506,23 +465,7 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
         <li>Нажмите <span class="btnlabel">Сохранить</span> внизу страницы.</li>
       </ol>
       <div class="note warn"><b class="t">Обязательный шаг</b>Если подключение провайдера останется выше, роутер будет ходить в интернет напрямую, мимо VPN.</div>
-      <figure class="shot">
-        <div class="screen" role="img" aria-label="Схема: Политика по умолчанию, UnLock-VPN отмечен и стоит первым">
-          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Приоритеты подключений</div></div>
-          <div class="scr-body">
-            <div class="scr-tabs"><span class="on">Политики доступа в интернет</span><span>Применение политик</span></div>
-            <div class="scr-split">
-              <div class="scr-pol"><span class="on hl" data-n="1">Политика по умолчанию</span><span class="scr-sub">Другие политики</span></div>
-              <div class="scr-card">
-                <div class="scr-row hl" data-n="2"><span class="scr-check"><span class="drag">⋮⋮</span><span class="box on"></span><b>UnLock-VPN</b></span><span class="scr-sub">WireGuard</span></div>
-                <div class="scr-row"><span class="scr-check"><span class="drag">⋮⋮</span><span class="box on"></span>Подключение Ethernet</span><span class="scr-sub">Ethernet</span></div>
-              </div>
-            </div>
-            <div><span class="scr-btn pri hl" data-n="3">Сохранить</span></div>
-          </div>
-        </div>
-        <figcaption>Схема экрана. UnLock-VPN отмечен и стоит первым.</figcaption>
-      </figure>
+      <figure class="real"><button class="zoom" type="button" aria-label="Увеличить скриншот"><img src="img/step-5-policy.webp" width="1418" height="900" alt="Вкладка «Политики доступа в интернет»: подключение отмечено галочкой и стоит первым" loading="lazy" decoding="async"></button><figcaption>На скриншоте выбрана отдельная политика AmneziaVPN. Вам нужна «Политика по умолчанию», действия те же: галочка, перетащить наверх, «Сохранить». <span class="credit">Источник: <a href="https://wiki.rockblack.tech/" target="_blank" rel="noopener">wiki.rockblack.tech</a></span></figcaption></figure>
       <details class="opt">
         <summary>VPN только для некоторых устройств</summary>
         <p>Если VPN нужен не всему дому, а нескольким устройствам:</p>
@@ -530,6 +473,7 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
           <li>На вкладке «Политики доступа в интернет» нажмите <span class="btnlabel">+ Добавить политику</span>, назовите её, например, UnLock, отметьте в ней UnLock-VPN и поставьте первым. Нажмите «Сохранить». В «Политике по умолчанию» UnLock-VPN тогда не отмечайте.</li>
           <li>Перейдите на вкладку <b>«Применение политик»</b> и перетащите нужные устройства в новую политику.</li>
         </ol>
+        <figure class="real"><button class="zoom" type="button" aria-label="Увеличить скриншот"><img src="img/step-5-devices.webp" width="1412" height="920" alt="Вкладка «Применение политик»: устройство перетаскивается в политику" loading="lazy" decoding="async"></button><figcaption>Устройства перетаскиваются мышкой в нужную политику. <span class="credit">Источник: <a href="https://wiki.rockblack.tech/" target="_blank" rel="noopener">wiki.rockblack.tech</a></span></figcaption></figure>
       </details>
     </section>
 
@@ -540,18 +484,7 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
         <li>На любом устройстве дома (VPN на самом устройстве выключен) откройте <span class="path">api.ipify.org</span>. Сайт должен показать адрес нашего сервера, а не ваш домашний.</li>
         <li>Откройте YouTube или Instagram. Российские сайты при этом открываются как обычно.</li>
       </ol>
-      <figure class="shot">
-        <div class="screen" role="img" aria-label="Схема: подключение включено, последнее рукопожатие 4 секунды назад">
-          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Другие подключения</div></div>
-          <div class="scr-body">
-            <div class="scr-table">
-              <div class="tr th"><span>Подключение</span><span>Принято</span><span>Рукопожатие</span></div>
-              <div class="tr"><span><span class="tog on"></span> UnLock-VPN</span><span>1,4 МБ</span><span class="hl" data-n="1">00:00:04</span></div>
-            </div>
-          </div>
-        </div>
-        <figcaption>Схема. Если в колонке «Рукопожатие» прочерк, смотрите раздел ниже.</figcaption>
-      </figure>
+      <figure class="real"><button class="zoom" type="button" aria-label="Увеличить скриншот"><img src="img/step-4-enabled.webp" width="1426" height="680" alt="Таблица Wireguard: подключение включено, последнее рукопожатие 00:00:04" loading="lazy" decoding="async"></button><figcaption>Подключение включено, рукопожатие 4 секунды назад. Если в колонке прочерк, смотрите раздел ниже. <span class="credit">Источник: <a href="https://wiki.rockblack.tech/" target="_blank" rel="noopener">wiki.rockblack.tech</a></span></figcaption></figure>
     </section>
 
     <section class="step" id="cli">
@@ -607,9 +540,12 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
       </div>
     </section>
 
+    <div class="lightbox" id="lb" hidden><img id="lbimg" alt=""></div>
+
     <footer>
       <span>© 2026 UnLock VPN</span>
       <a href="https://unlockproject.site/">unlockproject.site</a>
+      <span>Скриншоты интерфейса Keenetic: <a href="https://wiki.rockblack.tech/" target="_blank" rel="noopener">wiki.rockblack.tech</a></span>
       <span>Поддержка в Telegram: <a href="https://t.me/unlock_support_bot" target="_blank" rel="noopener">@unlock_support_bot</a></span>
     </footer>
   </main>
@@ -676,6 +612,18 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
     reader.readAsText(f);
   });
   ifname.addEventListener("input", render);
+
+  var lb = document.getElementById("lb");
+  var lbimg = document.getElementById("lbimg");
+  var closeLb = function () { lb.hidden = true; lbimg.removeAttribute("src"); };
+  document.querySelectorAll("figure.real .zoom").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var img = btn.querySelector("img");
+      lbimg.src = img.src; lbimg.alt = img.alt; lb.hidden = false;
+    });
+  });
+  lb.addEventListener("click", closeLb);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !lb.hidden) closeLb(); });
 
   var links = Array.prototype.slice.call(document.querySelectorAll("#sidenav a"));
   var byId = {};
