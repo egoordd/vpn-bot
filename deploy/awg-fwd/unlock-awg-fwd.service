@@ -1,0 +1,13 @@
+[Unit]
+Description=UnLock: AmneziaWG forward via Russian address to Poland awg1
+After=network-online.target ufw.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/unlock-awg-fwd start
+ExecStop=/usr/local/sbin/unlock-awg-fwd stop
+
+[Install]
+WantedBy=multi-user.target

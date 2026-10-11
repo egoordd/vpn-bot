@@ -1,0 +1,33 @@
+#!/bin/sh
+# Пересылка AmneziaWG через российский адрес: клиенты, у которых провайдер режет
+# WireGuard/AmneziaWG за границу (11.10.2026: Ростелеком, Якутск), подключаются к
+# российскому адресу, а пакеты уходят на польский вход awg1 без изменений.
+# Использование: unlock-awg-fwd start|stop
+set -eu
+IN_ADDR="${IN_ADDR:-168.113.211.89}"
+PORT="${PORT:-40002}"
+DEST="${DEST:-78.17.154.225}"
+
+rule() {
+    action="$1"; shift
+    if iptables -t nat -C "$@" 2>/dev/null; then
+        [ "$action" = "del" ] && iptables -t nat -D "$@"
+    else
+        [ "$action" = "add" ] && iptables -t nat -A "$@"
+    fi
+    return 0
+}
+
+case "${1:-}" in
+    start)
+        sysctl -qw net.ipv4.ip_forward=1
+        rule add PREROUTING -d "$IN_ADDR" -p udp --dport "$PORT" -j DNAT --to-destination "$DEST:$PORT"
+        rule add POSTROUTING -d "$DEST" -p udp --dport "$PORT" -j SNAT --to-source "$IN_ADDR"
+        ;;
+    stop)
+        rule del PREROUTING -d "$IN_ADDR" -p udp --dport "$PORT" -j DNAT --to-destination "$DEST:$PORT"
+        rule del POSTROUTING -d "$DEST" -p udp --dport "$PORT" -j SNAT --to-source "$IN_ADDR"
+        ;;
+    *)
+        echo "usage: $0 start|stop" >&2; exit 2 ;;
+esac
