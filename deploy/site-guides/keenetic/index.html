@@ -406,7 +406,7 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
     <section class="step" id="login">
       <h2><span class="k">Шаг 1.</span> Вход в панель роутера</h2>
       <ol class="do">
-        <li>Откройте браузер и наберите адрес <span class="path">my.keenetic.net</span>. Если не открывается, наберите <span class="path">192.168.1.1</span>.</li>
+        <li>Откройте браузер и наберите адрес <span class="path">my.keenetic.net</span>. Если не открывается, наберите <span class="path">192.168.1.1</span> (на некоторых роутерах <span class="path">192.168.2.1</span>).</li>
         <li>Введите логин и пароль от роутера и нажмите <span class="btnlabel">Войти</span>.</li>
       </ol>
       <figure class="shot">
@@ -430,7 +430,8 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
         <li>В строке поиска наберите <b>wireguard</b>.</li>
         <li>Напротив <b>«WireGuard VPN»</b> должно стоять «Установлен». Если нет, отметьте его и нажмите <span class="btnlabel">Установить обновление</span>. Роутер перезагрузится, интернет пропадёт на 2–3 минуты.</li>
       </ol>
-      <div class="note">«WireGuard VPN-сервер» ставить не нужно. На старых прошивках кнопка находится в <span class="path">Управление → Общие настройки</span>.</div>
+      <div class="note"><b class="t">Можно пропустить</b>Если на странице <span class="path">Интернет → Другие подключения</span> уже есть раздел Wireguard, компонент установлен, переходите к шагу 3.</div>
+      <div class="note">«WireGuard VPN-сервер» ставить не нужно. На старых прошивках кнопка находится в <span class="path">Управление → Общие настройки</span>, а на прошивках Keenetic для других роутеров вместо неё ссылка «Показать компоненты».</div>
       <figure class="real"><button class="zoom" type="button" aria-label="Увеличить скриншот"><img src="img/step-2-components.webp" width="1420" height="1206" alt="Окно «Компоненты операционной системы»: поиск wireguard, у WireGuard VPN стоит Установлен" loading="lazy" decoding="async"></button><figcaption>Поиск по слову wireguard, у WireGuard VPN галочка «Установлен». <span class="credit">Источник: <a href="https://wiki.rockblack.tech/" target="_blank" rel="noopener">wiki.rockblack.tech</a></span></figcaption></figure>
     </section>
 
@@ -491,7 +492,7 @@ figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; 
       <h2><span class="k">Не подключается?</span> Параметры через командную строку</h2>
       <p>Иногда роутер загружает файл, но не применяет параметры маскировки. Тогда рукопожатия нет и интернет через VPN не идёт. Параметры можно задать вручную, это займёт пару минут.</p>
       <ol class="do">
-        <li>Откройте в браузере <span class="path">192.168.1.1/a</span>. Это командная строка роутера.</li>
+        <li>Откройте в браузере адрес роутера с <b>/a</b> на конце, например <span class="path">192.168.1.1/a</span>. Если панель у вас открывается по другому адресу, например 192.168.2.1, наберите <span class="path">192.168.2.1/a</span>. Это командная строка роутера.</li>
         <li>Вставьте команду ниже в поле «Command» и нажмите <span class="btnlabel">Отправить запрос</span>. В ответе найдите блок с <b>description: UnLock-VPN</b> и запомните его <b>interface-name</b>, например <b>Wireguard0</b>.</li>
       </ol>
       <div class="cmd"><code id="c1">show interface</code><button class="copy" type="button" data-for="c1">Копировать</button></div>
