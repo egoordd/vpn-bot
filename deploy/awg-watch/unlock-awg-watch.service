@@ -1,0 +1,10 @@
+[Unit]
+Description=UnLock: watch AmneziaWG router clients and alert on disconnect
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/vpn-bot
+Environment="AWG_WATCH=VIu9I0itdITAXck8J2/9Y7McJsW7AncCSumH5WVQQVU=|Роутер клиента Keenetic (Якутск, Ростелеком)"
+ExecStart=/opt/vpn-bot/.venv/bin/python /opt/vpn-bot/scripts/awg_peer_watch.py
