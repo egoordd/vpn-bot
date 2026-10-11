@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="description" content="Пошаговая инструкция UnLock VPN: подключение файла AmneziaWG на роутере Keenetic.">
+<title>UnLock VPN на Keenetic</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234ea6ff'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='18' text-anchor='middle' fill='%2306121f'%3EU%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: wiki — sticky sidebar of steps on the left, one reading column on the right, schematic panel screens under each step. Dark-first. */
+:root {
+  --bg: #0d1420;
+  --panel: #131c2b;
+  --panel-2: #192436;
+  --line: #24324a;
+  --fg: #e3e9f3;
+  --muted: #8d9ab0;
+  --accent: #4ea6ff;
+  --accent-ink: #06121f;
+  --accent-soft: rgba(78, 166, 255, 0.14);
+  --ok: #3fcf8e;
+  --warn: #f2b84b;
+  --warn-soft: rgba(242, 184, 75, 0.12);
+  --scr-bg: #0f1724;
+  --scr-head: #172133;
+  --font-display: "Unbounded", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 10px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f3f6fb; --panel: #ffffff; --panel-2: #eef3fa; --line: #d6e0ee;
+    --fg: #142033; --muted: #5b6b84; --accent: #1c7ce0; --accent-ink: #ffffff;
+    --accent-soft: rgba(28, 124, 224, 0.10); --ok: #138a55; --warn: #a86a00;
+    --warn-soft: rgba(242, 184, 75, 0.18); --scr-bg: #f7f9fc; --scr-head: #e7eef8;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f3f6fb; --panel: #ffffff; --panel-2: #eef3fa; --line: #d6e0ee;
+  --fg: #142033; --muted: #5b6b84; --accent: #1c7ce0; --accent-ink: #ffffff;
+  --accent-soft: rgba(28, 124, 224, 0.10); --ok: #138a55; --warn: #a86a00;
+  --warn-soft: rgba(242, 184, 75, 0.18); --scr-bg: #f7f9fc; --scr-head: #e7eef8;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.topbar {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-in {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 15px;
+}
+.brand { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: 0.01em; }
+.brand span { color: var(--muted); font-weight: 500; }
+
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-inline: 20px;
+  padding-block: 28px 64px;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+}
+
+/* Sidebar */
+.side {
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + 78px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 10px;
+}
+.side-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--muted); padding: 2px 10px 10px; font-weight: 600;
+}
+.side ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.side a {
+  display: flex; gap: 10px; align-items: baseline;
+  padding: 8px 10px; border-radius: 8px;
+  color: var(--fg); text-decoration: none; font-size: 14.5px; line-height: 1.35;
+}
+.side a .n {
+  font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  min-width: 18px; font-variant-numeric: tabular-nums;
+}
+.side a:hover { background: var(--panel-2); }
+.side a.active { background: var(--accent); color: var(--accent-ink); }
+.side a.active .n { color: var(--accent-ink); }
+.side a:focus-visible, .copy:focus-visible, .mnav summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.side .sep { height: 1px; background: var(--line); margin: 8px 10px; }
+
+.mnav { display: none; }
+
+/* Content */
+main { min-width: 0; }
+.intro h1 {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: clamp(24px, 3.4vw, 34px); line-height: 1.2;
+  margin: 0 0 10px; text-wrap: balance; color: var(--accent);
+}
+.intro p { margin: 0 0 8px; color: var(--muted); max-width: 64ch; }
+.facts {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 6px; padding: 0; list-style: none;
+}
+.facts li {
+  font-size: 13.5px; padding: 5px 11px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--fg);
+}
+.facts b { color: var(--accent); font-weight: 600; }
+
+section.step {
+  padding-top: 30px; margin-top: 30px; border-top: 1px solid var(--line);
+  scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 80px);
+}
+section.step h2 {
+  font-family: var(--font-display); font-weight: 500;
+  font-size: clamp(18px, 2.2vw, 22px); line-height: 1.3; margin: 0 0 12px;
+  text-wrap: balance;
+}
+section.step h2 .k { color: var(--accent); font-weight: 700; }
+.step p, .step li { max-width: 66ch; }
+.step ol.do { padding-left: 22px; margin: 0 0 14px; display: grid; gap: 6px; }
+.step ul { padding-left: 20px; margin: 0 0 14px; }
+.path {
+  font-family: var(--font-mono); font-size: 14px;
+  background: var(--accent-soft); color: var(--fg);
+  padding: 1px 7px; border-radius: 6px; white-space: nowrap;
+}
+.btnlabel {
+  font-weight: 600; padding: 1px 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel-2); white-space: nowrap;
+}
+
+.note {
+  border-radius: var(--radius); padding: 12px 14px; margin: 14px 0;
+  background: var(--accent-soft); border: 1px solid var(--line); font-size: 15px;
+}
+.note.warn { background: var(--warn-soft); }
+.note b.t { display: block; margin-bottom: 2px; }
+.note.warn b.t { color: var(--warn); }
+
+/* Command blocks */
+.cmd {
+  display: flex; align-items: stretch; gap: 0;
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  margin: 8px 0 12px; background: var(--scr-bg);
+}
+.cmd code {
+  flex: 1; min-width: 0; overflow-x: auto; white-space: pre;
+  font-family: var(--font-mono); font-size: 13.5px; padding: 10px 12px;
+}
+.copy {
+  flex: none; border: 0; border-left: 1px solid var(--line);
+  background: var(--panel-2); color: var(--fg); cursor: pointer;
+  font: 500 13px var(--font-body); padding: 0 14px;
+}
+.copy:hover { background: var(--accent); color: var(--accent-ink); }
+.copy.done { background: var(--ok); color: var(--accent-ink); }
+
+/* Schematic panel screens */
+figure.shot { margin: 16px 0 6px; max-width: 620px; }
+figure.shot figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.screen {
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  background: var(--scr-bg); font-size: 13.5px; line-height: 1.4;
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.6);
+}
+.scr-bar {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  background: var(--scr-head); border-bottom: 1px solid var(--line);
+}
+.scr-dots { display: flex; gap: 5px; }
+.scr-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); display: block; }
+.scr-url {
+  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12.5px; color: var(--muted);
+  background: var(--scr-bg); border-radius: 6px; padding: 3px 10px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scr-app { display: grid; grid-template-columns: 150px minmax(0, 1fr); min-height: 170px; }
+.scr-menu { border-right: 1px solid var(--line); padding: 10px 8px; display: grid; gap: 3px; align-content: start; }
+.scr-menu .g { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 6px 8px 2px; }
+.scr-menu .it { padding: 5px 8px; border-radius: 6px; color: var(--muted); }
+.scr-menu .it.on { background: var(--accent-soft); color: var(--fg); }
+.scr-body { padding: 12px 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.scr-title { font-weight: 600; font-size: 14.5px; }
+.scr-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; }
+.scr-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.scr-sub { color: var(--muted); font-size: 12.5px; }
+.scr-btn {
+  display: inline-block; padding: 5px 12px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel-2); font-weight: 500;
+}
+.scr-btn.pri { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.scr-field { display: grid; gap: 3px; }
+.scr-field .lbl { font-size: 12px; color: var(--muted); }
+.scr-field .val { border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; font-family: var(--font-mono); font-size: 12.5px; }
+.scr-check { display: flex; gap: 8px; align-items: center; }
+.box { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--muted); display: inline-grid; place-items: center; flex: none; }
+.box.on { background: var(--accent); border-color: var(--accent); }
+.box.on::after { content: ""; width: 7px; height: 4px; border-left: 2px solid var(--accent-ink); border-bottom: 2px solid var(--accent-ink); transform: rotate(-45deg) translate(1px, -1px); }
+.tog { width: 32px; height: 18px; border-radius: 999px; background: var(--line); position: relative; flex: none; }
+.tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); }
+.tog.on { background: var(--accent); }
+.tog.on::after { left: 16px; background: var(--accent-ink); }
+.pill-ok { font-size: 12px; color: var(--ok); border: 1px solid currentColor; border-radius: 6px; padding: 1px 8px; }
+.drag { font-family: var(--font-mono); color: var(--muted); margin-right: 6px; }
+
+/* Highlight + callout number */
+.hl { position: relative; outline: 2px solid var(--warn); outline-offset: 3px; border-radius: 6px; }
+.hl[data-n]::before {
+  content: attr(data-n); position: absolute; top: -12px; right: -12px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--warn); color: #1a1200; font: 700 11.5px/20px var(--font-body); text-align: center;
+}
+
+.cli-out {
+  font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  white-space: pre; overflow-x: auto; border: 1px dashed var(--line); border-radius: 6px; padding: 8px 10px;
+}
+
+.trouble { display: grid; gap: 10px; margin-top: 6px; }
+.trouble details {
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+  padding: 0 14px;
+}
+.trouble summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
+.trouble details p { margin: 0 0 12px; color: var(--fg); }
+
+footer {
+  margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--line);
+  color: var(--muted); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px 18px;
+}
+footer a { color: var(--accent); }
+
+/* Real screenshots + lightbox */
+figure.real { margin: 16px 0 6px; max-width: 780px; }
+figure.real .zoom {
+  display: block; width: 100%; padding: 0; cursor: zoom-in;
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--scr-bg);
+}
+figure.real .zoom:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+figure.real img { display: block; width: 100%; height: auto; }
+figure.real figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.credit { display: inline-block; margin-left: 4px; opacity: 0.75; }
+.opt { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 0 14px; }
+.opt summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
+.lightbox {
+  position: fixed; inset: 0; z-index: 50; cursor: zoom-out;
+  background: rgba(4, 8, 14, 0.9); display: grid; place-items: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+}
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+
+@media (max-width: 860px) {
+  .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; padding-inline: 16px; padding-block: 18px 48px; }
+  .side { display: none; }
+  .mnav {
+    display: block; margin-bottom: 18px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 0 12px;
+  }
+  .mnav summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
+  .mnav ol { margin: 0 0 12px; padding-left: 22px; display: grid; gap: 6px; }
+  .mnav a { color: var(--fg); }
+  .scr-app { grid-template-columns: minmax(0, 1fr); }
+  .scr-menu { display: none; }
+}
+
+/* Public build: tables, tabs, modal and file picker inside schematic screens */
+.scr-table { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.scr-table .tr { display: grid; grid-template-columns: minmax(0, 1.6fr) 1fr 1fr; gap: 8px; padding: 7px 10px; align-items: center; }
+.scr-table .tr + .tr { border-top: 1px solid var(--line); }
+.scr-table .th { background: var(--panel-2); color: var(--muted); font-size: 12px; }
+.scr-table .tr > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scr-tabs { display: flex; gap: 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.scr-tabs span { padding: 4px 0 6px; color: var(--muted); }
+.scr-tabs span.on { color: var(--fg); border-bottom: 2px solid var(--accent); }
+.scr-split { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr); gap: 10px; }
+.scr-pol { border: 1px solid var(--line); border-radius: 8px; display: grid; }
+.scr-pol span { padding: 7px 10px; }
+.scr-pol span + span { border-top: 1px solid var(--line); }
+.scr-pol span.on { background: var(--accent-soft); }
+.scr-modal { border-left: 1px solid var(--line); background: var(--panel); padding: 12px 14px; display: grid; gap: 10px; align-content: start; }
+.scr-search { border: 1px solid var(--accent); border-radius: 6px; padding: 5px 9px; font-family: var(--font-mono); font-size: 12.5px; }
+.picker { display: grid; gap: 10px; margin: 10px 0 14px; padding: 14px; border: 1px dashed var(--line); border-radius: var(--radius); background: var(--panel); max-width: 66ch; }
+.picker label { font-weight: 600; }
+.picker input[type="file"] { font: inherit; color: var(--fg); max-width: 100%; }
+.picker input[type="text"] { font: 500 14px var(--font-mono); color: var(--fg); background: var(--scr-bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; width: 12em; max-width: 100%; }
+.picker .row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.picker .msg { font-size: 14px; color: var(--muted); }
+.picker .msg.err { color: var(--warn); }
+.topbar a.home { margin-left: auto; color: var(--muted); text-decoration: none; font-size: 14px; }
+.topbar a.home:hover { color: var(--accent); }
+@media (max-width: 860px) { .scr-split { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="logo" aria-hidden="true">U</div>
+    <div class="brand">UnLock VPN <span>· Роутер Keenetic</span></div>
+    <a class="home" href="https://unlockproject.site/">← На сайт</a>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="side" aria-label="Шаги инструкции">
+    <div class="side-label">Навигация</div>
+    <ol id="sidenav">
+      <li><a href="#start"><span class="n">0</span>Перед началом</a></li>
+      <li><a href="#login"><span class="n">1</span>Вход в панель</a></li>
+      <li><a href="#component"><span class="n">2</span>Компонент WireGuard VPN</a></li>
+      <li><a href="#upload"><span class="n">3</span>Загрузка файла</a></li>
+      <li><a href="#setup"><span class="n">4</span>Настройка подключения</a></li>
+      <li><a href="#priority"><span class="n">5</span>Приоритет подключений</a></li>
+      <li><a href="#check"><span class="n">6</span>Проверка</a></li>
+      <li class="sep" aria-hidden="true"></li>
+      <li><a href="#cli"><span class="n">!</span>Не подключается</a></li>
+      <li><a href="#problems"><span class="n">?</span>Частые вопросы</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <details class="mnav">
+      <summary>Шаги инструкции</summary>
+      <ol>
+        <li><a href="#start">Перед началом</a></li>
+        <li><a href="#login">Вход в панель</a></li>
+        <li><a href="#component">Компонент WireGuard VPN</a></li>
+        <li><a href="#upload">Загрузка файла</a></li>
+        <li><a href="#setup">Настройка подключения</a></li>
+        <li><a href="#priority">Приоритет подключений</a></li>
+        <li><a href="#check">Проверка</a></li>
+        <li><a href="#cli">Не подключается</a></li>
+        <li><a href="#problems">Частые вопросы</a></li>
+      </ol>
+    </details>
+
+    <div class="intro">
+      <h1>Подключение VPN на роутере Keenetic</h1>
+      <p>Подключим весь дом к VPN через роутер. Понадобится файл, который мы прислали вам лично, и пять минут. Всё делается в веб-панели роутера, ничего устанавливать на компьютер не нужно.</p>
+      <ul class="facts">
+        <li>Файл: <b>UnLock-VPN.conf</b></li>
+        <li>Прошивка: <b>KeeneticOS 4.2+</b></li>
+        <li>Протокол: <b>AmneziaWG</b></li>
+        <li>Время: <b>~5 минут</b></li>
+      </ul>
+    </div>
+
+    <section class="step" id="start">
+      <h2><span class="k">Шаг 0.</span> Перед началом</h2>
+      <ol class="do">
+        <li>Сохраните файл <b>UnLock-VPN.conf</b> на устройство, с которого будете настраивать роутер. В Telegram нажмите на файл и выберите «Сохранить в загрузки» на Android или «Сохранить в Файлы» на iPhone.</li>
+        <li>Подключите это устройство к домашнему Wi-Fi.</li>
+        <li>Выключите на нём VPN, если он включён. С включённым VPN панель роутера не откроется.</li>
+      </ol>
+      <div class="note"><b class="t">Что получится</b>Зарубежные сайты и приложения пойдут через VPN. Российские сайты (банки, Госуслуги, маркетплейсы) будут видеть российский адрес и откроются как обычно.</div>
+      <div class="note warn"><b class="t">Файл личный</b>В файле ваш ключ доступа. Не пересылайте его другим людям и не выкладывайте в открытый доступ.</div>
+    </section>
+
+    <section class="step" id="login">
+      <h2><span class="k">Шаг 1.</span> Вход в панель роутера</h2>
+      <ol class="do">
+        <li>Откройте браузер и наберите адрес <span class="path">my.keenetic.net</span>. Если не открывается, наберите <span class="path">192.168.1.1</span>.</li>
+        <li>Введите логин и пароль от роутера и нажмите <span class="btnlabel">Войти</span>.</li>
+      </ol>
+      <figure class="shot">
+        <div class="screen" role="img" aria-label="Схема: страница входа в панель роутера">
+          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url hl" data-n="1">my.keenetic.net</div></div>
+          <div class="scr-body" style="max-width: 300px; margin: 0 auto; padding-block: 22px;">
+            <div class="scr-title" style="text-align:center">Вход в веб-интерфейс</div>
+            <div class="scr-field"><span class="lbl">Имя пользователя</span><span class="val">admin</span></div>
+            <div class="scr-field"><span class="lbl">Пароль</span><span class="val">••••••••</span></div>
+            <div style="text-align:center"><span class="scr-btn pri hl" data-n="2">Войти</span></div>
+          </div>
+        </div>
+        <figcaption>Схема экрана. Адрес набирается в строке браузера.</figcaption>
+      </figure>
+    </section>
+
+    <section class="step" id="component">
+      <h2><span class="k">Шаг 2.</span> Компонент WireGuard VPN</h2>
+      <ol class="do">
+        <li>Меню → <span class="path">Управление → Параметры системы</span> → кнопка <span class="btnlabel">Изменить набор компонентов</span>.</li>
+        <li>В строке поиска наберите <b>wireguard</b>.</li>
+        <li>Напротив <b>«WireGuard VPN»</b> должно стоять «Установлен». Если нет, отметьте его и нажмите <span class="btnlabel">Установить обновление</span>. Роутер перезагрузится, интернет пропадёт на 2–3 минуты.</li>
+      </ol>
+      <div class="note">«WireGuard VPN-сервер» ставить не нужно. На старых прошивках кнопка находится в <span class="path">Управление → Общие настройки</span>.</div>
+      <figure class="shot">
+        <div class="screen" role="img" aria-label="Схема: окно компонентов, поиск wireguard, у WireGuard VPN отметка Установлен">
+          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Параметры системы</div></div>
+          <div class="scr-app">
+            <div class="scr-menu">
+              <span class="g">Интернет</span><span class="it">Другие подключения</span><span class="it">Приоритеты подключений</span>
+              <span class="g">Управление</span><span class="it on">Параметры системы</span><span class="it">Приложения</span>
+            </div>
+            <div class="scr-modal">
+              <div class="scr-title">Компоненты операционной системы</div>
+              <div class="scr-search hl" data-n="1">wireguard</div>
+              <div class="scr-sub">Сетевые функции</div>
+              <div class="scr-row hl" data-n="2"><b>WireGuard VPN</b><span class="scr-check">Установлен <span class="box on"></span></span></div>
+              <div class="scr-row"><span>WireGuard VPN-сервер</span><span class="scr-check scr-sub">Не установлен <span class="box"></span></span></div>
+            </div>
+          </div>
+        </div>
+        <figcaption>Схема экрана. Нужен только «WireGuard VPN».</figcaption>
+      </figure>
+    </section>
+
+    <section class="step" id="upload">
+      <h2><span class="k">Шаг 3.</span> Загрузка файла</h2>
+      <ol class="do">
+        <li>Меню → <span class="path">Интернет → Другие подключения</span>.</li>
+        <li>В разделе <b>Wireguard</b> нажмите <span class="btnlabel">Загрузить из файла</span>.</li>
+        <li>Выберите файл <b>UnLock-VPN.conf</b>. В таблице появится подключение <b>UnLock-VPN</b>.</li>
+      </ol>
+      <figure class="shot">
+        <div class="screen" role="img" aria-label="Схема: раздел Wireguard с кнопкой Загрузить из файла и таблицей подключений">
+          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Другие подключения</div></div>
+          <div class="scr-app">
+            <div class="scr-menu">
+              <span class="g">Интернет</span><span class="it">Кабель Ethernet</span><span class="it on">Другие подключения</span><span class="it">Приоритеты подключений</span>
+            </div>
+            <div class="scr-body">
+              <div class="scr-title">Wireguard</div>
+              <div><span class="scr-btn">+ Добавить подключение</span> <span class="scr-btn hl" data-n="1">Загрузить из файла</span></div>
+              <div class="scr-table">
+                <div class="tr th"><span>Подключение</span><span>Принято</span><span>Рукопожатие</span></div>
+                <div class="tr"><span><span class="tog"></span> UnLock-VPN</span><span>0 Б</span><span>—</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>Схема экрана. После загрузки подключение появится в таблице выключенным.</figcaption>
+      </figure>
+    </section>
+
+    <section class="step" id="setup">
+      <h2><span class="k">Шаг 4.</span> Настройка подключения</h2>
+      <ol class="do">
+        <li>Нажмите на <b>UnLock-VPN</b> в таблице. Справа откроются «Настройки подключения».</li>
+        <li>Имя оставьте как есть. Поставьте галочку <b>«Использовать для выхода в интернет»</b>.</li>
+        <li>Ключи, адрес и DNS уже заполнены из файла, их не трогайте. Поле «Имя пира» можно оставить пустым.</li>
+        <li>Пролистайте панель вниз и нажмите <span class="btnlabel">Сохранить</span>.</li>
+        <li>В таблице включите переключатель слева от UnLock-VPN.</li>
+      </ol>
+      <figure class="shot">
+        <div class="screen" role="img" aria-label="Схема: панель Настройки подключения с отмеченной галочкой Использовать для выхода в интернет">
+          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Другие подключения</div></div>
+          <div class="scr-body">
+            <div class="scr-title">Настройки подключения</div>
+            <div class="scr-field"><span class="lbl">Имя</span><span class="val">UnLock-VPN</span></div>
+            <div class="scr-check hl" data-n="1"><span class="box on"></span>Использовать для выхода в интернет</div>
+            <div class="scr-field"><span class="lbl">Частный ключ</span><span class="val">Частный ключ установлен</span></div>
+            <div class="scr-field"><span class="lbl">IPv4-адрес</span><span class="val">заполнен из файла</span></div>
+            <div class="scr-sub">Настройка пира</div>
+            <div class="scr-field"><span class="lbl">Имя пира (можно пусто)</span><span class="val">&nbsp;</span></div>
+            <div><span class="scr-btn pri hl" data-n="2">Сохранить</span></div>
+          </div>
+        </div>
+        <figcaption>Схема экрана. Меняется только галочка, остальное уже заполнено из файла.</figcaption>
+      </figure>
+    </section>
+
+    <section class="step" id="priority">
+      <h2><span class="k">Шаг 5.</span> Приоритет подключений</h2>
+      <ol class="do">
+        <li>Меню → <span class="path">Интернет → Приоритеты подключений</span> → вкладка «Политики доступа в интернет».</li>
+        <li>Слева выберите <b>«Политика по умолчанию»</b>.</li>
+        <li>Отметьте галочкой <b>UnLock-VPN</b> и перетащите его за точки слева на самый верх, выше «Подключение Ethernet».</li>
+        <li>Нажмите <span class="btnlabel">Сохранить</span> внизу страницы.</li>
+      </ol>
+      <div class="note warn"><b class="t">Обязательный шаг</b>Если подключение провайдера останется выше, роутер будет ходить в интернет напрямую, мимо VPN.</div>
+      <figure class="shot">
+        <div class="screen" role="img" aria-label="Схема: Политика по умолчанию, UnLock-VPN отмечен и стоит первым">
+          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Приоритеты подключений</div></div>
+          <div class="scr-body">
+            <div class="scr-tabs"><span class="on">Политики доступа в интернет</span><span>Применение политик</span></div>
+            <div class="scr-split">
+              <div class="scr-pol"><span class="on hl" data-n="1">Политика по умолчанию</span><span class="scr-sub">Другие политики</span></div>
+              <div class="scr-card">
+                <div class="scr-row hl" data-n="2"><span class="scr-check"><span class="drag">⋮⋮</span><span class="box on"></span><b>UnLock-VPN</b></span><span class="scr-sub">WireGuard</span></div>
+                <div class="scr-row"><span class="scr-check"><span class="drag">⋮⋮</span><span class="box on"></span>Подключение Ethernet</span><span class="scr-sub">Ethernet</span></div>
+              </div>
+            </div>
+            <div><span class="scr-btn pri hl" data-n="3">Сохранить</span></div>
+          </div>
+        </div>
+        <figcaption>Схема экрана. UnLock-VPN отмечен и стоит первым.</figcaption>
+      </figure>
+      <details class="opt">
+        <summary>VPN только для некоторых устройств</summary>
+        <p>Если VPN нужен не всему дому, а нескольким устройствам:</p>
+        <ol class="do">
+          <li>На вкладке «Политики доступа в интернет» нажмите <span class="btnlabel">+ Добавить политику</span>, назовите её, например, UnLock, отметьте в ней UnLock-VPN и поставьте первым. Нажмите «Сохранить». В «Политике по умолчанию» UnLock-VPN тогда не отмечайте.</li>
+          <li>Перейдите на вкладку <b>«Применение политик»</b> и перетащите нужные устройства в новую политику.</li>
+        </ol>
+      </details>
+    </section>
+
+    <section class="step" id="check">
+      <h2><span class="k">Шаг 6.</span> Проверка</h2>
+      <ol class="do">
+        <li>В <span class="path">Интернет → Другие подключения</span> переключатель UnLock-VPN включён, в колонке <b>«Последнее рукопожатие»</b> стоит время в секундах или минутах, а «Принято» растёт.</li>
+        <li>На любом устройстве дома (VPN на самом устройстве выключен) откройте <span class="path">api.ipify.org</span>. Сайт должен показать адрес нашего сервера, а не ваш домашний.</li>
+        <li>Откройте YouTube или Instagram. Российские сайты при этом открываются как обычно.</li>
+      </ol>
+      <figure class="shot">
+        <div class="screen" role="img" aria-label="Схема: подключение включено, последнее рукопожатие 4 секунды назад">
+          <div class="scr-bar"><div class="scr-dots"><i></i><i></i><i></i></div><div class="scr-url">my.keenetic.net · Другие подключения</div></div>
+          <div class="scr-body">
+            <div class="scr-table">
+              <div class="tr th"><span>Подключение</span><span>Принято</span><span>Рукопожатие</span></div>
+              <div class="tr"><span><span class="tog on"></span> UnLock-VPN</span><span>1,4 МБ</span><span class="hl" data-n="1">00:00:04</span></div>
+            </div>
+          </div>
+        </div>
+        <figcaption>Схема. Если в колонке «Рукопожатие» прочерк, смотрите раздел ниже.</figcaption>
+      </figure>
+    </section>
+
+    <section class="step" id="cli">
+      <h2><span class="k">Не подключается?</span> Параметры через командную строку</h2>
+      <p>Иногда роутер загружает файл, но не применяет параметры маскировки. Тогда рукопожатия нет и интернет через VPN не идёт. Параметры можно задать вручную, это займёт пару минут.</p>
+      <ol class="do">
+        <li>Откройте в браузере <span class="path">192.168.1.1/a</span>. Это командная строка роутера.</li>
+        <li>Вставьте команду ниже в поле «Command» и нажмите <span class="btnlabel">Отправить запрос</span>. В ответе найдите блок с <b>description: UnLock-VPN</b> и запомните его <b>interface-name</b>, например <b>Wireguard0</b>.</li>
+      </ol>
+      <div class="cmd"><code id="c1">show interface</code><button class="copy" type="button" data-for="c1">Копировать</button></div>
+      <ol class="do" start="3">
+        <li>Соберите вторую команду из вашего файла. Файл читается только здесь, в вашем браузере, и никуда не отправляется.</li>
+      </ol>
+      <div class="picker">
+        <label for="conf">Ваш файл UnLock-VPN.conf</label>
+        <input id="conf" type="file" accept=".conf,text/plain">
+        <div class="row">
+          <label for="ifname">Имя из пункта 2</label>
+          <input id="ifname" type="text" value="Wireguard0" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="msg" id="msg">Выберите файл, и команда появится ниже.</div>
+      </div>
+      <div class="cmd" id="ascwrap" hidden><code id="c2"></code><button class="copy" type="button" data-for="c2">Копировать</button></div>
+      <ol class="do" start="4">
+        <li>Вставьте эту команду в поле «Command» и нажмите <span class="btnlabel">Отправить запрос</span>. Затем сохраните настройки:</li>
+      </ol>
+      <div class="cmd"><code id="c3">system configuration save</code><button class="copy" type="button" data-for="c3">Копировать</button></div>
+      <ol class="do" start="5">
+        <li>Вернитесь в <span class="path">Интернет → Другие подключения</span>, выключите и снова включите UnLock-VPN. Затем повторите проверку из шага 6.</li>
+      </ol>
+      <div class="note">Не получается выбрать файл? Откройте его в любом текстовом редакторе и возьмите числа из строк Jc, Jmin, Jmax, S1, S2, H1, H2, H3, H4 именно в этом порядке. Команда выглядит так: <span class="path">interface Wireguard0 wireguard asc Jc Jmin Jmax S1 S2 H1 H2 H3 H4</span>. Или напишите в поддержку, пришлём готовую.</div>
+    </section>
+
+    <section class="step" id="problems">
+      <h2><span class="k">Частые вопросы</span></h2>
+      <div class="trouble">
+        <details>
+          <summary>Файл не загружается или выдаёт ошибку</summary>
+          <p>Для такого файла нужна прошивка KeeneticOS 4.2 или новее. Пришлите нам скриншот блока «О системе» с главной страницы панели, и мы подскажем, что делать.</p>
+        </details>
+        <details>
+          <summary>Подключение включено, но интернета нет</summary>
+          <p>Проверьте шаг 5: UnLock-VPN должен быть отмечен и стоять в приоритетах самым первым. Затем выключите и снова включите подключение. Если рукопожатия нет, выполните раздел «Не подключается?».</p>
+        </details>
+        <details>
+          <summary>Не открывается панель роутера</summary>
+          <p>Выключите VPN на телефоне или компьютере и проверьте, что устройство подключено к домашнему Wi-Fi. Адрес набирайте точно: my.keenetic.net, через две буквы «е».</p>
+        </details>
+        <details>
+          <summary>Как выключить VPN</summary>
+          <p>Меню → «Интернет» → «Другие подключения» → переключатель напротив UnLock-VPN. Интернет сразу пойдёт напрямую через провайдера.</p>
+        </details>
+      </div>
+    </section>
+
+    <footer>
+      <span>© 2026 UnLock VPN</span>
+      <a href="https://unlockproject.site/">unlockproject.site</a>
+      <span>Поддержка в Telegram: <a href="https://t.me/unlock_support_bot" target="_blank" rel="noopener">@unlock_support_bot</a></span>
+    </footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  var copyText = function (btn, code) {
+    var done = function () {
+      btn.textContent = "Скопировано";
+      btn.classList.add("done");
+      setTimeout(function () { btn.textContent = "Копировать"; btn.classList.remove("done"); }, 1800);
+    };
+    var fallback = function () {
+      var range = document.createRange();
+      range.selectNodeContents(code);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      btn.textContent = "Выделено, скопируйте";
+    };
+    try { navigator.clipboard.writeText(code.textContent).then(done, fallback); } catch (e) { fallback(); }
+  };
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () { copyText(btn, document.getElementById(btn.getAttribute("data-for"))); });
+  });
+
+  var KEYS = ["Jc", "Jmin", "Jmax", "S1", "S2", "H1", "H2", "H3", "H4"];
+  var params = null;
+  var conf = document.getElementById("conf");
+  var ifname = document.getElementById("ifname");
+  var msg = document.getElementById("msg");
+  var wrap = document.getElementById("ascwrap");
+  var out = document.getElementById("c2");
+  var render = function () {
+    if (!params) { wrap.hidden = true; return; }
+    var name = (ifname.value || "").trim().replace(/[^A-Za-z0-9_]/g, "") || "Wireguard0";
+    out.textContent = "interface " + name + " wireguard asc " + KEYS.map(function (k) { return params[k]; }).join(" ");
+    wrap.hidden = false;
+  };
+  conf.addEventListener("change", function () {
+    var f = conf.files && conf.files[0];
+    params = null;
+    if (!f) { render(); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var found = {};
+      String(reader.result).split(/\r?\n/).forEach(function (line) {
+        var m = line.match(/^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=\s*(\d+)\s*$/);
+        if (m) found[m[1]] = m[2];
+      });
+      var missing = KEYS.filter(function (k) { return !(k in found); });
+      if (missing.length) {
+        msg.textContent = "В файле нет строк: " + missing.join(", ") + ". Проверьте, что выбран файл UnLock-VPN.conf, или напишите в поддержку.";
+        msg.className = "msg err";
+      } else {
+        params = found;
+        msg.textContent = "Готово. Команда ниже, скопируйте её.";
+        msg.className = "msg";
+      }
+      render();
+    };
+    reader.onerror = function () { msg.textContent = "Не удалось прочитать файл. Попробуйте ещё раз."; msg.className = "msg err"; };
+    reader.readAsText(f);
+  });
+  ifname.addEventListener("input", render);
+
+  var links = Array.prototype.slice.call(document.querySelectorAll("#sidenav a"));
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+  var setActive = function (id) { links.forEach(function (a) { a.classList.toggle("active", a === byId[id]); }); };
+  setActive("start");
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) setActive(en.target.id); });
+    }, { rootMargin: "-30% 0px -60% 0px" });
+    document.querySelectorAll("section.step").forEach(function (s) { io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>
