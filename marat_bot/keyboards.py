@@ -41,21 +41,20 @@ def _news() -> dict:
 def main(access: Access | None) -> dict:
     if access is None:
         return _kb(
-            [_button(f"🎁 Пробный доступ — {TRIAL} бесплатно", "trial", "success")],
-            [_button("💳 Тарифы", "tariffs", "primary")],
-            [_button("🔗 У меня уже есть подписка", "stub:link")],
+            [_button(f"🎁 Попробовать бесплатно — {TRIAL}", "trial", "success")],
+            [_button("💳 Тарифы", "tariffs"), _button("ℹ️ Как это работает", "how")],
             [_button("❓ Помощь", "help"), _support()],
-            [_button("ℹ️ Как это работает", "how"), _news()],
+            [_button("🔗 У меня уже есть подписка", "stub:link")],
         )
     if access.active:
         return _kb(
-            [_button("📲 Подключить", "connect", "primary"), _button("📋 Моя подписка", "me")],
-            [_button("💳 Тарифы", "tariffs"), _button("👥 Пригласить друга", "ref")],
-            [_button("🎟 Промокод", "stub:promo"), _button("⭐️ Отзыв", "stub:review")],
-            [_button("❓ Помощь", "help"), _support()],
+            [_button("📲 Подключить устройство", "connect", "primary")],
+            [_button("📋 Моя подписка", "me"), _button("💳 Тарифы", "tariffs")],
+            [_button("👥 Пригласить друга", "ref"), _button("🎟 Промокод", "stub:promo")],
+            [_button("❓ Помощь", "help"), _support(), _button("⭐️ Отзыв", "stub:review")],
         )
     return _kb(
-        [_button("♻️ Продлить", "tariffs", "success")],
+        [_button("♻️ Продлить доступ", "tariffs", "success")],
         [_button("📋 Моя подписка", "me"), _button("🎟 Промокод", "stub:promo")],
         [_button("❓ Помощь", "help"), _support()],
     )
@@ -98,7 +97,11 @@ def device_steps(store_url: str, happ_url: str) -> dict:
 
 
 def help_menu() -> dict:
-    return _kb([_support(), _news()], [_button("◀️ В меню", "menu")])
+    return _kb(
+        [_button("📲 Подключить", "connect"), _button("ℹ️ Как это работает", "how")],
+        [_support(), _news()],
+        [_button("◀️ В меню", "menu")],
+    )
 
 
 def back() -> dict:

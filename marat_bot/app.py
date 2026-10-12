@@ -30,11 +30,16 @@ STUBS = {
     "pay": "💳 Оплата скоро будет подключена.",
 }
 COMMANDS = [
-    {"command": "start", "description": "Главное меню"},
-    {"command": "help", "description": "Помощь"},
-    {"command": "promo", "description": "Промокод"},
-    {"command": "support", "description": "Поддержка"},
+    {"command": "start", "description": "🏠 Главное меню"},
+    {"command": "connect", "description": "📲 Подключить устройство"},
+    {"command": "status", "description": "📋 Срок, трафик и ссылка подписки"},
+    {"command": "tariffs", "description": "💳 Тарифы"},
+    {"command": "promo", "description": "🎟 Промокод"},
+    {"command": "support", "description": "💬 Поддержка"},
+    {"command": "help", "description": "❓ Помощь и все команды"},
 ]
+# Конфетти поверх сообщения «Доступ открыт» (эффекты Telegram работают в личных чатах).
+EFFECT_PARTY = "5046509860389126442"
 HANDLED = {"menu", "trial", "me", "connect", "tariffs", "help", "how", "ref"}
 HANDLED_PREFIXES = ("dev:", "plan:", "stub:")
 
@@ -95,22 +100,34 @@ async def _issue_trial(telegram_id: int) -> tuple[Access | None, bool]:
 async def on_message(tg: Tg, message: dict) -> None:
     text = (message.get("text") or "").strip()
     chat = message["chat"]["id"]
-    user = message.get("from", {}).get("id", chat)
-    command = text.split()[0].split("@")[0] if text.startswith("/") else ""
+    sender = message.get("from", {})
+    user = sender.get("id", chat)
+    command = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
     if command == "/help":
         await tg.send(chat, texts.help_text(user), kb.help_menu())
     elif command == "/promo":
         await tg.send(chat, texts.STUB_PROMO, kb.back())
     elif command == "/support":
         await tg.send(chat, texts.STUB_SUPPORT if not kb.SUPPORT_URL else "💬 Поддержка:", kb.help_menu())
+    elif command == "/tariffs":
+        await tg.send(chat, texts.tariffs(), kb.tariffs())
+    elif command in ("/connect", "/status", "/me"):
+        access = await _my_access(user)
+        if not access:
+            await tg.send(chat, texts.NEED_ACCESS, kb.main(None))
+        elif command == "/connect":
+            await tg.send(chat, texts.PICK_DEVICE, kb.devices())
+        else:
+            await tg.send(chat, texts.status(access, sub_link(access.token)), kb.my_subscription())
     else:
         access = await _my_access(user)
-        await tg.send(chat, texts.home(access), kb.main(access))
+        await tg.send(chat, texts.home(access, sender.get("first_name")), kb.main(access))
 
 
 async def on_callback(tg: Tg, call: dict) -> None:
     data = call.get("data") or ""
     user = call["from"]["id"]
+    name = call["from"].get("first_name")
     chat = call["message"]["chat"]["id"]
     msg = call["message"]["message_id"]
 
@@ -123,7 +140,7 @@ async def on_callback(tg: Tg, call: dict) -> None:
 
     if data == "menu":
         access = await _my_access(user)
-        await show(texts.home(access), kb.main(access))
+        await show(texts.home(access, name), kb.main(access))
     elif data == "trial":
         try:
             access, issued = await _issue_trial(user)
@@ -133,10 +150,12 @@ async def on_callback(tg: Tg, call: dict) -> None:
             return
         if not issued:
             await alert(texts.ALREADY)
-            await tg.edit(chat, msg, texts.home(access), kb.main(access))
+            await tg.edit(chat, msg, texts.home(access, name), kb.main(access))
             return
         until = texts.date_msk(access.expire) if access and access.expire else "—"
-        await show(texts.ISSUED.format(until=until), kb.devices())
+        # Меню обновляется на «доступ активен», а выдача приходит отдельным сообщением с конфетти.
+        await show(texts.home(access, name), kb.main(access))
+        await tg.send(chat, texts.issued(until), kb.devices(), effect=EFFECT_PARTY)
     elif data in ("me", "connect") or data.startswith("dev:"):
         access = await _my_access(user)
         if not access:
@@ -189,6 +208,12 @@ async def main() -> None:
     me = await tg.call("getMe")
     _bot_username = me.get("username", "")
     await tg.call("setMyCommands", commands=COMMANDS)
+    for method, field, value in (("setMyShortDescription", "short_description", texts.SHORT_DESCRIPTION),
+                                 ("setMyDescription", "description", texts.DESCRIPTION)):
+        try:
+            await tg.call(method, **{field: value})
+        except Exception:
+            log.exception("%s failed", method)
     await tg.call("deleteWebhook")
     log.info("polling as @%s", _bot_username)
     offset = None

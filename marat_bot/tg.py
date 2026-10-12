@@ -38,9 +38,17 @@ class Tg:
             raise TelegramError(f"{method}: {data.get('description')}")
         return data.get("result")
 
-    async def send(self, chat_id: int, text: str, markup: dict | None = None):
-        return await self.call("sendMessage", chat_id=chat_id, text=text, parse_mode="HTML",
-                               reply_markup=markup, link_preview_options={"is_disabled": True})
+    async def send(self, chat_id: int, text: str, markup: dict | None = None, effect: str | None = None):
+        params = dict(chat_id=chat_id, text=text, parse_mode="HTML", reply_markup=markup,
+                      link_preview_options={"is_disabled": True})
+        try:
+            return await self.call("sendMessage", **params, message_effect_id=effect)
+        except TelegramError:
+            if not effect:
+                raise
+            # Эффект — украшение: если Telegram его не принял, сообщение всё равно уходит.
+            log.warning("message effect %s rejected, sending without it", effect)
+            return await self.call("sendMessage", **params)
 
     async def edit(self, chat_id: int, message_id: int, text: str, markup: dict | None = None):
         try:

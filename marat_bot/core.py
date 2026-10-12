@@ -84,6 +84,38 @@ def gb(value: int) -> str:
     return f"{value / 1024**3:.1f}".replace(".", ",")
 
 
+def days_word(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return f"{n} день"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return f"{n} дня"
+    return f"{n} дней"
+
+
+def time_left(expire: int, now: float | None = None) -> str:
+    """Сколько осталось: «2 дня 14 ч», «5 ч 20 мин», «меньше минуты»."""
+    seconds = int(expire - (now if now is not None else time.time()))
+    if seconds <= 0:
+        return "0 мин"
+    days, rest = divmod(seconds, 86400)
+    hours, minutes = rest // 3600, rest % 3600 // 60
+    if days:
+        return f"{days_word(days)} {hours} ч" if hours else days_word(days)
+    if hours:
+        return f"{hours} ч {minutes} мин" if minutes else f"{hours} ч"
+    return f"{minutes} мин" if minutes else "меньше минуты"
+
+
+def bar(part: float, total: float, width: int = 10) -> str:
+    """Полоска заполнения ▰▰▰▱▱▱ — для трафика."""
+    filled = 0 if total <= 0 else min(width, max(0, round(width * part / total)))
+    return "▰" * filled + "▱" * (width - filled)
+
+
+def per_month(days: int, price: int) -> int:
+    return round(price * 30 / days)
+
+
 @dataclass(frozen=True)
 class Access:
     username: str

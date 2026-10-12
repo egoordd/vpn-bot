@@ -42,8 +42,9 @@ def test_store_remembers_one_trial_per_account(tmp_path):
 def test_no_text_mentions_the_main_project():
     access = core.Access("corp_mrt_1", "T", int(time.time()) + 3600, "active", 1024**3, 10 * 1024**3)
     rendered = [
-        texts.WELCOME, texts.ISSUED, texts.ALREADY, texts.PICK_DEVICE, texts.help_text(1), texts.ERROR,
-        texts.steps("iPhone", core.sub_link("T")), texts.status(access, core.sub_link("T")),
+        texts.welcome("Марат"), texts.issued("1 января"), texts.ALREADY, texts.PICK_DEVICE, texts.help_text(1),
+        texts.ERROR, texts.steps("iPhone / iPad", core.sub_link("T")), texts.status(access, core.sub_link("T")),
+        texts.home(access), texts.DESCRIPTION, texts.SHORT_DESCRIPTION,
     ]
     for text in rendered:
         assert "unlock" not in text.lower(), text
@@ -94,8 +95,9 @@ class _FakeTg:
     def __init__(self):
         self.sent, self.edits, self.answers = [], [], []
 
-    async def send(self, chat, text, markup=None):
+    async def send(self, chat, text, markup=None, effect=None):
         self.sent.append((chat, text, markup))
+        self.effects = [*getattr(self, "effects", []), effect]
 
     async def edit(self, chat, msg, text, markup=None):
         self.edits.append((chat, msg, text, markup))
@@ -129,3 +131,111 @@ def test_screens_answer_without_panel_for_a_new_user(monkeypatch, tmp_path):
     assert any("Оплата скоро" in a for a in alerts)
     assert texts.NEED_ACCESS in alerts
     app._store.cache_clear()
+
+
+# --- 12.10.2026: оформление и команды ---
+
+def _rendered_texts():
+    now = int(time.time())
+    active = core.Access("corp_mrt_1", "T", now + 2 * 86400 + 5 * 3600, "active", 3 * 1024**3, 10 * 1024**3)
+    expired = core.Access("corp_mrt_1", "T", now - 60, "active", 10 * 1024**3, 10 * 1024**3)
+    return [
+        texts.welcome("<Марат & Ко>"), texts.welcome(None), texts.issued("15 октября, 12:00 МСК"), texts.PICK_DEVICE,
+        texts.steps("Android", "https://x/sub/T"), texts.status(active, "L"), texts.status(expired, "L"),
+        texts.home(active), texts.home(expired), texts.tariffs(), texts.checkout("1 месяц", 199),
+        texts.referral("https://t.me/x"), texts.help_text(1), texts.HOW_IT_WORKS,
+    ]
+
+
+def test_every_screen_has_balanced_html_for_telegram():
+    from html.parser import HTMLParser
+
+    class Check(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack = []
+
+        def handle_starttag(self, tag, attrs):
+            self.stack.append(tag)
+
+        def handle_endtag(self, tag):
+            assert self.stack and self.stack.pop() == tag, tag
+
+    allowed = {"b", "i", "code", "blockquote"}
+    for text in _rendered_texts():
+        checker = Check()
+        checker.feed(text)
+        assert not checker.stack, text
+        import re
+        assert set(re.findall(r"</?([a-z]+)", text)) <= allowed, text
+
+
+def test_user_name_is_escaped_in_the_greeting():
+    text = texts.welcome("<Марат & Ко>")
+    assert "&lt;Марат &amp; Ко&gt;" in text and "<Марат" not in text
+
+
+def test_time_left_and_bar():
+    now = 1_800_000_000
+    assert core.time_left(now + 2 * 86400 + 14 * 3600 + 59, now) == "2 дня 14 ч"
+    assert core.time_left(now + 86400, now) == "1 день"
+    assert core.time_left(now + 5 * 3600 + 20 * 60, now) == "5 ч 20 мин"
+    assert core.time_left(now + 30, now) == "меньше минуты"
+    assert core.time_left(now - 5, now) == "0 мин"
+    assert core.bar(3, 10) == "▰▰▰▱▱▱▱▱▱▱"
+    assert core.bar(50, 10) == "▰" * 10 and core.bar(1, 0) == "▱" * 10
+    assert core.per_month(90, 549) == 183
+
+
+def test_status_card_shows_time_left_and_traffic_bar():
+    access = core.Access("corp_mrt_1", "T", int(time.time()) + 2 * 86400 + 3600 * 5 + 30, "active", 3 * 1024**3, 10 * 1024**3)
+    text = texts.status(access, "L")
+    assert "Осталось: <b>2 дня 5 ч</b>" in text and "▰▰▰▱▱▱▱▱▱▱ 3,0 из 10,0 ГБ" in text
+
+
+def test_profile_descriptions_fit_telegram_limits():
+    assert len(texts.SHORT_DESCRIPTION) <= 120
+    assert len(texts.DESCRIPTION) <= 512
+
+
+def test_help_lists_every_menu_command():
+    from marat_bot import app
+
+    for command in app.COMMANDS:
+        assert f"/{command['command']} " in texts.COMMANDS_GUIDE, command
+
+
+def test_commands_answer_without_access(monkeypatch, tmp_path):
+    import asyncio
+    from marat_bot import app
+
+    monkeypatch.setenv("MARAT_DB", str(tmp_path / "u.sqlite3"))
+    app._store.cache_clear()
+    tg = _FakeTg()
+
+    async def run():
+        for command in ("/connect", "/status", "/tariffs", "/help", "/promo", "/support", "/START"):
+            await app.on_message(tg, {"text": command, "chat": {"id": 5}, "from": {"id": 5, "first_name": "Ира"}})
+
+    asyncio.run(run())
+    replies = [t for _, t, _ in tg.sent]
+    assert replies[0] == texts.NEED_ACCESS and replies[1] == texts.NEED_ACCESS
+    assert "Тарифы" in replies[2] and "Команды" in replies[3]
+    assert "Привет, Ира!" in replies[-1]
+    app._store.cache_clear()
+
+
+def test_trial_sends_a_separate_message_with_confetti(monkeypatch, tmp_path):
+    import asyncio
+    from marat_bot import app
+
+    access = core.Access("corp_mrt_5", "T", int(time.time()) + 3 * 86400, "active", 0, 10 * 1024**3)
+
+    async def fake_issue(telegram_id):
+        return access, True
+
+    monkeypatch.setattr(app, "_issue_trial", fake_issue)
+    tg = _FakeTg()
+    asyncio.run(app.on_callback(tg, _call("trial")))
+    assert "доступ активен" in tg.edits[0][2]
+    assert "Доступ открыт" in tg.sent[0][1] and tg.effects == [app.EFFECT_PARTY]
