@@ -2260,6 +2260,7 @@ def test_compat_auto_pool_uses_new_transports_and_competitor_strategy(monkeypatc
     auto = json.loads(body)[0]
     proxies = [o for o in auto["outbounds"] if o["tag"].startswith("proxy-")]
     nets = sorted({o["streamSettings"]["network"] for o in proxies})
-    assert nets == ["grpc", "tcp", "ws"], nets
+    assert nets == ["grpc", "ws"], nets
+    assert not any(o["streamSettings"].get("security") == "reality" for o in proxies), "Reality в этот пул не идёт"
     assert auto["routing"]["balancers"][0]["fallbackTag"] == "direct"
     assert not any("130.49.143.41" in json.dumps(o) for o in proxies), "каскад через Москву в автовыборе не нужен"

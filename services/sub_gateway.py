@@ -1279,21 +1279,11 @@ def _is_compat(uri: str) -> bool:
 
 
 def compat_auto_pool(links: list[str]) -> list[str]:
-    """Автовыбор как у конкурента: gRPC и WS наших серверов + Reality остальных
-    (кроме исключённых, каскадов через Москву и входа для белых списков)."""
-    pool = [link for link in links if _is_compat(link)]
-    covered = {_uri_host(link) for link in pool}
-    skip = balancer_exclusions() | {pin_host(RU_RELAY_HOST)}
-    for link in links:
-        host = _uri_host(link)
-        query = dict(urllib.parse.parse_qsl(link.partition("?")[2].partition("#")[0]))
-        if host in covered or host in skip or not link.startswith("vless://") or query.get("security") != "reality":
-            continue
-        if query.get("type", "tcp") not in ("", "tcp"):
-            continue
-        covered.add(host)
-        pool.append(link)
-    return pool
+    """Автовыбор как у конкурента: только gRPC и WS наших серверов (+ Hysteria2 добавит
+    xray_json). Reality дальних серверов сюда не берём: выбор по нагрузке считает
+    равными все, кто ответил быстрее секунды, и 12.10.2026 из Москвы раздавал часть
+    соединений США (16–17 Мбит/с против 60–70 через Нидерланды)."""
+    return [link for link in links if _is_compat(link)]
 
 
 def auto_udp_for(username: str | None) -> str | None:
