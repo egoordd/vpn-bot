@@ -813,7 +813,7 @@ def build_balancer_config(
     exclude_hosts: frozenset[str] | set[str] = frozenset(),
     hysteria: bool | None = None,
     ru_via: str | None = None,
-    udp_override: str | None = None,
+    udp_override: str | list[str] | None = None,
     pool: list[str] | None = None,
     strategy_name: str | None = None,
 ) -> dict | None:
@@ -838,7 +838,7 @@ def build_balancer_config(
     # pool — готовый список для автовыбора (несколько транспортов одного сервера
     # подряд, как у конкурента); без него — один вход на сервер из общего списка.
     selection = (
-        [*pool, *([udp_override] if allowed and udp_override else [])]
+        [*pool, *(_udp_list(udp_override) if allowed else [])]
         if pool is not None
         else _balancer_selection(uris, exclude_hosts, hysteria=allowed, udp_override=udp_override)
     )
@@ -882,7 +882,7 @@ def _balancer_selection(
     exclude_hosts: frozenset[str] | set[str] = frozenset(),
     *,
     hysteria: bool = True,
-    udp_override: str | None = None,
+    udp_override: str | list[str] | None = None,
 ) -> list[str]:
     """One entry per exit, plus the first Hysteria2, in that order.
 
@@ -933,11 +933,20 @@ def _balancer_selection(
     # The UDP slot can be a server that is not in the list at all (12.10.2026:
     # Finland-3 Hysteria2 — 42 ms and no loss from Moscow, where the Polish one
     # lost 15% of packets — kept off the list because that host is reserved).
-    if hysteria and udp_override:
-        udp = udp_override
-    if udp:
-        chosen = chosen[: BALANCER_MAX_OUTBOUNDS - 1] + [udp]
+    # Several such servers (12.10.2026: + new Netherlands) each take a slot from
+    # the TCP exits at the end of the list, so the count stays at the five that
+    # measured healthy; at least one TCP exit always stays.
+    overrides = _udp_list(udp_override)[: BALANCER_MAX_OUTBOUNDS - 1] if hysteria else []
+    udps = overrides or ([udp] if udp else [])
+    if udps:
+        chosen = chosen[: BALANCER_MAX_OUTBOUNDS - len(udps)] + udps
     return chosen[:BALANCER_MAX_OUTBOUNDS]
+
+
+def _udp_list(value: str | list[str] | None) -> list[str]:
+    if not value:
+        return []
+    return [value] if isinstance(value, str) else [v for v in value if v]
 
 
 # Sits directly under «Авто-обход» in the list, so it is named as a sibling of
@@ -951,7 +960,7 @@ def build_json_subscription(
     *,
     exclude_from_balancer: frozenset[str] | set[str] = frozenset(),
     hysteria: bool | None = None,
-    auto_udp: str | None = None,
+    auto_udp: str | list[str] | None = None,
     auto_pool: list[str] | None = None,
     auto_strategy: str | None = None,
 ) -> list[dict]:

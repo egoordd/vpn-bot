@@ -840,6 +840,31 @@ def test_auto_udp_override_is_ignored_for_clients_without_hysteria():
     assert all(p != "hysteria" for p, _ in _proxy_addresses(configs[0]))
 
 
+NLH1_HY2 = "hysteria2://unl_auto:pw2@13.141.51.245:443?sni=13.141.51.245.sslip.io&insecure=0#nlh1"
+
+
+def _reality(host, port):
+    return REALITY.replace(REALITY.split("@")[1].split("?")[0], f"{host}:{port}")
+
+
+def test_two_auto_udp_servers_take_the_last_tcp_slot_and_keep_five():
+    tcp = [_reality(f"10.0.0.{i}", 2000 + i) for i in range(1, 6)]
+    configs = xray_json.build_json_subscription(tcp, hysteria=True, auto_udp=[NLH1_HY2, FI3_HY2])
+    for balancer in configs[:2]:
+        proxies = _proxy_addresses(balancer)
+        assert len(proxies) == xray_json.BALANCER_MAX_OUTBOUNDS
+        assert proxies[-2:] == [("hysteria", "13.141.51.245"), ("hysteria", "89.125.86.10")]
+        assert [a for p, a in proxies if p != "hysteria"] == ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
+
+
+def test_two_auto_udp_servers_are_added_to_a_ready_pool_and_dropped_without_hysteria():
+    pool = [GRPC, WS]
+    configs = xray_json.build_json_subscription([REALITY], hysteria=True, auto_udp=[NLH1_HY2, FI3_HY2], auto_pool=pool)
+    assert [p for p, _ in _proxy_addresses(configs[0])] == ["trojan", "vless", "hysteria", "hysteria"]
+    old_core = xray_json.build_json_subscription([REALITY], hysteria=False, auto_udp=[NLH1_HY2, FI3_HY2], auto_pool=pool)
+    assert all(p != "hysteria" for p, _ in _proxy_addresses(old_core[0]))
+
+
 # --- 12.10.2026: транспорты и автовыбор как у конкурента (gRPC/WS + TLS, leastLoad, запасной выход напрямую) ---
 
 GRPC = "trojan://pw@107.189.22.160:443?security=tls&sni=107.189.22.160.sslip.io&type=grpc&serviceName=trgrpc&alpn=h2&fp=firefox#nl-grpc"

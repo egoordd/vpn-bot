@@ -2205,7 +2205,7 @@ FI3_AUTO = "hysteria2://unl_auto:pw@89.125.86.10.sslip.io:443?sni=89.125.86.10.s
 def _auto_configs(monkeypatch, username):
     monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
     monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
-    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URI", FI3_AUTO)
+    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URIS", (FI3_AUTO,))
     monkeypatch.setattr(sub_gateway, "CORP_HOSTS", frozenset({"89.125.86.10.sslip.io"}))
     monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (_vless(NL_HOST) + "\n" + _vless(US_HOST, 2102), None))
     body, _, is_json = sub_gateway.build_auto_json(_panel_token(username), hysteria=True)
@@ -2226,6 +2226,27 @@ def test_corporate_and_individual_links_do_not_get_it(monkeypatch):
         assert not any("89.125.86.10" in json.dumps(c) for c in configs), name
 
 
+NLH1_AUTO = "hysteria2://unl_auto:pw2@13.141.51.245.sslip.io:443?sni=13.141.51.245.sslip.io&insecure=0#nlh1"
+
+
+def test_auto_takes_several_extra_hysteria_servers_from_the_setting(monkeypatch):
+    uris = sub_gateway._uri_list(f"{NLH1_AUTO}, {FI3_AUTO},")
+    assert uris == (NLH1_AUTO, FI3_AUTO)
+    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URIS", uris)
+    assert [u.split("@")[1].split(":")[0] for u in sub_gateway.auto_udp_for("tg_1")] == ["13.141.51.245", "89.125.86.10"]
+    assert sub_gateway.auto_udp_for("corp_unl_vpn") == [] and sub_gateway.auto_udp_for("ind_de_2") == []
+
+
+def test_both_extra_hysteria_servers_reach_auto_but_not_the_list(monkeypatch):
+    configs = _auto_configs(monkeypatch, "tg_1")
+    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URIS", (NLH1_AUTO, FI3_AUTO))
+    body, _, _ = sub_gateway.build_auto_json(_panel_token("tg_1"), hysteria=True)
+    configs = json.loads(body)
+    auto = json.dumps(configs[0])
+    assert "13.141.51.245" in auto and "89.125.86.10" in auto
+    assert not any("13.141.51.245" in json.dumps(c) for c in configs[2:]), "отдельным пунктом его нет"
+
+
 # --- 12.10.2026: входы gRPC/WebSocket и «Авто-обход» как у конкурента ---
 
 def _compat(monkeypatch, users=frozenset({"tg_740484324"})):
@@ -2235,7 +2256,7 @@ def _compat(monkeypatch, users=frozenset({"tg_740484324"})):
     monkeypatch.setattr(sub_gateway, "COMPAT_TROJAN_PASS", "tp")
     monkeypatch.setattr(sub_gateway, "COMPAT_VLESS_UUID", "11111111-2222-3333-4444-555555555555")
     monkeypatch.setattr(sub_gateway, "COMPAT_USERS", users)
-    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URI", "")
+    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URIS", ())
     upstream = "\n".join([_vless(NL_HOST), _vless(US_HOST, 2102), _vless("78.17.154.225.sslip.io", 2087)])
     monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
 

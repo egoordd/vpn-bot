@@ -1222,11 +1222,16 @@ USER_HIDDEN_EXITS = _host_sets(os.environ.get("USER_HIDDEN_EXITS", ""))
 # РУ-сервисов» и по пункту на страну.
 COMPACT_USERS = _names(os.environ.get("COMPACT_USERS", ""))
 
-# Место Hysteria2 в «Авто-обходе» и «Режиме РУ-сервисов» наших подписок (12.10.2026:
-# Финляндия-3, отдельный логин unl_auto). Отдельным пунктом в список не попадает:
-# сервер выделен под корпоративного заказчика. Корпоративным и индивидуальным
-# ссылкам не выдаётся.
-AUTO_HY2_URI = os.environ.get("AUTO_HY2_URI", "").strip()
+# Места Hysteria2 в «Авто-обходе» и «Режиме РУ-сервисов» наших подписок, через
+# запятую (12.10.2026: Финляндия-3 и новые Нидерланды H1CLOUD, логин unl_auto).
+# Отдельными пунктами в список не попадают: Финляндия выделена под корпоративного
+# заказчика, Нидерланды пока только для автовыбора. Корпоративным и
+# индивидуальным ссылкам не выдаются.
+def _uri_list(raw: str) -> tuple[str, ...]:
+    return tuple(u.strip() for u in raw.split(",") if u.strip())
+
+
+AUTO_HY2_URIS = _uri_list(os.environ.get("AUTO_HY2_URI", ""))
 
 
 # Входы как у конкурента (12.10.2026): Trojan поверх gRPC и VLESS поверх WebSocket,
@@ -1293,10 +1298,10 @@ def compat_auto_pool(links: list[str]) -> list[str]:
     return [link for link in links if _is_compat(link)]
 
 
-def auto_udp_for(username: str | None) -> str | None:
-    if not AUTO_HY2_URI or not username or username.startswith(("corp_", "ind_")):
-        return None
-    return pin_address(AUTO_HY2_URI)
+def auto_udp_for(username: str | None) -> list[str]:
+    if not AUTO_HY2_URIS or not username or username.startswith(("corp_", "ind_")):
+        return []
+    return [pin_address(uri) for uri in AUTO_HY2_URIS]
 
 
 def _is_reality_tcp(uri: str) -> bool:
