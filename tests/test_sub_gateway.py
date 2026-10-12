@@ -2126,3 +2126,72 @@ def test_compact_link_names_the_country_without_a_server_number(monkeypatch):
     links, _ = sub_gateway.resolve_links(_panel_token("corp_unl_vpn"))
 
     assert [urllib.parse.unquote(link.rsplit("#", 1)[-1]) for link in links] == ["🇫🇮 Финляндия"]
+
+
+# --- «Марат VPN» (12.10.2026): настройки по шаблону имени «corp_mrt_*» -------
+
+MRT = "corp_mrt_123456789"
+
+
+def test_title_and_unbranding_apply_to_a_name_pattern(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "SUB_TITLES", {"corp_mrt_*": "Марат VPN"})
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_USERS", frozenset({"corp_mrt_*"}))
+    monkeypatch.setattr(sub_gateway, "SUPPORT_URL", "https://t.me/unlock_support_bot")
+    monkeypatch.setattr(sub_gateway, "PROFILE_WEB_PAGE_URL", "https://unlockproject.site")
+    monkeypatch.setattr(sub_gateway, "SUB_ANNOUNCE", "UnLock: реферальная программа")
+
+    headers = sub_gateway._client_headers(_panel_token(MRT))
+    title = base64.b64decode(headers["profile-title"].removeprefix("base64:")).decode()
+
+    assert title == "Марат VPN"
+    assert not any("unlock" in str(v).lower() for v in headers.values()), headers
+
+
+def test_ordinary_links_keep_support_and_site(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_USERS", frozenset({"corp_mrt_*"}))
+    monkeypatch.setattr(sub_gateway, "SUPPORT_URL", "https://t.me/unlock_support_bot")
+    monkeypatch.setattr(sub_gateway, "PROFILE_WEB_PAGE_URL", "https://unlockproject.site")
+
+    headers = sub_gateway._client_headers(_panel_token("tg_1"))
+
+    assert headers["support-url"] == "https://t.me/unlock_support_bot"
+    assert headers["profile-web-page-url"] == "https://unlockproject.site"
+
+
+def test_device_limit_follows_a_name_pattern(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "MANUAL_DEVICE_LIMITS", {"corp_mrt_*": 2})
+    monkeypatch.setattr(sub_gateway, "DEVICE_LIMIT_API", "")
+    monkeypatch.setattr(sub_gateway, "DEVICE_LIMIT", 5)
+
+    assert sub_gateway.plan_device_limit(MRT) == 2
+    assert sub_gateway.plan_device_limit("corp_other") == 5
+
+
+def test_compact_shared_and_hidden_follow_a_name_pattern(hy2_nodes, monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "CORP_HOSTS", frozenset({"89.125.81.96.sslip.io"}))
+    monkeypatch.setattr(sub_gateway, "COMPACT_USERS", frozenset({"corp_mrt_*"}))
+    monkeypatch.setattr(sub_gateway, "USER_SHARED_CORP_HOSTS", {"corp_mrt_*": frozenset({"89.125.81.96.sslip.io"})})
+    monkeypatch.setattr(sub_gateway, "USER_HIDDEN_EXITS", {"corp_mrt_*": frozenset({US_HOST})})
+    upstream = "\n".join([_vless(NL_HOST), _xhttp(NL_HOST), _vless(US_HOST, 2102), _vless("89.125.81.96.sslip.io", 2113)])
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+
+    links, _ = sub_gateway.resolve_links(_panel_token(MRT))
+
+    assert sorted(sub_gateway._uri_endpoint(link) for link in links) == sorted(
+        [(NL_HOST, 2087), ("89.125.81.96.sslip.io", 2113)]
+    )
+
+
+def test_redirect_page_uses_the_brand_base_and_title(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "SUB_TITLES", {"corp_mrt_*": "Марат VPN"})
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_USERS", frozenset({"corp_mrt_*"}))
+    monkeypatch.setattr(sub_gateway, "SUB_BASES", {"corp_mrt_*": "https://m.example.test"})
+    monkeypatch.setattr(sub_gateway, "PUBLIC_BASE", "https://unlockru.site")
+    token = _panel_token(MRT)
+
+    assert sub_gateway.public_base_for(token, "gw.example") == "https://m.example.test"
+    assert sub_gateway.public_base_for(_panel_token("tg_1"), "gw.example") == "https://unlockru.site"
+    page = sub_gateway.app_redirect_page("happ", f"https://m.example.test/sub/{token}", title=sub_gateway.page_title(token))
+    assert "<title>Марат VPN</title>" in page and "unlock" not in page.lower()

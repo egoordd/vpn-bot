@@ -326,9 +326,10 @@ def _migrates(token: str | None) -> bool:
 def _title_header(token: str | None) -> str:
     """Название подписки в приложении; у ссылок из UNBRANDED_USERS — без нашей марки."""
     username = _token_username(token) if token else None
-    if username in SUB_TITLES:
-        return "base64:" + base64.b64encode(SUB_TITLES[username].encode("utf-8")).decode("ascii")
-    if username in UNBRANDED_USERS:
+    title = pick_for(SUB_TITLES, username)
+    if title:
+        return "base64:" + base64.b64encode(title.encode("utf-8")).decode("ascii")
+    if name_matches(UNBRANDED_USERS, username):
         return "base64:" + base64.b64encode(UNBRANDED_TITLE.encode("utf-8")).decode("ascii")
     return PROFILE_TITLE_HEADER
 
@@ -349,15 +350,16 @@ def _client_headers(token: str | None = None, flavor: str = "") -> dict[str, str
             headers["per-app-proxy-mode"] = PER_APP_PROXY_MODE
             if PER_APP_PROXY_MODE == "bypass" and PER_APP_PROXY_LIST:
                 headers["per-app-proxy-list"] = ",".join(PER_APP_PROXY_LIST)
-    unbranded = bool(token) and _token_username(token) in UNBRANDED_USERS
+    unbranded = bool(token) and name_matches(UNBRANDED_USERS, _token_username(token))
     if SUB_ANNOUNCE.strip() and not unbranded:
         announce = SUB_ANNOUNCE.strip()[:200]
         headers["announce"] = "base64:" + base64.b64encode(
             announce.encode("utf-8")
         ).decode("ascii")
-    if SUPPORT_URL:
+    # Ссылки без нашей марки не ведут ни в нашу поддержку, ни на наш сайт.
+    if SUPPORT_URL and not unbranded:
         headers["support-url"] = SUPPORT_URL
-    if PROFILE_WEB_PAGE_URL:
+    if PROFILE_WEB_PAGE_URL and not unbranded:
         headers["profile-web-page-url"] = PROFILE_WEB_PAGE_URL
     return headers
 
@@ -936,6 +938,25 @@ def _names(raw: str) -> frozenset[str]:
     return frozenset(part.strip() for part in raw.split(",") if part.strip())
 
 
+# Настройки для отдельных ссылок принимают и шаблон «приставка*» (12.10.2026: все
+# ссылки бота «Марат VPN» — corp_mrt_<id>), чтобы не вписывать каждого вручную.
+def name_matches(names: frozenset[str] | set[str], username: str | None) -> bool:
+    if not username:
+        return False
+    return username in names or any(n.endswith("*") and username.startswith(n[:-1]) for n in names)
+
+
+def pick_for(mapping: dict, username: str | None, default=None):
+    if not username:
+        return default
+    if username in mapping:
+        return mapping[username]
+    for key, value in mapping.items():
+        if key.endswith("*") and username.startswith(key[:-1]):
+            return value
+    return default
+
+
 # Люди, которым владелец снял лимит устройств вручную. Цифру лимита называет
 # тариф, и правкой в базе её не перебить — нужен явный список, который видно
 # в настройках шлюза и который так же легко убрать.
@@ -977,6 +998,15 @@ UNBRANDED_TITLE = os.environ.get("UNBRANDED_TITLE", "VPN")[:25]
 # Своё название подписки для отдельной ссылки (11.10.2026: тестовые доступы двум
 # корпоративным заказчикам — «UNL VPN» и «UNL VPN trial»): «имя:Название, …».
 SUB_TITLES = {name: title.strip()[:25] for name, title in _logins(os.environ.get("SUB_TITLES", "")).items()}
+
+# Свой адрес подписки и страницы «Открыть в Happ» для ссылок без нашей марки
+# («corp_mrt_*:https://m.212.233.122.241.sslip.io»): иначе в приложение уходил бы
+# PUBLIC_BASE с нашим доменом.
+SUB_BASES = {
+    name: base.strip().rstrip("/")
+    for name, base in _logins(os.environ.get("SUB_BASES", "")).items()
+    if base.strip().startswith("https://")
+}
 
 # Свой лимит устройств для ручной ссылки на наших общих серверах. Не CORP_USERS:
 # тем выдаются только выделенные серверы. Без записи ручная ссылка не ограничена.
@@ -1279,8 +1309,9 @@ def plan_device_limit(username: str) -> int:
 
     if username in CORP_USERS:
         return CORP_DEVICE_LIMITS.get(username, CORP_DEVICE_LIMIT)
-    if username in MANUAL_DEVICE_LIMITS:
-        return MANUAL_DEVICE_LIMITS[username]
+    manual = pick_for(MANUAL_DEVICE_LIMITS, username)
+    if manual is not None:
+        return manual
     if not DEVICE_LIMIT_API:
         return DEVICE_LIMIT
     cached = _PLAN_LIMITS.get(username)
@@ -1595,14 +1626,14 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
         return [], userinfo
     username = _token_username(token)
     corporate = username in CORP_USERS
-    hidden = USER_HIDDEN_EXITS.get(username or "", frozenset())
+    hidden = pick_for(USER_HIDDEN_EXITS, username, frozenset())
     combined = corp_filter(
-        combine_links(decoded), corporate=corporate, shared=USER_SHARED_CORP_HOSTS.get(username or "", frozenset())
+        combine_links(decoded), corporate=corporate, shared=pick_for(USER_SHARED_CORP_HOSTS, username, frozenset())
     )
     combined = [link for link in combined if _uri_host(link) not in hidden]
     if not combined:
         return [], userinfo
-    if username in COMPACT_USERS:
+    if name_matches(COMPACT_USERS, username):
         combined = compact_links(combined)
     elif corporate:
         combined = combined + build_corp_hy2_links(username, combined)
@@ -1710,7 +1741,21 @@ _IMPORT_APPS = {
 }
 
 
-def app_redirect_page(app: str, sub_url: str) -> str:
+def public_base_for(token: str | None, host: str) -> str:
+    """Адрес, от которого строятся ссылки для этой подписки."""
+    brand = pick_for(SUB_BASES, _token_username(token) if token else None)
+    return brand or PUBLIC_BASE or f"https://{host}".rstrip("/")
+
+
+def page_title(token: str | None) -> str:
+    username = _token_username(token) if token else None
+    title = pick_for(SUB_TITLES, username)
+    if title:
+        return title
+    return UNBRANDED_TITLE if name_matches(UNBRANDED_USERS, username) else "UnLock VPN"
+
+
+def app_redirect_page(app: str, sub_url: str, title: str = "UnLock VPN") -> str:
     """HTML that bounces the browser into the app's `<scheme>://add/<sub_url>` deep link.
 
     Telegram rejects custom URL schemes in inline buttons, so the bot button is a
@@ -1735,7 +1780,7 @@ def app_redirect_page(app: str, sub_url: str) -> str:
     return (
         "<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        "<title>UnLock VPN</title>"
+        f"<title>{html.escape(title)}</title>"
         f"<script>location.replace({js_url})</script>"
         f"<meta http-equiv=\"refresh\" content=\"0;url={href}\"></head>"
         "<body style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
@@ -1757,7 +1802,7 @@ def happ_redirect_page(sub_url: str) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "unlock-subgw"
+    server_version = "subgw"
     # A stalled client must die in its own handler thread, not hold a socket
     # open forever.
     timeout = 30
@@ -1778,11 +1823,11 @@ class Handler(BaseHTTPRequestHandler):
             if not _TOKEN_RE.match(token):
                 self._send(404, b"not found", "text/plain")
                 return
-            base = PUBLIC_BASE or f"https://{self.headers.get('Host', '')}".rstrip("/")
+            base = public_base_for(token, self.headers.get("Host", ""))
             sub_url = f"{base}/sub/{token}"
             if tail.rstrip("/") == "auto":
                 sub_url += "/auto"
-            page = app_redirect_page(app, sub_url)
+            page = app_redirect_page(app, sub_url, title=page_title(token))
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
             return
         prefix = "/sub/"
@@ -1811,7 +1856,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         # A browser gets the connect landing; VPN clients get the raw config.
         if _TOKEN_RE.match(token) and _is_browser(self.headers.get("User-Agent", "")):
-            base = PUBLIC_BASE or f"https://{self.headers.get('Host', '')}".rstrip("/")
+            base = public_base_for(token, self.headers.get("Host", ""))
             # Stay on this host. Sending the browser to the marketing site made
             # a pasted subscription link only as reachable as that site: while
             # the old domain was filtered a user got a plain timeout, and once
