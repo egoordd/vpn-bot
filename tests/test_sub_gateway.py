@@ -2276,3 +2276,20 @@ def test_unbranded_links_overwrite_cached_support_and_site_with_empty_values(mon
 
     assert headers["support-url"] == ""
     assert headers["profile-web-page-url"] == ""
+
+
+def test_vk_relay_can_be_enabled_by_name_pattern(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", True)
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_USERS", frozenset({"tg_*"}))
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_PBK", "pbk")
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_SID", "sid")
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_IDS", {"78.17.154.225.sslip.io": "uuid-pl"})
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (_vless("78.17.154.225.sslip.io"), None))
+
+    links, _ = sub_gateway.resolve_links(_panel_token("tg_42"))
+
+    names = [urllib.parse.unquote(l.rsplit("#", 1)[-1]) for l in links]
+    assert any(n.endswith("✅ РУ сервисы · VK") for n in names), names
+    assert not any("130.49.143.41" in l for l in links), "московский каскад заменён"

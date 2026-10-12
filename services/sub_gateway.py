@@ -1725,7 +1725,7 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
         hy2 = ind_hy2_link(username)
         combined = [link for link in combined if link.split("://", 1)[0] == "vless"] + ([hy2] if hy2 else [])
     else:
-        relay = build_vk_relay_links(combined) if username in VK_RELAY_USERS else []
+        relay = build_vk_relay_links(combined) if name_matches(VK_RELAY_USERS, username) else []
         compat = build_compat_links(combined) if compat_enabled_for(username) else []
         combined = (
             combined
