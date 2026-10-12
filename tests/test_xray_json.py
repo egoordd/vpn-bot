@@ -809,3 +809,32 @@ def test_without_an_ru_exit_ordinary_configs_still_leave_russian_traffic_on_the_
     server = xray_json.build_server_config(IND_LINKS[0], 0)
     assert next(r for r in server["routing"]["rules"] if r.get("ip") == ["geoip:ru"])["outboundTag"] == "direct"
     assert xray_json.RU_VIA_TAG not in [o["tag"] for o in server["outbounds"]]
+
+
+# --- 12.10.2026: место Hysteria2 в «Авто-обходе» — отдельный сервер, которого нет в списке ---
+
+FI3_HY2 = "hysteria2://unl_auto:pw@89.125.86.10:443?sni=89.125.86.10.sslip.io&insecure=0#fi3"
+
+
+def _proxy_addresses(config):
+    out = []
+    for o in config["outbounds"]:
+        if o["tag"].startswith("proxy-"):
+            s = o["settings"]
+            out.append((o["protocol"], (s.get("vnext") or s.get("servers") or [{}])[0].get("address") or s.get("address")))
+    return out
+
+
+def test_auto_udp_slot_can_be_a_server_outside_the_list():
+    configs = xray_json.build_json_subscription([REALITY, HY2], hysteria=True, auto_udp=FI3_HY2)
+    auto, split = configs[0], configs[1]
+    for balancer in (auto, split):
+        assert ("hysteria", "89.125.86.10") in _proxy_addresses(balancer)
+        assert sum(1 for p, _ in _proxy_addresses(balancer) if p == "hysteria") == 1
+    listed = [c for c in configs[2:]]
+    assert not any("89.125.86.10" in json.dumps(c) for c in listed), "в списке серверов её нет"
+
+
+def test_auto_udp_override_is_ignored_for_clients_without_hysteria():
+    configs = xray_json.build_json_subscription([REALITY, HY2], hysteria=False, auto_udp=FI3_HY2)
+    assert all(p != "hysteria" for p, _ in _proxy_addresses(configs[0]))

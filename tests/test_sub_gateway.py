@@ -2195,3 +2195,32 @@ def test_redirect_page_uses_the_brand_base_and_title(monkeypatch):
     assert sub_gateway.public_base_for(_panel_token("tg_1"), "gw.example") == "https://unlockru.site"
     page = sub_gateway.app_redirect_page("happ", f"https://m.example.test/sub/{token}", title=sub_gateway.page_title(token))
     assert "<title>Марат VPN</title>" in page and "unlock" not in page.lower()
+
+
+# --- 12.10.2026: Финляндия-3 · Hysteria2 только в «Авто-обходе» наших подписок ---
+
+FI3_AUTO = "hysteria2://unl_auto:pw@89.125.86.10.sslip.io:443?sni=89.125.86.10.sslip.io&insecure=0#fi3"
+
+
+def _auto_configs(monkeypatch, username):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URI", FI3_AUTO)
+    monkeypatch.setattr(sub_gateway, "CORP_HOSTS", frozenset({"89.125.86.10.sslip.io"}))
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (_vless(NL_HOST) + "\n" + _vless(US_HOST, 2102), None))
+    body, _, is_json = sub_gateway.build_auto_json(_panel_token(username), hysteria=True)
+    assert is_json
+    return json.loads(body)
+
+
+def test_auto_gets_the_extra_hysteria_for_our_subscriptions(monkeypatch):
+    configs = _auto_configs(monkeypatch, "tg_1")
+    auto = json.dumps(configs[0])
+    assert "89.125.86.10" in auto and '"hysteria"' in auto
+    assert not any("89.125.86.10" in json.dumps(c) for c in configs[2:]), "отдельным пунктом её нет"
+
+
+def test_corporate_and_individual_links_do_not_get_it(monkeypatch):
+    for name in ("corp_unl_vpn", "ind_de_2"):
+        configs = _auto_configs(monkeypatch, name)
+        assert not any("89.125.86.10" in json.dumps(c) for c in configs), name

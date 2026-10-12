@@ -776,6 +776,7 @@ def build_balancer_config(
     exclude_hosts: frozenset[str] | set[str] = frozenset(),
     hysteria: bool | None = None,
     ru_via: str | None = None,
+    udp_override: str | None = None,
 ) -> dict | None:
     """The one automatic entry: balances over one server per exit, healthiest first.
 
@@ -795,7 +796,7 @@ def build_balancer_config(
     """
     allowed = _hysteria_allowed(hysteria)
     outbounds: list[dict] = []
-    for uri in _balancer_selection(uris, exclude_hosts, hysteria=allowed):
+    for uri in _balancer_selection(uris, exclude_hosts, hysteria=allowed, udp_override=udp_override):
         outbound = build_outbound(uri, f"proxy-{len(outbounds)}", hysteria=allowed)
         if outbound is not None:
             outbounds.append(outbound)
@@ -826,7 +827,11 @@ BALANCER_MAX_OUTBOUNDS = int(os.environ.get("BALANCER_MAX_OUTBOUNDS", "5"))
 
 
 def _balancer_selection(
-    uris: list[str], exclude_hosts: frozenset[str] | set[str] = frozenset(), *, hysteria: bool = True
+    uris: list[str],
+    exclude_hosts: frozenset[str] | set[str] = frozenset(),
+    *,
+    hysteria: bool = True,
+    udp_override: str | None = None,
 ) -> list[str]:
     """One entry per exit, plus the first Hysteria2, in that order.
 
@@ -874,6 +879,11 @@ def _balancer_selection(
     # mapping kills every TCP entry at the same moment, while a QUIC connection
     # survives the client's address changing. Trading the last TCP exit for it
     # keeps the outbound count at the five that measured healthy.
+    # The UDP slot can be a server that is not in the list at all (12.10.2026:
+    # Finland-3 Hysteria2 — 42 ms and no loss from Moscow, where the Polish one
+    # lost 15% of packets — kept off the list because that host is reserved).
+    if hysteria and udp_override:
+        udp = udp_override
     if udp:
         chosen = chosen[: BALANCER_MAX_OUTBOUNDS - 1] + [udp]
     return chosen[:BALANCER_MAX_OUTBOUNDS]
@@ -890,6 +900,7 @@ def build_json_subscription(
     *,
     exclude_from_balancer: frozenset[str] | set[str] = frozenset(),
     hysteria: bool | None = None,
+    auto_udp: str | None = None,
 ) -> list[dict]:
     """Full JSON-array body: both balancers first, then each server on its own.
 
@@ -914,13 +925,14 @@ def build_json_subscription(
     back to the plain base64 subscription).
     """
     balancer = build_balancer_config(
-        links, AUTO_REMARKS, exclude_hosts=exclude_from_balancer, hysteria=hysteria
+        links, AUTO_REMARKS, exclude_hosts=exclude_from_balancer, hysteria=hysteria, udp_override=auto_udp
     )
     if balancer is None:
         return []
     configs = [balancer]
     split = build_balancer_config(
-        links, SPLIT_REMARKS, ru_apps_direct=True, exclude_hosts=exclude_from_balancer, hysteria=hysteria
+        links, SPLIT_REMARKS, ru_apps_direct=True, exclude_hosts=exclude_from_balancer, hysteria=hysteria,
+        udp_override=auto_udp,
     )
     if split is not None:
         configs.append(split)

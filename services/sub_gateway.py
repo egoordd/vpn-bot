@@ -1215,6 +1215,18 @@ USER_HIDDEN_EXITS = _host_sets(os.environ.get("USER_HIDDEN_EXITS", ""))
 # РУ-сервисов» и по пункту на страну.
 COMPACT_USERS = _names(os.environ.get("COMPACT_USERS", ""))
 
+# Место Hysteria2 в «Авто-обходе» и «Режиме РУ-сервисов» наших подписок (12.10.2026:
+# Финляндия-3, отдельный логин unl_auto). Отдельным пунктом в список не попадает:
+# сервер выделен под корпоративного заказчика. Корпоративным и индивидуальным
+# ссылкам не выдаётся.
+AUTO_HY2_URI = os.environ.get("AUTO_HY2_URI", "").strip()
+
+
+def auto_udp_for(username: str | None) -> str | None:
+    if not AUTO_HY2_URI or not username or username.startswith(("corp_", "ind_")):
+        return None
+    return pin_address(AUTO_HY2_URI)
+
 
 def _is_reality_tcp(uri: str) -> bool:
     if not uri.startswith("vless://"):
@@ -1683,7 +1695,9 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
     if ru_exit and links:
         configs = build_individual_subscription(links, ru_exit, hysteria=hysteria)
     else:
-        configs = build_json_subscription(links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria)
+        configs = build_json_subscription(
+            links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria, auto_udp=auto_udp_for(username)
+        )
     if configs:
         # Compact separators, because the size of this body decides whether a
         # Russian client can fetch it at all. The path from RU to the gateway is
