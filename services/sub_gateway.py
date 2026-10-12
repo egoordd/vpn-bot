@@ -1324,8 +1324,12 @@ def _uri_userinfo(uri: str) -> str | None:
     return rest.split("@", 1)[0] if "@" in rest else None
 
 
-def bridge_auto_pool(links: list[str], username: str | None) -> tuple[list[str], str | None] | None:
-    """(пул «Авто-обхода» из входов моста, запасной прямой вход) или None — обычный автовыбор."""
+def bridge_auto_pool(
+    links: list[str], username: str | None, exclude: frozenset[str] = frozenset()
+) -> tuple[list[str], str | None] | None:
+    """(пул «Авто-обхода» из входов моста, запасной прямой вход) или None — обычный автовыбор.
+
+    Запасной — первый прямой Reality не из исключённых для автовыбора (Литва с узким каналом)."""
     if not username or username.startswith(("corp_", "ind_")) or not name_matches(AUTO_BRIDGE_USERS, username):
         return None
     wanted = [VK_RELAY_IDS[host] for host in AUTO_BRIDGE_EXITS if host in VK_RELAY_IDS]
@@ -1338,10 +1342,10 @@ def bridge_auto_pool(links: list[str], username: str | None) -> tuple[list[str],
     pool = [found[uid] for uid in wanted if uid in found]
     if not pool:
         return None
-    relays = {pin_host(VK_RELAY_HOST), pin_host(RU_RELAY_HOST)}
+    skip = {pin_host(VK_RELAY_HOST), pin_host(RU_RELAY_HOST), *exclude}
     fallback = next(
         (link for link in links
-         if _is_reality_tcp(link) and _uri_userinfo(link) not in bridge_ids and _uri_host(link) not in relays),
+         if _is_reality_tcp(link) and _uri_userinfo(link) not in bridge_ids and _uri_host(link) not in skip),
         None,
     )
     return pool, fallback
@@ -1817,7 +1821,7 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
         configs = build_individual_subscription(links, ru_exit, hysteria=hysteria)
     else:
         compat = compat_enabled_for(username)
-        bridge = None if compat else bridge_auto_pool(links, username)
+        bridge = None if compat else bridge_auto_pool(links, username, balancer_exclusions())
         configs = build_json_subscription(
             links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria, auto_udp=auto_udp_for(username),
             auto_pool=compat_auto_pool(links) if compat else (bridge[0] if bridge else None),

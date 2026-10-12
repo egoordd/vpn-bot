@@ -2375,3 +2375,11 @@ def test_bridge_pool_never_applies_to_corporate_or_individual_links(monkeypatch)
     assert sub_gateway.bridge_auto_pool(links, "corp_unl_vpn") is None
     assert sub_gateway.bridge_auto_pool(links, "ind_de_2") is None
     assert sub_gateway.bridge_auto_pool(links, "tg_1")[0] == links
+
+
+def test_bridge_fallback_skips_hosts_kept_out_of_auto(monkeypatch):
+    _bridge(monkeypatch)
+    links = ["vless://uuid-pl@212.233.122.241:443?security=reality#bridge",
+             "vless://u@2.59.162.34:2101?security=reality#lt", "vless://u@78.17.154.225:2087?security=reality#pl"]
+    assert sub_gateway.bridge_auto_pool(links, "tg_1")[1].endswith("#lt")
+    assert sub_gateway.bridge_auto_pool(links, "tg_1", frozenset({"2.59.162.34"}))[1].endswith("#pl")
