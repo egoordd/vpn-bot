@@ -30,6 +30,21 @@ INBOUNDS = {
     ]
 }
 PROXIES = {"vless": {"flow": "xtls-rprx-vision"}}
+
+
+def _plans(raw: str) -> tuple[tuple[int, str, int], ...]:
+    """«дни:подпись:цена; …» → ((дни, подпись, цена), …). Оплата пока заглушка — цены только для витрины."""
+    plans = []
+    for item in raw.split(";"):
+        parts = [p.strip() for p in item.split(":")]
+        if len(parts) == 3 and parts[0].isdigit() and parts[2].isdigit():
+            plans.append((int(parts[0]), parts[1], int(parts[2])))
+    return tuple(plans)
+
+
+PLANS = _plans(os.environ.get(
+    "MARAT_PLANS", "30:1 месяц:199; 90:3 месяца:549; 180:6 месяцев:999; 365:12 месяцев:1799"
+))
 MSK = timezone(timedelta(hours=3))
 MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
           "сентября", "октября", "ноября", "декабря")
