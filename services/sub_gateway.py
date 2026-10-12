@@ -356,11 +356,18 @@ def _client_headers(token: str | None = None, flavor: str = "") -> dict[str, str
         headers["announce"] = "base64:" + base64.b64encode(
             announce.encode("utf-8")
         ).decode("ascii")
-    # Ссылки без нашей марки не ведут ни в нашу поддержку, ни на наш сайт.
-    if SUPPORT_URL and not unbranded:
-        headers["support-url"] = SUPPORT_URL
-    if PROFILE_WEB_PAGE_URL and not unbranded:
-        headers["profile-web-page-url"] = PROFILE_WEB_PAGE_URL
+    # Ссылки без нашей марки не ведут ни в нашу поддержку, ни на наш сайт. Заголовки
+    # приходят пустыми, а не пропадают: Happ хранит последнее значение и без них
+    # продолжал открывать наш сайт по «ⓘ» и нашу поддержку (12.10.2026, финский
+    # заказчик). Пустое значение перезаписывает сохранённое.
+    if unbranded:
+        headers["support-url"] = ""
+        headers["profile-web-page-url"] = ""
+    else:
+        if SUPPORT_URL:
+            headers["support-url"] = SUPPORT_URL
+        if PROFILE_WEB_PAGE_URL:
+            headers["profile-web-page-url"] = PROFILE_WEB_PAGE_URL
     return headers
 
 # vless host -> location + its Hysteria2 endpoint

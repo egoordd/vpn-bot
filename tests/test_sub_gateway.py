@@ -2264,3 +2264,15 @@ def test_compat_auto_pool_uses_new_transports_and_competitor_strategy(monkeypatc
     assert not any(o["streamSettings"].get("security") == "reality" for o in proxies), "Reality в этот пул не идёт"
     assert auto["routing"]["balancers"][0]["fallbackTag"] == "direct"
     assert not any("130.49.143.41" in json.dumps(o) for o in proxies), "каскад через Москву в автовыборе не нужен"
+
+
+
+def test_unbranded_links_overwrite_cached_support_and_site_with_empty_values(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "UNBRANDED_USERS", frozenset({"corp_fi_trial"}))
+    monkeypatch.setattr(sub_gateway, "SUPPORT_URL", "https://t.me/unlock_support_bot")
+    monkeypatch.setattr(sub_gateway, "PROFILE_WEB_PAGE_URL", "https://unlockproject.site")
+
+    headers = sub_gateway._client_headers(_panel_token("corp_fi_trial"))
+
+    assert headers["support-url"] == ""
+    assert headers["profile-web-page-url"] == ""
