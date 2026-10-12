@@ -38,7 +38,14 @@ def _news() -> dict:
     return _button("📣 Новости", NEWS_URL or "stub:news")
 
 
-def main(access: Access | None) -> dict:
+def main(access: Access | None, admin: bool = False) -> dict:
+    markup = _main(access)
+    if admin:
+        markup["inline_keyboard"].append([_button("🛠 Админка", "adm")])
+    return markup
+
+
+def _main(access: Access | None) -> dict:
     if access is None:
         return _kb(
             [_button(f"🎁 Попробовать бесплатно — {TRIAL}", "trial", "success")],

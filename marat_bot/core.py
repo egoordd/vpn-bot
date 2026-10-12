@@ -131,7 +131,11 @@ class Access:
 
 
 class Store:
-    """Кто уже брал пробный доступ. Источник правды о сроке — панель, здесь только факт выдачи."""
+    """Кто брал пробный доступ (+ имя в Telegram для админки) и кто админ.
+
+    Источник правды о сроке — панель, здесь только факт выдачи. Админ, заданный
+    ником, привязывается к Telegram ID при первом сообщении: если ник потом
+    перейдёт к другому человеку, тот админом не станет."""
 
     def __init__(self, path: str):
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -139,6 +143,11 @@ class Store:
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS users (telegram_id INTEGER PRIMARY KEY, username TEXT NOT NULL, created_at INTEGER NOT NULL)"
         )
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(users)")}
+        for column in ("tg_username", "first_name"):
+            if column not in columns:
+                self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+        self._db.execute("CREATE TABLE IF NOT EXISTS admins (username TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL)")
         self._db.commit()
 
     def get(self, telegram_id: int) -> str | None:
@@ -152,5 +161,47 @@ class Store:
         )
         self._db.commit()
 
+    def touch(self, telegram_id: int, tg_username: str | None, first_name: str | None) -> None:
+        """Обновить ник и имя у того, кто уже брал доступ (для списка в админке)."""
+        self._db.execute(
+            "UPDATE users SET tg_username = ?, first_name = ? WHERE telegram_id = ?",
+            (tg_username, first_name, telegram_id),
+        )
+        self._db.commit()
+
     def count(self) -> int:
         return self._db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+    def created_since(self, since: float) -> int:
+        return self._db.execute("SELECT COUNT(*) FROM users WHERE created_at >= ?", (int(since),)).fetchone()[0]
+
+    def row(self, telegram_id: int) -> UserRow | None:
+        found = self._db.execute(
+            "SELECT telegram_id, username, created_at, tg_username, first_name FROM users WHERE telegram_id = ?",
+            (telegram_id,),
+        ).fetchone()
+        return UserRow(*found) if found else None
+
+    def recent(self, limit: int) -> list[UserRow]:
+        rows = self._db.execute(
+            "SELECT telegram_id, username, created_at, tg_username, first_name FROM users ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [UserRow(*r) for r in rows]
+
+    def admin_id(self, username: str) -> int | None:
+        row = self._db.execute("SELECT telegram_id FROM admins WHERE username = ?", (username,)).fetchone()
+        return row[0] if row else None
+
+    def bind_admin(self, username: str, telegram_id: int) -> None:
+        self._db.execute("INSERT OR IGNORE INTO admins (username, telegram_id) VALUES (?, ?)", (username, telegram_id))
+        self._db.commit()
+
+
+@dataclass(frozen=True)
+class UserRow:
+    telegram_id: int
+    username: str
+    created_at: int
+    tg_username: str | None
+    first_name: str | None

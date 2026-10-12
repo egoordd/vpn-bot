@@ -9,6 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from marat_bot import admin  # noqa: E402
 from marat_bot import keyboards as kb  # noqa: E402
 from marat_bot import texts  # noqa: E402
 from marat_bot.core import (  # noqa: E402
@@ -40,8 +41,8 @@ COMMANDS = [
 ]
 # Конфетти поверх сообщения «Доступ открыт» (эффекты Telegram работают в личных чатах).
 EFFECT_PARTY = "5046509860389126442"
-HANDLED = {"menu", "trial", "me", "connect", "tariffs", "help", "how", "ref"}
-HANDLED_PREFIXES = ("dev:", "plan:", "stub:")
+HANDLED = {"menu", "trial", "me", "connect", "tariffs", "help", "how", "ref", "adm"}
+HANDLED_PREFIXES = ("dev:", "plan:", "stub:", "adm:")
 
 
 @functools.lru_cache(maxsize=1)
@@ -102,7 +103,21 @@ async def on_message(tg: Tg, message: dict) -> None:
     chat = message["chat"]["id"]
     sender = message.get("from", {})
     user = sender.get("id", chat)
-    command = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
+    words = text.split()
+    command = words[0].split("@")[0].lower() if text.startswith("/") else ""
+    store = _store()
+    store.touch(user, sender.get("username"), sender.get("first_name"))
+    is_admin = admin.is_admin(store, sender)
+    if is_admin and command in ("/start", "/admin"):
+        await admin.set_menu(tg, chat, COMMANDS)
+    if is_admin and command in admin.COMMANDS:
+        client, not_found = _panel()
+        try:
+            await admin.handle(tg, chat, command, words[1:], store, client, not_found)
+        except Exception:
+            log.exception("admin command %s failed", command)
+            await tg.send(chat, texts.ERROR)
+        return
     if command == "/help":
         await tg.send(chat, texts.help_text(user), kb.help_menu())
     elif command == "/promo":
@@ -121,7 +136,7 @@ async def on_message(tg: Tg, message: dict) -> None:
             await tg.send(chat, texts.status(access, sub_link(access.token)), kb.my_subscription())
     else:
         access = await _my_access(user)
-        await tg.send(chat, texts.home(access, sender.get("first_name")), kb.main(access))
+        await tg.send(chat, texts.home(access, sender.get("first_name")), kb.main(access, is_admin))
 
 
 async def on_callback(tg: Tg, call: dict) -> None:
@@ -138,9 +153,21 @@ async def on_callback(tg: Tg, call: dict) -> None:
     async def alert(text: str) -> None:
         await tg.answer(call["id"], text, alert=True)
 
-    if data == "menu":
+    if data == "adm" or data.startswith("adm:"):
+        if not admin.is_admin(_store(), call["from"]):
+            await tg.answer(call["id"])
+            return
+        client, _ = _panel()
+        try:
+            text = await (admin.users_text if data == "adm:users" else admin.panel_text)(_store(), client)
+        except Exception:
+            log.exception("admin screen %s failed", data)
+            await alert(texts.ERROR)
+            return
+        await show(text, admin.keyboard())
+    elif data == "menu":
         access = await _my_access(user)
-        await show(texts.home(access, name), kb.main(access))
+        await show(texts.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])))
     elif data == "trial":
         try:
             access, issued = await _issue_trial(user)
@@ -150,11 +177,12 @@ async def on_callback(tg: Tg, call: dict) -> None:
             return
         if not issued:
             await alert(texts.ALREADY)
-            await tg.edit(chat, msg, texts.home(access, name), kb.main(access))
+            await tg.edit(chat, msg, texts.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])))
             return
         until = texts.date_msk(access.expire) if access and access.expire else "—"
+        _store().touch(user, call["from"].get("username"), name)
         # Меню обновляется на «доступ активен», а выдача приходит отдельным сообщением с конфетти.
-        await show(texts.home(access, name), kb.main(access))
+        await show(texts.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])))
         await tg.send(chat, texts.issued(until), kb.devices(), effect=EFFECT_PARTY)
     elif data in ("me", "connect") or data.startswith("dev:"):
         access = await _my_access(user)
