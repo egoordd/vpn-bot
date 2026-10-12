@@ -722,7 +722,7 @@ GRPC_URI = (
 def test_websocket_keeps_its_path_and_host():
     stream = xray_json.build_outbound(WS_URI, "proxy")["streamSettings"]
     assert stream["network"] == "ws"
-    assert stream["wsSettings"] == {"path": "/ws?ed=2048", "host": "edge.example.com"}
+    assert stream["wsSettings"] == {"path": "/ws?ed=2048", "host": "edge.example.com", "heartbeatPeriod": 15}
 
 
 def test_tls_keeps_its_alpn():
@@ -838,3 +838,34 @@ def test_auto_udp_slot_can_be_a_server_outside_the_list():
 def test_auto_udp_override_is_ignored_for_clients_without_hysteria():
     configs = xray_json.build_json_subscription([REALITY, HY2], hysteria=False, auto_udp=FI3_HY2)
     assert all(p != "hysteria" for p, _ in _proxy_addresses(configs[0]))
+
+
+# --- 12.10.2026: транспорты и автовыбор как у конкурента (gRPC/WS + TLS, leastLoad, запасной выход напрямую) ---
+
+GRPC = "trojan://pw@107.189.22.160:443?security=tls&sni=107.189.22.160.sslip.io&type=grpc&serviceName=trgrpc&alpn=h2&fp=firefox#nl-grpc"
+WS = ("vless://11111111-2222-3333-4444-555555555555@107.189.22.160:2083?encryption=none&security=tls"
+      "&sni=107.189.22.160.sslip.io&type=ws&path=%2Frealtime%2Fv1%2Fwebsocket&alpn=http%2F1.1&fp=chrome#nl-ws")
+
+
+def test_grpc_and_ws_get_udp_mux_like_the_competitor():
+    for uri in (GRPC, WS):
+        out = xray_json.build_outbound(uri, "proxy-0")
+        assert out["mux"] == {"enabled": True, "concurrency": -1, "xudpConcurrency": 16, "xudpProxyUDP443": "reject"}
+    ws = xray_json.build_outbound(WS, "proxy-0")["streamSettings"]["wsSettings"]
+    assert ws["heartbeatPeriod"] == 15
+
+
+def test_reality_vision_stays_without_mux():
+    assert "mux" not in xray_json.build_outbound(REALITY, "proxy-0")
+
+
+def test_explicit_auto_pool_keeps_both_transports_of_one_host():
+    configs = xray_json.build_json_subscription([REALITY, HY2], hysteria=True, auto_pool=[GRPC, WS, REALITY], auto_strategy="competitor")
+    auto = configs[0]
+    protocols = [o["protocol"] for o in auto["outbounds"] if o["tag"].startswith("proxy-")]
+    assert protocols == ["trojan", "vless", "vless"]
+    balancer = auto["routing"]["balancers"][0]
+    assert balancer["strategy"]["type"] == "leastLoad"
+    assert balancer["fallbackTag"] == "direct"
+    assert auto["burstObservatory"]["pingConfig"]["sampling"] == 5
+    assert auto["burstObservatory"]["pingConfig"]["timeout"] == "3s"

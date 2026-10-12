@@ -2224,3 +2224,42 @@ def test_corporate_and_individual_links_do_not_get_it(monkeypatch):
     for name in ("corp_unl_vpn", "ind_de_2"):
         configs = _auto_configs(monkeypatch, name)
         assert not any("89.125.86.10" in json.dumps(c) for c in configs), name
+
+
+# --- 12.10.2026: входы gRPC/WebSocket и «Авто-обход» как у конкурента ---
+
+def _compat(monkeypatch, users=frozenset({"tg_740484324"})):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "COMPAT_NODES", {NL_HOST: (443, 2083), US_HOST: (443, 443)})
+    monkeypatch.setattr(sub_gateway, "COMPAT_TROJAN_PASS", "tp")
+    monkeypatch.setattr(sub_gateway, "COMPAT_VLESS_UUID", "11111111-2222-3333-4444-555555555555")
+    monkeypatch.setattr(sub_gateway, "COMPAT_USERS", users)
+    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URI", "")
+    upstream = "\n".join([_vless(NL_HOST), _vless(US_HOST, 2102), _vless("78.17.154.225.sslip.io", 2087)])
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+
+
+def test_compat_entries_are_listed_for_compat_users(monkeypatch):
+    _compat(monkeypatch)
+    links, _ = sub_gateway.resolve_links(_panel_token("tg_740484324"))
+    names = [urllib.parse.unquote(l.rsplit("#", 1)[-1]) for l in links]
+    assert any(n.endswith("· gRPC") for n in names) and any(n.endswith("· WS") for n in names), names
+    assert sum(1 for l in links if "serviceName=trgrpc" in l) == 2
+
+
+def test_other_users_do_not_see_compat_entries(monkeypatch):
+    _compat(monkeypatch)
+    links, _ = sub_gateway.resolve_links(_panel_token("tg_1"))
+    assert not any("trgrpc" in l or "realtime" in l for l in links)
+
+
+def test_compat_auto_pool_uses_new_transports_and_competitor_strategy(monkeypatch):
+    _compat(monkeypatch)
+    body, _, _ = sub_gateway.build_auto_json(_panel_token("tg_740484324"), hysteria=True)
+    auto = json.loads(body)[0]
+    proxies = [o for o in auto["outbounds"] if o["tag"].startswith("proxy-")]
+    nets = sorted({o["streamSettings"]["network"] for o in proxies})
+    assert nets == ["grpc", "tcp", "ws"], nets
+    assert auto["routing"]["balancers"][0]["fallbackTag"] == "direct"
+    assert not any("130.49.143.41" in json.dumps(o) for o in proxies), "каскад через Москву в автовыборе не нужен"

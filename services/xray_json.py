@@ -554,6 +554,20 @@ def _path_host_settings(query: dict) -> dict:
     return settings
 
 
+# UDP поверх одного канала (XUDP), QUIC на 443 — отказ, чтобы браузер ушёл на TCP.
+# Ровно так у конкурента, чей VPN владелец 12.10.2026 называл «работает идеально»;
+# TCP при concurrency -1 по-прежнему идёт отдельными соединениями.
+_MUX = {"enabled": True, "concurrency": -1, "xudpConcurrency": 16, "xudpProxyUDP443": "reject"}
+_WS_HEARTBEAT_SECONDS = 15
+
+
+def _mux_for(query: dict) -> dict | None:
+    network = query.get("type", "tcp") or "tcp"
+    if network in ("ws", "grpc") and (query.get("security") or "none") == "tls":
+        return dict(_MUX)
+    return None
+
+
 def _grpc_settings(query: dict) -> dict:
     settings: dict = {
         "serviceName": query.get("serviceName", ""),
@@ -574,7 +588,7 @@ def _stream_settings(query: dict) -> dict:
     if network == "xhttp":
         stream["xhttpSettings"] = _xhttp_settings(query)
     elif network == "ws":
-        stream["wsSettings"] = _path_host_settings(query)
+        stream["wsSettings"] = {**_path_host_settings(query), "heartbeatPeriod": _WS_HEARTBEAT_SECONDS}
     elif network == "httpupgrade":
         stream["httpupgradeSettings"] = _path_host_settings(query)
     elif network == "grpc":
@@ -619,19 +633,23 @@ def build_outbound(uri: str, tag: str, *, hysteria: bool | None = None) -> dict 
         flow = query.get("flow")
         if flow:
             user["flow"] = flow
-        return {
+        outbound = {
             "tag": tag,
             "protocol": "vless",
             "settings": {"vnext": [{"address": host, "port": port, "users": [user]}]},
             "streamSettings": _stream_settings(query),
         }
+        mux = _mux_for(query)
+        return {**outbound, "mux": mux} if mux else outbound
     if scheme == "trojan":
-        return {
+        outbound = {
             "tag": tag,
             "protocol": "trojan",
             "settings": {"servers": [{"address": host, "port": port, "password": userinfo}]},
             "streamSettings": _stream_settings(query),
         }
+        mux = _mux_for(query)
+        return {**outbound, "mux": mux} if mux else outbound
     if scheme in ("hysteria2", "hy2") and _hysteria_allowed(hysteria):
         return _hysteria_outbound(userinfo, host, port, query, tag)
     return None
@@ -729,6 +747,25 @@ def _health_check(strategy: str) -> tuple[dict, dict]:
     needs the plain `observatory`; the two are not interchangeable, so the pair
     is built together to keep them consistent.
     """
+    if strategy == "competitor":
+        # Автовыбор один в один как у конкурента (12.10.2026): по нагрузке, пять
+        # замеров раз в минуту, таймаут 3 с, порог 2 с.
+        return (
+            {"type": "leastLoad", "settings": {"expected": 1, "maxRTT": "2s", "tolerance": 0.01, "baselines": ["1s", "2s"]}},
+            {
+                "burstObservatory": {
+                    "subjectSelector": ["proxy-"],
+                    "pingConfig": {
+                        "destination": "http://connectivitycheck.gstatic.com/generate_204",
+                        "connectivity": "",
+                        "interval": "1m",
+                        "sampling": 5,
+                        "timeout": "3s",
+                        "httpMethod": "GET",
+                    },
+                }
+            },
+        )
     if strategy != "leastload":
         return (
             {"type": "leastPing"},
@@ -777,6 +814,8 @@ def build_balancer_config(
     hysteria: bool | None = None,
     ru_via: str | None = None,
     udp_override: str | None = None,
+    pool: list[str] | None = None,
+    strategy_name: str | None = None,
 ) -> dict | None:
     """The one automatic entry: balances over one server per exit, healthiest first.
 
@@ -796,13 +835,25 @@ def build_balancer_config(
     """
     allowed = _hysteria_allowed(hysteria)
     outbounds: list[dict] = []
-    for uri in _balancer_selection(uris, exclude_hosts, hysteria=allowed, udp_override=udp_override):
+    # pool — готовый список для автовыбора (несколько транспортов одного сервера
+    # подряд, как у конкурента); без него — один вход на сервер из общего списка.
+    selection = (
+        [*pool, *([udp_override] if allowed and udp_override else [])]
+        if pool is not None
+        else _balancer_selection(uris, exclude_hosts, hysteria=allowed, udp_override=udp_override)
+    )
+    for uri in selection:
         outbound = build_outbound(uri, f"proxy-{len(outbounds)}", hysteria=allowed)
         if outbound is not None:
             outbounds.append(outbound)
     if not outbounds:
         return None
-    strategy, prober = _health_check(BALANCER_STRATEGY)
+    name = strategy_name or BALANCER_STRATEGY
+    strategy, prober = _health_check(name)
+    balancer = {"tag": "auto", "selector": ["proxy-"], "strategy": strategy}
+    if name == "competitor":
+        # Все серверы упали — сайты без блокировок всё равно открываются напрямую.
+        balancer["fallbackTag"] = "direct"
     ru_exit = build_outbound(ru_via, RU_VIA_TAG) if ru_via else None
     return {
         "remarks": remarks,
@@ -816,7 +867,7 @@ def build_balancer_config(
                 ru_apps_direct=ru_apps_direct,
                 ru_outbound=RU_VIA_TAG if ru_exit else "direct",
             ),
-            "balancers": [{"tag": "auto", "selector": ["proxy-"], "strategy": strategy}],
+            "balancers": [balancer],
         },
         **prober,
     }
@@ -901,6 +952,8 @@ def build_json_subscription(
     exclude_from_balancer: frozenset[str] | set[str] = frozenset(),
     hysteria: bool | None = None,
     auto_udp: str | None = None,
+    auto_pool: list[str] | None = None,
+    auto_strategy: str | None = None,
 ) -> list[dict]:
     """Full JSON-array body: both balancers first, then each server on its own.
 
@@ -925,14 +978,15 @@ def build_json_subscription(
     back to the plain base64 subscription).
     """
     balancer = build_balancer_config(
-        links, AUTO_REMARKS, exclude_hosts=exclude_from_balancer, hysteria=hysteria, udp_override=auto_udp
+        links, AUTO_REMARKS, exclude_hosts=exclude_from_balancer, hysteria=hysteria, udp_override=auto_udp,
+        pool=auto_pool, strategy_name=auto_strategy,
     )
     if balancer is None:
         return []
     configs = [balancer]
     split = build_balancer_config(
         links, SPLIT_REMARKS, ru_apps_direct=True, exclude_hosts=exclude_from_balancer, hysteria=hysteria,
-        udp_override=auto_udp,
+        udp_override=auto_udp, pool=auto_pool, strategy_name=auto_strategy,
     )
     if split is not None:
         configs.append(split)

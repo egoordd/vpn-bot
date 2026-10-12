@@ -1222,6 +1222,80 @@ COMPACT_USERS = _names(os.environ.get("COMPACT_USERS", ""))
 AUTO_HY2_URI = os.environ.get("AUTO_HY2_URI", "").strip()
 
 
+# Входы как у конкурента (12.10.2026): Trojan поверх gRPC и VLESS поверх WebSocket,
+# обычный TLS с настоящим сертификатом сервера. Отдельный xray на узле, общий
+# пароль/ключ (как у Trojan и Hysteria2). COMPAT_NODES: «хост:порт_gRPC:порт_WS, …».
+def _compat_nodes(raw: str) -> dict[str, tuple[int, int]]:
+    nodes: dict[str, tuple[int, int]] = {}
+    for item in raw.split(","):
+        parts = [p.strip() for p in item.split(":")]
+        if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+            nodes[parts[0]] = (int(parts[1]), int(parts[2]))
+    return nodes
+
+
+COMPAT_NODES = _compat_nodes(os.environ.get("COMPAT_NODES", ""))
+COMPAT_TROJAN_PASS = os.environ.get("COMPAT_TROJAN_PASS", "").strip()
+COMPAT_VLESS_UUID = os.environ.get("COMPAT_VLESS_UUID", "").strip()
+# Кому выдаются эти входы и «Авто-обход» по образцу конкурента («tg_1, *» — шаблоны как везде).
+COMPAT_USERS = _names(os.environ.get("COMPAT_USERS", ""))
+_COMPAT_WS_PATH = "/realtime/v1/websocket"
+
+
+def compat_enabled_for(username: str | None) -> bool:
+    if not (COMPAT_NODES and COMPAT_TROJAN_PASS and COMPAT_VLESS_UUID and username):
+        return False
+    if username.startswith(("corp_", "ind_")):
+        return False
+    return "*" in COMPAT_USERS or name_matches(COMPAT_USERS, username)
+
+
+def build_compat_links(links: list[str]) -> list[str]:
+    """gRPC и WebSocket для каждого сервера из подписки, у которого они подняты."""
+    extras: list[str] = []
+    seen: set[str] = set()
+    for link in links:
+        host = _uri_host(link)
+        if host not in COMPAT_NODES or host in seen:
+            continue
+        seen.add(host)
+        grpc_port, ws_port = COMPAT_NODES[host]
+        node = NODES.get(host, {})
+        name = f"{node.get('flag', '')} {node.get('name', host)}".strip()
+        path = urllib.parse.quote(_COMPAT_WS_PATH, safe="")
+        extras.append(
+            f"trojan://{COMPAT_TROJAN_PASS}@{host}:{grpc_port}?security=tls&sni={host}&type=grpc"
+            f"&serviceName=trgrpc&alpn=h2&fp=firefox#{urllib.parse.quote(name + ' · gRPC')}"
+        )
+        extras.append(
+            f"vless://{COMPAT_VLESS_UUID}@{host}:{ws_port}?encryption=none&security=tls&sni={host}&type=ws"
+            f"&path={path}&host={host}&alpn=http%2F1.1&fp=chrome#{urllib.parse.quote(name + ' · WS')}"
+        )
+    return extras
+
+
+def _is_compat(uri: str) -> bool:
+    return "serviceName=trgrpc" in uri or "realtime%2Fv1%2Fwebsocket" in uri
+
+
+def compat_auto_pool(links: list[str]) -> list[str]:
+    """Автовыбор как у конкурента: gRPC и WS наших серверов + Reality остальных
+    (кроме исключённых, каскадов через Москву и входа для белых списков)."""
+    pool = [link for link in links if _is_compat(link)]
+    covered = {_uri_host(link) for link in pool}
+    skip = balancer_exclusions() | {pin_host(RU_RELAY_HOST)}
+    for link in links:
+        host = _uri_host(link)
+        query = dict(urllib.parse.parse_qsl(link.partition("?")[2].partition("#")[0]))
+        if host in covered or host in skip or not link.startswith("vless://") or query.get("security") != "reality":
+            continue
+        if query.get("type", "tcp") not in ("", "tcp"):
+            continue
+        covered.add(host)
+        pool.append(link)
+    return pool
+
+
 def auto_udp_for(username: str | None) -> str | None:
     if not AUTO_HY2_URI or not username or username.startswith(("corp_", "ind_")):
         return None
@@ -1655,8 +1729,10 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
         combined = [link for link in combined if link.split("://", 1)[0] == "vless"] + ([hy2] if hy2 else [])
     else:
         relay = build_vk_relay_links(combined) if username in VK_RELAY_USERS else []
+        compat = build_compat_links(combined) if compat_enabled_for(username) else []
         combined = (
             combined
+            + compat
             + (build_de_via_links(combined) if DE_VIA_EXIT_HOST not in hidden else [])
             + (relay or build_cascade_links(combined, hidden=hidden))
             + build_mobile_links(combined)
@@ -1695,8 +1771,10 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
     if ru_exit and links:
         configs = build_individual_subscription(links, ru_exit, hysteria=hysteria)
     else:
+        compat = compat_enabled_for(username)
         configs = build_json_subscription(
-            links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria, auto_udp=auto_udp_for(username)
+            links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria, auto_udp=auto_udp_for(username),
+            auto_pool=compat_auto_pool(links) if compat else None, auto_strategy="competitor" if compat else None,
         )
     if configs:
         # Compact separators, because the size of this body decides whether a
