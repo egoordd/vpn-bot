@@ -1,10 +1,12 @@
-"""Клавиатуры «Марат VPN» (словари Bot API). Разделы как в полноценном боте; где действия с нашей стороны нет — заглушки."""
+"""Клавиатуры бота (словари Bot API). Разделы как в полноценном боте; где действия с нашей стороны нет — заглушки.
+
+Подписи кнопок — из темы (texts.BUTTONS), раскладка общая."""
 from __future__ import annotations
 
 import os
 
+from marat_bot import texts
 from marat_bot.core import PLANS, Access
-from marat_bot.texts import TRIAL
 
 SUPPORT_URL = os.environ.get("MARAT_SUPPORT_URL", "").strip()
 NEWS_URL = os.environ.get("MARAT_NEWS_URL", "").strip()
@@ -17,8 +19,9 @@ APPS = {
 }
 
 
-def _button(label: str, action: str, style: str | None = None) -> dict:
-    """action — https-ссылка или callback. style — цвет главной кнопки экрана."""
+def _button(key: str, action: str, style: str | None = None, **fmt: object) -> dict:
+    """key — подпись из темы, action — https-ссылка или callback, style — цвет главной кнопки экрана."""
+    label = texts.BUTTONS[key].format(**fmt) if fmt else texts.BUTTONS[key]
     button = {"text": label}
     button["url" if action.startswith("https://") else "callback_data"] = action
     if style:
@@ -31,88 +34,88 @@ def _kb(*rows: list[dict]) -> dict:
 
 
 def _support() -> dict:
-    return _button("💬 Поддержка", SUPPORT_URL or "stub:support")
+    return _button("support", SUPPORT_URL or "stub:support")
 
 
 def _news() -> dict:
-    return _button("📣 Новости", NEWS_URL or "stub:news")
+    return _button("news", NEWS_URL or "stub:news")
 
 
 def main(access: Access | None, admin: bool = False) -> dict:
     markup = _main(access)
     if admin:
-        markup["inline_keyboard"].append([_button("🛠 Админка", "adm")])
+        markup["inline_keyboard"].append([_button("admin", "adm")])
     return markup
 
 
 def _main(access: Access | None) -> dict:
     if access is None:
         return _kb(
-            [_button(f"🎁 Попробовать бесплатно — {TRIAL}", "trial", "success")],
-            [_button("💳 Тарифы", "tariffs"), _button("ℹ️ Как это работает", "how")],
-            [_button("❓ Помощь", "help"), _support()],
-            [_button("🔗 У меня уже есть подписка", "stub:link")],
+            [_button("trial", "trial", "success")],
+            [_button("tariffs", "tariffs"), _button("how", "how")],
+            [_button("help", "help"), _support()],
+            [_button("link", "stub:link")],
         )
     if access.active:
         return _kb(
-            [_button("📲 Подключить устройство", "connect", "primary")],
-            [_button("📋 Моя подписка", "me"), _button("💳 Тарифы", "tariffs")],
-            [_button("👥 Пригласить друга", "ref"), _button("🎟 Промокод", "stub:promo")],
-            [_button("❓ Помощь", "help"), _support(), _button("⭐️ Отзыв", "stub:review")],
+            [_button("connect", "connect", "primary")],
+            [_button("me", "me"), _button("tariffs", "tariffs")],
+            [_button("ref", "ref"), _button("promo", "stub:promo")],
+            [_button("help", "help"), _support(), _button("review", "stub:review")],
         )
     return _kb(
-        [_button("♻️ Продлить доступ", "tariffs", "success")],
-        [_button("📋 Моя подписка", "me"), _button("🎟 Промокод", "stub:promo")],
-        [_button("❓ Помощь", "help"), _support()],
+        [_button("renew", "tariffs", "success")],
+        [_button("me", "me"), _button("promo", "stub:promo")],
+        [_button("help", "help"), _support()],
     )
 
 
 def my_subscription() -> dict:
     return _kb(
-        [_button("📲 Подключить устройство", "connect", "primary")],
-        [_button("♻️ Продлить", "tariffs", "success")],
-        [_button("◀️ В меню", "menu")],
+        [_button("connect", "connect", "primary")],
+        [_button("renew_short", "tariffs", "success")],
+        [_button("menu", "menu")],
     )
 
 
 def tariffs() -> dict:
-    rows = [[_button(f"▸ {label} · {price} ₽", f"plan:{days}")] for days, label, price in PLANS]
-    return _kb(*rows, [_button("◀️ В меню", "menu")])
+    rows = [[_button("plan", f"plan:{days}", label=label, price=price)] for days, label, price in PLANS]
+    return _kb(*rows, [_button("menu", "menu")])
 
 
 def checkout() -> dict:
     return _kb(
-        [_button("💳 Оплатить картой", "stub:pay", "primary")],
-        [_button("◀️ К тарифам", "tariffs"), _button("В меню", "menu")],
+        [_button("pay", "stub:pay", "primary")],
+        [_button("to_tariffs", "tariffs"), _button("menu_short", "menu")],
     )
 
 
 def devices() -> dict:
     return _kb(
-        [_button("📱 iPhone / iPad", "dev:ios"), _button("🤖 Android", "dev:android")],
-        [_button("💻 Windows", "dev:windows"), _button("🍏 macOS", "dev:macos")],
-        [_button("◀️ В меню", "menu")],
+        [_button("dev_ios", "dev:ios"), _button("dev_android", "dev:android")],
+        [_button("dev_windows", "dev:windows"), _button("dev_macos", "dev:macos")],
+        [_button("menu", "menu")],
     )
 
 
 def device_steps(store_url: str, happ_url: str) -> dict:
     return _kb(
-        [_button("1 · Установить Happ", store_url)],
-        [_button("2 · Добавить в Happ", happ_url, "success")],
-        [_button("◀️ Другое устройство", "connect"), _button("В меню", "menu")],
+        [_button("install", store_url)],
+        [_button("add", happ_url, "success")],
+        [_button("other_device", "connect"), _button("menu_short", "menu")],
     )
 
 
 def help_menu() -> dict:
     return _kb(
-        [_button("📲 Подключить", "connect"), _button("ℹ️ Как это работает", "how")],
+        [_button("connect_short", "connect"), _button("how", "how")],
         [_support(), _news()],
-        [_button("◀️ В меню", "menu")],
+        [_button("menu", "menu")],
     )
 
 
 def back() -> dict:
-    return _kb([_button("◀️ В меню", "menu")])
+    return _kb([_button("menu", "menu")])
 
 
 def callbacks(markup: dict) -> set[str]:

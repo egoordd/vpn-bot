@@ -13,7 +13,7 @@ import os
 import time
 from datetime import datetime, timezone
 
-from marat_bot.core import PREFIX, Access, Store, UserRow, bar, date_msk, gb, panel_username, time_left
+from marat_bot.core import NAME, PREFIX, Access, Store, UserRow, bar, date_msk, gb, panel_username, time_left
 
 log = logging.getLogger("marat_bot.admin")
 
@@ -114,7 +114,7 @@ async def panel_text(store: Store, client) -> str:
     online = sum(1 for u in users.values() if (_online_since(u.get("online_at")) or 0) > now - 86400)
     traffic = sum(u.get("used_traffic") or 0 for u in users.values())
     return (
-        "🛠 <b>Админка · Марат VPN</b>\n\n"
+        f"🛠 <b>Админка · {NAME}</b>\n\n"
         + _quote(
             f"👥 Пользователей: <b>{store.count()}</b>",
             f"🟢 Доступ активен: <b>{active}</b>",

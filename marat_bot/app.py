@@ -13,7 +13,7 @@ from marat_bot import admin  # noqa: E402
 from marat_bot import keyboards as kb  # noqa: E402
 from marat_bot import texts  # noqa: E402
 from marat_bot.core import (  # noqa: E402
-    INBOUNDS, PLANS, PROXIES, TRIAL_TRAFFIC_BYTES, Access, Store, happ_link, panel_username, sub_link,
+    INBOUNDS, NAME, PLANS, PROXIES, TRIAL_TRAFFIC_BYTES, Access, Store, date_msk, happ_link, panel_username, sub_link,
     token_from_url, trial_expire,
 )
 from marat_bot.tg import Tg  # noqa: E402
@@ -28,7 +28,7 @@ STUBS = {
     "promo": texts.STUB_PROMO,
     "review": texts.STUB_REVIEW,
     "link": texts.STUB_LINK,
-    "pay": "💳 Оплата скоро будет подключена.",
+    "pay": texts.STUB_PAY,
 }
 COMMANDS = [
     {"command": "start", "description": "🏠 Главное меню"},
@@ -90,7 +90,7 @@ async def _issue_trial(telegram_id: int) -> tuple[Access | None, bool]:
             client, _ = _panel()
             await client.create_user(
                 username=username, expire_at=trial_expire(), data_limit_bytes=TRIAL_TRAFFIC_BYTES,
-                proxies=PROXIES, inbounds=INBOUNDS, note=f"Марат VPN: пробный доступ, tg {telegram_id}",
+                proxies=PROXIES, inbounds=INBOUNDS, note=f"{NAME}: пробный доступ, tg {telegram_id}",
             )
             access = await _access(username)
         _store().add(telegram_id, username)
@@ -179,7 +179,7 @@ async def on_callback(tg: Tg, call: dict) -> None:
             await alert(texts.ALREADY)
             await tg.edit(chat, msg, texts.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])))
             return
-        until = texts.date_msk(access.expire) if access and access.expire else "—"
+        until = date_msk(access.expire) if access and access.expire else "—"
         _store().touch(user, call["from"].get("username"), name)
         # Меню обновляется на «доступ активен», а выдача приходит отдельным сообщением с конфетти.
         await show(texts.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])))

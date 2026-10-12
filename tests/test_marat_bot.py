@@ -429,3 +429,98 @@ def test_admin_screens_have_balanced_html(monkeypatch, tmp_path):
         checker.feed(text)
         assert not checker.stack, text
     app._store.cache_clear()
+
+
+# --- 12.10.2026: темы и второй заказчик («Ярослав VPN») ---
+
+import importlib  # noqa: E402
+import inspect  # noqa: E402
+import os  # noqa: E402
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+from marat_bot import themes  # noqa: E402
+from marat_bot.themes import classic, orbit  # noqa: E402
+
+
+def _theme_screens(theme):
+    now = int(time.time())
+    active = core.Access("corp_yar_1", "T", now + 86400 * 2 + 3600, "active", 2 * 1024**3, 10 * 1024**3)
+    limited = core.Access("corp_yar_1", "T", now + 3600, "limited", 10 * 1024**3, 10 * 1024**3)
+    return [
+        theme.welcome("<b>Яр</b>"), theme.welcome(None), theme.issued("1 января"), theme.ALREADY, theme.PICK_DEVICE,
+        theme.steps("Android", "https://x/sub/T"), theme.status(active, "L"), theme.status(limited, "L"),
+        theme.home(active), theme.home(limited), theme.tariffs(), theme.checkout("1 месяц", 199),
+        theme.referral("https://t.me/x"), theme.help_text(1), theme.HOW_IT_WORKS, theme.NEED_ACCESS, theme.ERROR,
+    ]
+
+
+def test_every_theme_has_the_full_interface():
+    for name in themes.THEMES:
+        assert themes.load(name)
+    try:
+        themes.load("nope")
+    except SystemExit as exc:
+        assert "nope" in str(exc)
+    else:
+        raise AssertionError("неизвестная тема должна останавливать службу")
+
+
+def test_orbit_screens_are_valid_html_and_unbranded():
+    import re
+    from html.parser import HTMLParser
+
+    for text in _theme_screens(orbit) + [orbit.DESCRIPTION, orbit.SHORT_DESCRIPTION]:
+        parser = HTMLParser()
+        stack = []
+        parser.handle_starttag = lambda tag, attrs: stack.append(tag)
+        parser.handle_endtag = lambda tag: stack.pop() == tag or (_ for _ in ()).throw(AssertionError(tag))
+        parser.feed(text)
+        assert not stack, text
+        assert set(re.findall(r"</?([a-z]+)", text)) <= {"b", "i", "code", "blockquote"}, text
+        assert "unlock" not in text.lower() and "анлок" not in text.lower(), text
+    assert "&lt;b&gt;Яр&lt;/b&gt;" in orbit.welcome("<b>Яр</b>")
+    assert len(orbit.SHORT_DESCRIPTION) <= 120 and len(orbit.DESCRIPTION) <= 512
+
+
+def test_orbit_looks_different_from_classic():
+    assert orbit.welcome("Яр") != classic.welcome("Яр")
+    same = {k for k in themes.BUTTON_KEYS if orbit.BUTTONS[k] == classic.BUTTONS[k]}
+    assert len(same) <= 4, same
+    assert "●" in orbit.status(core.Access("corp_yar_1", "T", int(time.time()) + 60, "active", 5 * 1024**3, 10 * 1024**3), "L")
+
+
+def test_theme_code_never_names_another_customer():
+    for module in (orbit, themes.common, sys.modules["marat_bot.keyboards"], admin):
+        source = inspect.getsource(module)
+        body = source.split('"""', 2)[-1] if source.startswith('"""') else source
+        assert "Марат" not in body and "corp_mrt" not in body, module.__name__
+
+
+def test_orbit_buttons_all_have_handlers(monkeypatch):
+    from marat_bot import app, keyboards as kb, texts
+
+    monkeypatch.setattr(texts, "BUTTONS", orbit.BUTTONS)
+    for markup in _all_keyboards():
+        for data in kb.callbacks(markup):
+            assert data in app.HANDLED or data.startswith(app.HANDLED_PREFIXES), data
+    assert kb.main(None)["inline_keyboard"][0][0]["text"].startswith("🚀")
+
+
+def _import_core(env):
+    code = "import marat_bot.core as c, marat_bot.texts as t; print(c.NAME, c.panel_username(8569423496), t.THEME)"
+    full_env = {**os.environ, "MARAT_DB": "/tmp/unused.sqlite3", **env}
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=full_env,
+                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def test_second_bot_is_configured_by_environment():
+    ok = _import_core({"MARAT_NAME": "Ярослав VPN", "MARAT_PREFIX": "corp_yar_", "MARAT_THEME": "orbit"})
+    assert ok.returncode == 0, ok.stderr
+    assert ok.stdout.split() == ["Ярослав", "VPN", "corp_yar_8569423496", "orbit"]
+    import re
+    assert re.fullmatch(r"(corp|exp|ind)_[a-z0-9_]{1,24}", "corp_yar_8569423496")
+    for bad in ("tg_", "corp_yaroslavvpn_", "corp_Yar_", "corp_yar"):
+        res = _import_core({"MARAT_PREFIX": bad})
+        assert res.returncode != 0 and "MARAT_PREFIX" in res.stderr, bad
+    assert _import_core({"MARAT_THEME": "neon"}).returncode != 0

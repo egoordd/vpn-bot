@@ -1,0 +1,27 @@
+[Unit]
+Description=Yaroslav VPN Telegram bot (free trial, no payments)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/vpn-bot
+EnvironmentFile=/etc/yaroslav-bot.env
+ExecStart=/opt/vpn-bot/.venv/bin/python -m marat_bot.app
+User=unlockapp
+Restart=always
+RestartSec=5
+StateDirectory=yaroslav-bot
+StateDirectoryMode=0750
+Environment=MARAT_DB=/var/lib/yaroslav-bot/users.sqlite3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+[Install]
+WantedBy=multi-user.target

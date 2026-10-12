@@ -1,22 +1,30 @@
-"""«Марат VPN» — отдельный бот с бесплатным пробным доступом (12.10.2026).
+"""Бот с бесплатным пробным доступом для заказчика (12.10.2026: «Марат VPN», затем «Ярослав VPN»).
 
 Без оплаты, без картинок и без упоминаний основного проекта. Пользователь
-получает учётку панели `corp_mrt_<telegram id>`: четыре зарубежных сервера
-(Польша, Финляндия-2, Нидерланды, США). Шлюз по шаблону `corp_mrt_*` отдаёт её
-как «Марат VPN»: по пункту на страну + «Авто-обход» + «Режим РУ-сервисов»,
-2 устройства, свой адрес подписки.
+получает учётку панели `<префикс><telegram id>` (у Марата `corp_mrt_`, у Ярослава
+`corp_yar_`): четыре зарубежных сервера (Польша, Финляндия-2, Нидерланды, США).
+Шлюз по шаблону префикса отдаёт её под названием бота: по пункту на страну +
+«Авто-обход» + «Режим РУ-сервисов», 2 устройства, свой адрес подписки.
+Каждый бот — своя служба с тем же кодом и своим окружением (MARAT_*).
 
 Здесь — чистая логика без Telegram и сети, чтобы её можно было проверить тестами.
 """
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-PREFIX = "corp_mrt_"
+# Один код — несколько ботов для разных заказчиков (12.10.2026: «Марат VPN», «Ярослав VPN»):
+# название, префикс учёток панели, адрес подписки и оформление задаются окружением службы.
+NAME = os.environ.get("MARAT_NAME", "Марат VPN").strip()
+PREFIX = os.environ.get("MARAT_PREFIX", "corp_mrt_").strip()
+if not re.fullmatch(r"corp_[a-z0-9]{1,8}_", PREFIX):
+    # Шлюз узнаёт ссылку только по имени вида corp_<…>; длинный префикс не влезет с Telegram ID.
+    raise SystemExit(f"MARAT_PREFIX должен быть вида corp_xxx_ (до 8 букв/цифр), а не {PREFIX!r}")
 TRIAL_DAYS = int(os.environ.get("MARAT_TRIAL_DAYS", "3"))
 TRIAL_TRAFFIC_BYTES = int(os.environ.get("MARAT_TRIAL_GB", "10")) * 1024**3
 DEVICES = int(os.environ.get("MARAT_DEVICES", "2"))
@@ -106,10 +114,10 @@ def time_left(expire: int, now: float | None = None) -> str:
     return f"{minutes} мин" if minutes else "меньше минуты"
 
 
-def bar(part: float, total: float, width: int = 10) -> str:
+def bar(part: float, total: float, width: int = 10, full: str = "▰", empty: str = "▱") -> str:
     """Полоска заполнения ▰▰▰▱▱▱ — для трафика."""
     filled = 0 if total <= 0 else min(width, max(0, round(width * part / total)))
-    return "▰" * filled + "▱" * (width - filled)
+    return full * filled + empty * (width - filled)
 
 
 def per_month(days: int, price: int) -> int:
