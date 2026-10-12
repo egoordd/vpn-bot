@@ -894,3 +894,12 @@ def test_explicit_auto_pool_keeps_both_transports_of_one_host():
     assert balancer["fallbackTag"] == "direct"
     assert auto["burstObservatory"]["pingConfig"]["sampling"] == 5
     assert auto["burstObservatory"]["pingConfig"]["timeout"] == "3s"
+
+
+def test_fallback_outbound_is_outside_the_pool_and_probe():
+    configs = xray_json.build_json_subscription([REALITY], hysteria=True, auto_pool=[GRPC], auto_udp=[FI3_HY2], auto_fallback=REALITY)
+    for config in configs[:2]:
+        tags = [o["tag"] for o in config["outbounds"]]
+        assert "fallback" in tags and config["routing"]["balancers"][0]["fallbackTag"] == "fallback"
+        assert [t for t in tags if t.startswith("proxy-")] == ["proxy-0", "proxy-1"]
+        assert config["observatory"]["subjectSelector"] == ["proxy-"]

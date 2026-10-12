@@ -816,6 +816,7 @@ def build_balancer_config(
     udp_override: str | list[str] | None = None,
     pool: list[str] | None = None,
     strategy_name: str | None = None,
+    fallback_uri: str | None = None,
 ) -> dict | None:
     """The one automatic entry: balances over one server per exit, healthiest first.
 
@@ -854,13 +855,18 @@ def build_balancer_config(
     if name == "competitor":
         # Все серверы упали — сайты без блокировок всё равно открываются напрямую.
         balancer["fallbackTag"] = "direct"
+    # Запасной выход вне пула: проба его не трогает, берётся, только когда не
+    # отвечает никто из пула (пул «через мост» — прямой сервер на этот случай).
+    fallback = build_outbound(fallback_uri, FALLBACK_TAG, hysteria=allowed) if fallback_uri else None
+    if fallback is not None:
+        balancer["fallbackTag"] = FALLBACK_TAG
     ru_exit = build_outbound(ru_via, RU_VIA_TAG) if ru_via else None
     return {
         "remarks": remarks,
         "log": {"loglevel": "warning"},
         "dns": _DNS,
         "inbounds": _INBOUNDS,
-        "outbounds": [*outbounds, *([ru_exit] if ru_exit else []), *_tail_outbounds()],
+        "outbounds": [*outbounds, *([fallback] if fallback else []), *([ru_exit] if ru_exit else []), *_tail_outbounds()],
         "routing": {
             **_split_routing(
                 {"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
@@ -872,6 +878,8 @@ def build_balancer_config(
         **prober,
     }
 
+
+FALLBACK_TAG = "fallback"
 
 # One per exit plus a UDP one. Measured, not guessed: see build_balancer_config.
 BALANCER_MAX_OUTBOUNDS = int(os.environ.get("BALANCER_MAX_OUTBOUNDS", "5"))
@@ -963,6 +971,7 @@ def build_json_subscription(
     auto_udp: str | list[str] | None = None,
     auto_pool: list[str] | None = None,
     auto_strategy: str | None = None,
+    auto_fallback: str | None = None,
 ) -> list[dict]:
     """Full JSON-array body: both balancers first, then each server on its own.
 
@@ -988,14 +997,14 @@ def build_json_subscription(
     """
     balancer = build_balancer_config(
         links, AUTO_REMARKS, exclude_hosts=exclude_from_balancer, hysteria=hysteria, udp_override=auto_udp,
-        pool=auto_pool, strategy_name=auto_strategy,
+        pool=auto_pool, strategy_name=auto_strategy, fallback_uri=auto_fallback,
     )
     if balancer is None:
         return []
     configs = [balancer]
     split = build_balancer_config(
         links, SPLIT_REMARKS, ru_apps_direct=True, exclude_hosts=exclude_from_balancer, hysteria=hysteria,
-        udp_override=auto_udp, pool=auto_pool, strategy_name=auto_strategy,
+        udp_override=auto_udp, pool=auto_pool, strategy_name=auto_strategy, fallback_uri=auto_fallback,
     )
     if split is not None:
         configs.append(split)

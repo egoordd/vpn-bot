@@ -2314,3 +2314,64 @@ def test_vk_relay_can_be_enabled_by_name_pattern(monkeypatch):
     names = [urllib.parse.unquote(l.rsplit("#", 1)[-1]) for l in links]
     assert any(n.endswith("✅ РУ сервисы · VK") for n in names), names
     assert not any("130.49.143.41" in l for l in links), "московский каскад заменён"
+
+
+# --- 12.10.2026: «Авто-обход» сначала через мост (домашние провайдеры режут прямые адреса) ---
+
+def _bridge(monkeypatch, users=frozenset({"tg_*"})):
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "CASCADE_ENABLED", True)
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_USERS", frozenset({"tg_*"}))
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_PBK", "pbk")
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_SID", "sid")
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_IDS", {
+        "78.17.154.225.sslip.io": "uuid-pl", "178.17.58.232.sslip.io": "uuid-de", US_HOST: "uuid-us",
+    })
+    monkeypatch.setattr(sub_gateway, "AUTO_BRIDGE_USERS", users)
+    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URIS", (FI3_AUTO,))
+    monkeypatch.setattr(sub_gateway, "COMPAT_USERS", frozenset())
+    upstream = "\n".join([_vless(NL_HOST, 2053), _vless("78.17.154.225.sslip.io"), _vless(US_HOST, 2102)])
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+
+
+def _auto_of(username):
+    body, _, is_json = sub_gateway.build_auto_json(_panel_token(username), hysteria=True)
+    assert is_json
+    return json.loads(body)
+
+
+def _proxies(config):
+    return [o for o in config["outbounds"] if o["tag"].startswith("proxy-")]
+
+
+def test_bridge_auto_uses_only_bridge_and_hysteria_with_a_direct_fallback(monkeypatch):
+    _bridge(monkeypatch)
+    for config in _auto_of("tg_42")[:2]:
+        proxies = _proxies(config)
+        ids = [o["settings"]["vnext"][0]["users"][0]["id"] for o in proxies if o["protocol"] == "vless"]
+        assert ids == ["uuid-pl", "uuid-de"], "только мост, без прямых и без США через мост"
+        assert [o["protocol"] for o in proxies][-1] == "hysteria"
+        fallback = next(o for o in config["outbounds"] if o["tag"] == "fallback")
+        assert fallback["settings"]["vnext"][0]["address"] not in ("212.233.122.241", "130.49.143.41")
+        assert config["routing"]["balancers"][0]["fallbackTag"] == "fallback"
+        assert not any(t.startswith("fallback") for t in config["observatory"]["subjectSelector"])
+
+
+def test_bridge_auto_is_off_for_others_and_without_bridge_entries(monkeypatch):
+    _bridge(monkeypatch, users=frozenset({"exp_ruvk_1"}))
+    config = _auto_of("tg_42")[0]
+    assert "fallbackTag" not in config["routing"]["balancers"][0]
+    assert any(o["settings"].get("vnext", [{}])[0].get("address") == "107.189.22.160" for o in _proxies(config)), "обычный пул"
+    _bridge(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_IDS", {})
+    config = _auto_of("tg_42")[0]
+    assert "fallbackTag" not in config["routing"]["balancers"][0], "моста нет в ссылке — обычный автовыбор"
+
+
+def test_bridge_pool_never_applies_to_corporate_or_individual_links(monkeypatch):
+    _bridge(monkeypatch, users=frozenset({"*", "tg_*", "corp_*", "ind_*"}))
+    links = ["vless://uuid-pl@212.233.122.241:443?security=reality#a"]
+    assert sub_gateway.bridge_auto_pool(links, "corp_unl_vpn") is None
+    assert sub_gateway.bridge_auto_pool(links, "ind_de_2") is None
+    assert sub_gateway.bridge_auto_pool(links, "tg_1")[0] == links

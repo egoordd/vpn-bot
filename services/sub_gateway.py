@@ -1304,6 +1304,49 @@ def auto_udp_for(username: str | None) -> list[str]:
     return [pin_address(uri) for uri in AUTO_HY2_URIS]
 
 
+# «Авто-обход» сначала через российский мост (12.10.2026). Домашние провайдеры режут
+# TCP к нашим зарубежным адресам: по Wi-Fi Билайна любой протокол к Польше,
+# Нидерландам, США давал 4–6 Мбит/с при линии 45–50 (четыре загрузки разом — те же
+# ~7, режется адрес целиком), а через VK-мост — 37–46, Hysteria2 — 31–34. Задержка у
+# порезанного пути нормальная, поэтому автовыбор по пингу попадал на него почти
+# наугад. Для этих ссылок пул — мост (страны AUTO_BRIDGE_EXITS) и Hysteria2, а прямой
+# сервер остаётся запасным выходом, если не отвечает никто из пула.
+AUTO_BRIDGE_USERS = _names(os.environ.get("AUTO_BRIDGE_USERS", ""))
+AUTO_BRIDGE_EXITS = tuple(
+    host.strip()
+    for host in os.environ.get("AUTO_BRIDGE_EXITS", "78.17.154.225.sslip.io,178.17.58.232.sslip.io").split(",")
+    if host.strip()
+)
+
+
+def _uri_userinfo(uri: str) -> str | None:
+    rest = uri.split("://", 1)[-1]
+    return rest.split("@", 1)[0] if "@" in rest else None
+
+
+def bridge_auto_pool(links: list[str], username: str | None) -> tuple[list[str], str | None] | None:
+    """(пул «Авто-обхода» из входов моста, запасной прямой вход) или None — обычный автовыбор."""
+    if not username or username.startswith(("corp_", "ind_")) or not name_matches(AUTO_BRIDGE_USERS, username):
+        return None
+    wanted = [VK_RELAY_IDS[host] for host in AUTO_BRIDGE_EXITS if host in VK_RELAY_IDS]
+    bridge_ids = set(VK_RELAY_IDS.values())
+    found: dict[str, str] = {}
+    for link in links:
+        uid = _uri_userinfo(link)
+        if uid in wanted and uid not in found:
+            found[uid] = link
+    pool = [found[uid] for uid in wanted if uid in found]
+    if not pool:
+        return None
+    relays = {pin_host(VK_RELAY_HOST), pin_host(RU_RELAY_HOST)}
+    fallback = next(
+        (link for link in links
+         if _is_reality_tcp(link) and _uri_userinfo(link) not in bridge_ids and _uri_host(link) not in relays),
+        None,
+    )
+    return pool, fallback
+
+
 def _is_reality_tcp(uri: str) -> bool:
     if not uri.startswith("vless://"):
         return False
@@ -1774,9 +1817,11 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
         configs = build_individual_subscription(links, ru_exit, hysteria=hysteria)
     else:
         compat = compat_enabled_for(username)
+        bridge = None if compat else bridge_auto_pool(links, username)
         configs = build_json_subscription(
             links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria, auto_udp=auto_udp_for(username),
-            auto_pool=compat_auto_pool(links) if compat else None, auto_strategy="competitor" if compat else None,
+            auto_pool=compat_auto_pool(links) if compat else (bridge[0] if bridge else None),
+            auto_strategy="competitor" if compat else None, auto_fallback=bridge[1] if bridge else None,
         )
     if configs:
         # Compact separators, because the size of this body decides whether a
