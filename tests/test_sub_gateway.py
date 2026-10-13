@@ -2383,3 +2383,55 @@ def test_bridge_fallback_skips_hosts_kept_out_of_auto(monkeypatch):
              "vless://u@2.59.162.34:2101?security=reality#lt", "vless://u@78.17.154.225:2087?security=reality#pl"]
     assert sub_gateway.bridge_auto_pool(links, "tg_1")[1].endswith("#lt")
     assert sub_gateway.bridge_auto_pool(links, "tg_1", frozenset({"2.59.162.34"}))[1].endswith("#pl")
+
+
+# --- 13.10.2026: ссылка «только Германия и Нидерланды, без российских серверов» ---
+
+NLH1_HOST = "13.141.51.245.sslip.io"
+DE_EXIT = "178.17.58.232.sslip.io"
+
+
+def _foreign(monkeypatch, name="exp_denl_7d"):
+    _bridge(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "AUTO_HY2_URIS", (
+        f"hysteria2://unl_auto:pw2@{NLH1_HOST}:443?sni={NLH1_HOST}&insecure=0#nlh1", FI3_AUTO,
+    ))
+    monkeypatch.setattr(sub_gateway, "VK_RELAY_USERS", frozenset({"tg_*", "exp_*"}))
+    monkeypatch.setattr(sub_gateway, "AUTO_BRIDGE_USERS", frozenset({"tg_*", "exp_*"}))
+    monkeypatch.setattr(sub_gateway, "DE_VIA_UUID", "de-via-uuid")
+    monkeypatch.setattr(sub_gateway, "DE_VIA_PBK", "pbk")
+    monkeypatch.setattr(sub_gateway, "DE_VIA_EXIT_HOST", DE_EXIT)
+    monkeypatch.setattr(sub_gateway, "FOREIGN_ONLY_USERS", {name: frozenset({NL_HOST, DE_EXIT, NLH1_HOST})})
+    upstream = "\n".join([
+        _vless(NL_HOST, 2053), f"vless://uuid@{NL_HOST}:2100?security=reality&type=xhttp#xhttp",
+        _vless("78.17.154.225.sslip.io"), _vless(US_HOST, 2102),
+    ])
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+
+
+def test_foreign_only_link_lists_only_germany_and_netherlands(monkeypatch):
+    _foreign(monkeypatch)
+    links, _ = sub_gateway.resolve_links(_panel_token("exp_denl_7d"))
+    endpoints = sorted(sub_gateway._uri_endpoint(l) for l in links)
+    assert endpoints == [("107.189.22.160.sslip.io", 2053), ("78.17.154.225.sslip.io", 2120)], endpoints
+    assert not any(h in "".join(links) for h in ("212.233.122.241", "130.49.143.41", "172.86.119.133")), "без РФ и чужих стран"
+
+
+def test_foreign_only_auto_has_no_russian_paths_and_no_ru_mode(monkeypatch):
+    _foreign(monkeypatch)
+    configs = _auto_of("exp_denl_7d")
+    remarks = [c["remarks"] for c in configs]
+    assert not any("РУ" in r for r in remarks), remarks
+    auto = configs[0]
+    body = json.dumps(auto)
+    assert "212.233.122.241" not in body and "130.49.143.41" not in body
+    assert "89.125.86.10" not in body, "Hysteria2 Финляндии не нужна — только Нидерланды"
+    addresses = sorted({(o["settings"].get("vnext") or [o["settings"]])[0].get("address") for o in _proxies(auto)})
+    assert addresses == ["107.189.22.160", "13.141.51.245", "78.17.154.225"], addresses
+    assert "fallbackTag" not in auto["routing"]["balancers"][0]
+
+
+def test_other_links_are_unaffected_by_foreign_only(monkeypatch):
+    _foreign(monkeypatch)
+    links, _ = sub_gateway.resolve_links(_panel_token("exp_other_1"))
+    assert any("212.233.122.241" in l for l in links), "обычная ссылка по-прежнему с мостом"

@@ -1215,6 +1215,28 @@ def _host_sets(raw: str) -> dict[str, frozenset[str]]:
 USER_SHARED_CORP_HOSTS = _host_sets(os.environ.get("USER_SHARED_CORP_HOSTS", ""))
 USER_HIDDEN_EXITS = _host_sets(os.environ.get("USER_HIDDEN_EXITS", ""))
 
+# Ссылки «только эти страны» (13.10.2026, тест «Германия + Нидерланды, без российских
+# серверов»): остаются только выходы из списка, без каскадов через Москву и VK, без
+# входа «📶 Мобильный интернет» и без «Режима РУ-сервисов»; по пункту на сервер.
+# Германия считается по выходу: из России её достают через польский релей.
+FOREIGN_ONLY_USERS = _host_sets(os.environ.get("FOREIGN_ONLY_USERS", ""))
+
+
+def foreign_exits_for(username: str | None) -> frozenset[str] | None:
+    return pick_for(FOREIGN_ONLY_USERS, username)
+
+
+def _link_exit(link: str) -> str | None:
+    """Где трафик выходит в интернет: вход через польский релей — в Германии."""
+    if _uri_endpoint(link) == (DE_VIA_HOST, DE_VIA_PORT):
+        return DE_VIA_EXIT_HOST
+    return _uri_host(link)
+
+
+def foreign_only_links(links: list[str], exits: frozenset[str]) -> list[str]:
+    return compact_links([link for link in links if _link_exit(link) in exits])
+
+
 # Ссылки «один сервер — один пункт» (11.10.2026, «UNL VPN»: владельцу не нужно
 # «множество протоколов»). По каждому серверу остаётся только VLESS Reality поверх
 # TCP — основной протокол, который понимает любой Happ; без XHTTP, Hysteria2,
@@ -1768,7 +1790,10 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     combined = [link for link in combined if _uri_host(link) not in hidden]
     if not combined:
         return [], userinfo
-    if name_matches(COMPACT_USERS, username):
+    exits = foreign_exits_for(username)
+    if exits is not None:
+        combined = foreign_only_links(combined + build_de_via_links(combined), exits)
+    elif name_matches(COMPACT_USERS, username):
         combined = compact_links(combined)
     elif corporate:
         combined = combined + build_corp_hy2_links(username, combined)
@@ -1822,10 +1847,15 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
     else:
         compat = compat_enabled_for(username)
         bridge = None if compat else bridge_auto_pool(links, username, balancer_exclusions())
+        exits = foreign_exits_for(username)
+        udp = auto_udp_for(username)
+        if exits is not None:
+            udp = [uri for uri in udp if pin_host(_uri_host(uri) or "") in {pin_host(h) for h in exits}]
         configs = build_json_subscription(
-            links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria, auto_udp=auto_udp_for(username),
+            links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria, auto_udp=udp,
             auto_pool=compat_auto_pool(links) if compat else (bridge[0] if bridge else None),
             auto_strategy="competitor" if compat else None, auto_fallback=bridge[1] if bridge else None,
+            split=exits is None,
         )
     if configs:
         # Compact separators, because the size of this body decides whether a

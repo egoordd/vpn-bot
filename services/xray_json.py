@@ -972,6 +972,7 @@ def build_json_subscription(
     auto_pool: list[str] | None = None,
     auto_strategy: str | None = None,
     auto_fallback: str | None = None,
+    split: bool = True,
 ) -> list[dict]:
     """Full JSON-array body: both balancers first, then each server on its own.
 
@@ -1002,12 +1003,13 @@ def build_json_subscription(
     if balancer is None:
         return []
     configs = [balancer]
-    split = build_balancer_config(
+    # split=False — ссылка без «Режима РУ-сервисов» (только зарубежные выходы по просьбе клиента).
+    ru_mode = build_balancer_config(
         links, SPLIT_REMARKS, ru_apps_direct=True, exclude_hosts=exclude_from_balancer, hysteria=hysteria,
         udp_override=auto_udp, pool=auto_pool, strategy_name=auto_strategy, fallback_uri=auto_fallback,
-    )
-    if split is not None:
-        configs.append(split)
+    ) if split else None
+    if ru_mode is not None:
+        configs.append(ru_mode)
     for index, uri in enumerate(links):
         server = build_server_config(uri, index, hysteria=hysteria)
         if server is not None:
