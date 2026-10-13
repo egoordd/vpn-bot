@@ -2029,6 +2029,110 @@ def happ_redirect_page(sub_url: str) -> str:
     return app_redirect_page("happ", sub_url)
 
 
+# Страница выбора приложения (14.10.2026, «Etalon VPN»): ссылка подписки, открытая
+# в браузере, показывает Happ, INCY и V2Box — каждое забирает подписку само. Для
+# ссылок из PICKER_USERS вместо переброски сразу в Happ; адрес страницы — тот же
+# /sub/<токен>, поэтому на фронтах (VK, Caddy) ничего добавлять не нужно.
+PICKER_USERS = _names(os.environ.get("PICKER_USERS", ""))
+# Цвет главной кнопки по шаблону учётки: «corp_mrt_*:#D4B06A».
+PICKER_ACCENTS = {
+    name: color.strip()
+    for name, color in _logins(os.environ.get("PICKER_ACCENTS", "")).items()
+    if re.fullmatch(r"#[0-9A-Fa-f]{6}", color.strip())
+}
+
+# (название, подпись, ссылка импорта, магазины: iPhone, Android, компьютер).
+# V2Box берёт подписку параметром url — адрес кодируется целиком (иначе «?» и «/»
+# ломают разбор); Happ и INCY — адрес как есть после add/.
+_PICKER_APPS = (
+    ("Happ", "Рекомендуем · есть Авто-обход", lambda url, title: f"happ://add/{url}", (
+        "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215",
+        "https://play.google.com/store/apps/details?id=com.happproxy",
+        "https://github.com/Happ-proxy/happ-desktop/releases/latest",
+    )),
+    ("INCY", "Есть в российском App Store · есть Авто-обход", lambda url, title: f"incy://add/{url}", (
+        "https://apps.apple.com/ru/app/incy/id6756943388",
+        "https://play.google.com/store/apps/details?id=llc.itdev.incy",
+        "https://incy.cc",
+    )),
+    ("V2Box", "Простой клиент · страны по отдельности",
+     lambda url, title: "v2box://install-sub?url=" + urllib.parse.quote(url, safe="")
+     + "&name=" + urllib.parse.quote(title, safe=""), (
+        "https://apps.apple.com/app/v2box-v2ray-client/id6446814690",
+        "https://play.google.com/store/apps/details?id=dev.hexasoftware.v2box",
+        "https://apps.apple.com/app/v2box-v2ray-client/id6446814690",
+    )),
+)
+
+
+def _ink_for(color: str) -> str:
+    """Тёмный или белый текст на кнопке — по яркости фона."""
+    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    return "#14171f" if (0.299 * r + 0.587 * g + 0.114 * b) > 150 else "#ffffff"
+
+
+def app_picker_page(sub_url: str, title: str, accent: str = "#1f2a44") -> str:
+    """Выбор приложения для импорта подписки: Happ, INCY, V2Box + копирование ссылки."""
+    esc = lambda value: html.escape(value, quote=True)  # noqa: E731
+    ink = _ink_for(accent)
+    cards = "".join(
+        "<div class=\"app\">"
+        f"<div class=\"app__head\"><b>{esc(name)}</b><span>{esc(note)}</span></div>"
+        f"<a class=\"btn{' btn--main' if index == 0 else ''}\" href=\"{esc(link(sub_url, title))}\">"
+        f"Добавить в {esc(name)}</a>"
+        f"<a class=\"get\" data-ios=\"{esc(stores[0])}\" data-android=\"{esc(stores[1])}\" "
+        f"data-desktop=\"{esc(stores[2])}\" href=\"{esc(stores[0])}\" target=\"_blank\" rel=\"noopener\">"
+        f"Скачать {esc(name)}</a></div>"
+        for index, (name, note, link, stores) in enumerate(_PICKER_APPS)
+    )
+    return (
+        "<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        f"<meta name=\"theme-color\" content=\"{esc(accent)}\"><title>{esc(title)} — подключение</title><style>"
+        "*{box-sizing:border-box;margin:0}"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f5f8;"
+        "color:#14171f;padding:32px 16px 40px;line-height:1.5}"
+        ".wrap{max-width:460px;margin:0 auto}"
+        f"h1{{font-size:26px;line-height:1.2}}.brand{{color:{esc(accent)};font-weight:800;font-size:14px;"
+        "letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}"
+        ".lead{color:#596079;margin:8px 0 22px}"
+        ".app{background:#fff;border:1px solid #e3e6ee;border-radius:18px;padding:16px;margin-bottom:12px;"
+        "box-shadow:0 10px 24px -20px rgba(20,23,31,.45)}"
+        ".app__head{display:flex;flex-direction:column;margin-bottom:12px}.app__head b{font-size:18px}"
+        ".app__head span{color:#6b7189;font-size:13px}"
+        ".btn{display:block;text-align:center;padding:13px 16px;border-radius:12px;text-decoration:none;"
+        "font-weight:700;background:#eef0f5;color:#14171f}"
+        f".btn--main{{background:{esc(accent)};color:{ink}}}"
+        ".get{display:inline-block;margin-top:10px;font-size:13px;color:#596079}"
+        ".copy{margin-top:22px;background:#fff;border:1px dashed #cfd4e0;border-radius:16px;padding:14px}"
+        ".copy p{font-size:13px;color:#596079;margin-bottom:8px}"
+        ".copy code{display:block;word-break:break-all;font-size:12px;background:#f4f5f8;padding:10px;"
+        "border-radius:10px;margin-bottom:10px}"
+        ".copy button{width:100%;padding:12px;border:0;border-radius:12px;font:inherit;font-weight:700;"
+        "background:#14171f;color:#fff;cursor:pointer}"
+        ".foot{margin-top:18px;font-size:13px;color:#7c8299;text-align:center}"
+        "</style></head><body><main class=\"wrap\">"
+        f"<p class=\"brand\">{esc(title)}</p><h1>Подключение</h1>"
+        "<p class=\"lead\">Выберите приложение — подписка добавится в него сама. "
+        "Если приложения ещё нет, сначала скачайте его, затем вернитесь на эту страницу.</p>"
+        f"{cards}"
+        "<div class=\"copy\"><p>Или вставьте ссылку в приложение вручную («+» → «Вставить из буфера»):</p>"
+        f"<code id=\"sub\">{esc(sub_url)}</code><button type=\"button\" id=\"copy\">Скопировать ссылку</button></div>"
+        "<p class=\"foot\">Ссылка личная — не передавайте её другим.</p></main>"
+        "<script>(function(){var ua=navigator.userAgent.toLowerCase();"
+        "var os=/iphone|ipad|ipod/.test(ua)||(ua.indexOf('mac')>-1&&'ontouchend' in document)?'ios':"
+        "ua.indexOf('android')>-1?'android':'desktop';"
+        "document.querySelectorAll('.get').forEach(function(a){a.href=a.getAttribute('data-'+os);});"
+        "var b=document.getElementById('copy');b.addEventListener('click',function(){"
+        "var t=document.getElementById('sub').textContent;"
+        "(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){"
+        "b.textContent='Скопировано';},function(){var r=document.createRange();"
+        "r.selectNodeContents(document.getElementById('sub'));var s=getSelection();s.removeAllRanges();"
+        "s.addRange(r);b.textContent='Выделено — скопируйте';});});})();</script>"
+        "</body></html>"
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "subgw"
     # A stalled client must die in its own handler thread, not hold a socket
@@ -2085,6 +2189,12 @@ class Handler(BaseHTTPRequestHandler):
         # A browser gets the connect landing; VPN clients get the raw config.
         if _TOKEN_RE.match(token) and _is_browser(self.headers.get("User-Agent", "")):
             base = public_base_for(token, self.headers.get("Host", ""))
+            username = _token_username(token)
+            if name_matches(PICKER_USERS, username):
+                sub_url = f"{base}/sub/{token}" + (f"/{flavor}" if flavor else "")
+                page = app_picker_page(sub_url, page_title(token), pick_for(PICKER_ACCENTS, username, "#1f2a44"))
+                self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
+                return
             # Stay on this host. Sending the browser to the marketing site made
             # a pasted subscription link only as reachable as that site: while
             # the old domain was filtered a user got a plain timeout, and once

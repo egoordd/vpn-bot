@@ -2470,3 +2470,53 @@ def test_foreign_link_falls_back_to_direct_entries_when_vk_is_dead(monkeypatch):
     monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {"212.233.122.241.sslip.io"})
     links, _ = sub_gateway.resolve_links(_panel_token("exp_denl_7d"))
     assert links and not any("212.233.122.241" in l for l in links)
+
+
+# --- 14.10.2026: страница выбора приложения для ссылок Etalon (Happ, INCY, V2Box) ---
+
+SAFARI = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+
+
+def _picker_env(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "PICKER_USERS", frozenset({"corp_mrt_*"}))
+    monkeypatch.setattr(sub_gateway, "PICKER_ACCENTS", {"corp_mrt_*": "#D4B06A"})
+    monkeypatch.setattr(sub_gateway, "SUB_TITLES", {"corp_mrt_*": "Etalon VPN"})
+    monkeypatch.setattr(sub_gateway, "SUB_BASES", {"corp_mrt_*": "https://m.example.test"})
+
+
+def test_browser_gets_the_app_picker_for_picker_links(monkeypatch):
+    _picker_env(monkeypatch)
+    token = _panel_token(MRT)
+    handler = _FakeHandler(f"/sub/{token}", {"User-Agent": SAFARI, "Host": "gw.example"})
+    handler.do_GET()
+    page = handler.sent["body"].decode()
+    sub = f"https://m.example.test/sub/{token}"
+    assert handler.sent["code"] == 200 and handler.sent["ctype"].startswith("text/html")
+    assert f'href="happ://add/{sub}"' in page and f'href="incy://add/{sub}"' in page
+    v2box = "v2box://install-sub?url=" + urllib.parse.quote(sub, safe="") + "&amp;name=Etalon%20VPN"
+    assert f'href="{v2box}"' in page
+    assert "Etalon VPN" in page and "#D4B06A" in page and "unlock" not in page.lower()
+    assert page.count("Скачать ") == 3 and "Скопировать ссылку" in page
+
+
+def test_picker_keeps_the_flavor_in_the_imported_link(monkeypatch):
+    _picker_env(monkeypatch)
+    token = _panel_token(MRT)
+    handler = _FakeHandler(f"/sub/{token}/auto", {"User-Agent": SAFARI})
+    handler.do_GET()
+    assert f"happ://add/https://m.example.test/sub/{token}/auto" in handler.sent["body"].decode()
+
+
+def test_other_links_still_bounce_the_browser_to_happ(monkeypatch):
+    _picker_env(monkeypatch)
+    redirects = []
+    handler = _FakeHandler(f"/sub/{_panel_token('tg_1')}", {"User-Agent": SAFARI, "Host": "gw.example"})
+    handler.send_response = lambda code: redirects.append(code)
+    handler.send_header = lambda name, value: redirects.append((name, value))
+    handler.end_headers = lambda: None
+    handler.do_GET()
+    assert redirects[0] == 302 and any(h == "Location" and "/happ/" in v for h, v in redirects[1:])
+
+
+def test_picker_page_picks_readable_text_on_the_accent():
+    assert sub_gateway._ink_for("#D4B06A") == "#14171f" and sub_gateway._ink_for("#0F1A33") == "#ffffff"
