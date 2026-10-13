@@ -1,0 +1,47 @@
+.cta {
+  padding: 0 0 var(--space-section);
+  background: var(--pearl-2);
+}
+.cta__card {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 22px;
+  padding: clamp(3.5rem, 2rem + 6vw, 7rem) var(--gutter);
+  border-radius: 44px;
+  color: var(--ivory);
+  background:
+    radial-gradient(50% 70% at 50% 0%, rgb(201 164 92 / 0.24), transparent 60%),
+    radial-gradient(60% 80% at 0% 100%, rgb(78 111 168 / 0.35), transparent 60%),
+    linear-gradient(160deg, var(--navy-2), var(--navy));
+  box-shadow: var(--shadow-deep);
+}
+.cta__card::before {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  border-radius: 32px;
+  border: 1px solid rgb(201 164 92 / 0.35);
+  pointer-events: none;
+}
+.cta__key {
+  height: 92px;
+  width: auto;
+  color: var(--gold);
+  filter: drop-shadow(0 16px 30px rgb(201 164 92 / 0.35));
+}
+.cta__overline {
+  color: var(--gold-light);
+}
+.cta h2 {
+  color: var(--white);
+}
+.cta h2 em {
+  color: var(--gold);
+}
+.cta p {
+  color: rgb(246 240 228 / 0.75);
+  max-width: 40ch;
+}

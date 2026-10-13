@@ -1,0 +1,151 @@
+.pricing {
+  background: var(--pearl);
+}
+.pricing__head {
+  margin-inline: auto;
+  text-align: center;
+  justify-items: center;
+}
+.pricing__head em {
+  color: var(--gold-deep);
+}
+.plans {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.plan {
+  position: relative;
+  display: grid;
+  align-content: start;
+  padding: 40px 32px 34px;
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  border: 1px solid var(--hair);
+  box-shadow: var(--shadow-soft);
+  transition: transform 500ms var(--ease-out), box-shadow 500ms var(--ease-out), border-color 500ms ease;
+}
+.plan:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow-deep);
+  border-color: var(--hair-gold);
+}
+.plan__term {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.plan__price {
+  margin-top: 26px;
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: clamp(3.2rem, 2.6rem + 1.6vw, 4.2rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.plan__price span {
+  margin-left: 6px;
+  font-size: 0.5em;
+  color: var(--ink-soft);
+}
+.plan__per {
+  margin-top: 10px;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--hair);
+}
+.plan__per {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.plan__save {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--hair-gold);
+  color: var(--gold-deep);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.plan--signature .plan__save {
+  color: var(--navy);
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  border-color: transparent;
+}
+.plan__cta {
+  margin-top: 28px;
+  width: 100%;
+}
+.plan--signature {
+  color: var(--ivory);
+  background:
+    radial-gradient(90% 70% at 100% 0%, rgb(201 164 92 / 0.22), transparent 60%),
+    linear-gradient(160deg, var(--navy-2), var(--navy));
+  border-color: rgb(201 164 92 / 0.55);
+  box-shadow: var(--shadow-deep);
+}
+.plan--signature .plan__term {
+  color: var(--gold-light);
+}
+.plan--signature .plan__price {
+  color: var(--white);
+}
+.plan--signature .plan__price span,
+.plan--signature .plan__per {
+  color: rgb(246 240 228 / 0.7);
+}
+.plan--signature .plan__per {
+  border-bottom-color: rgb(255 255 255 / 0.14);
+}
+.plan__badge {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.1rem;
+  color: var(--gold);
+}
+.plan__badge-key {
+  height: 20px;
+  width: auto;
+  color: var(--gold);
+}
+.pricing__trial {
+  margin-top: 40px;
+  text-align: center;
+  color: var(--ink-soft);
+}
+.pricing__trial span {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.15rem;
+  color: var(--gold-deep);
+  margin-right: 6px;
+}
+.pricing__trial a {
+  color: var(--navy);
+  font-weight: 600;
+  background: linear-gradient(var(--gold), var(--gold)) left bottom / 100% 1px no-repeat;
+}
+@media (max-width: 1080px) {
+  .plans {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 560px) {
+  .plans {
+    grid-template-columns: 1fr;
+  }
+}

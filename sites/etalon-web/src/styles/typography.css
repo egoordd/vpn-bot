@@ -1,54 +1,53 @@
-/* Заголовки — фирменный округлый M PLUS Rounded 1c, текст — Manrope, табло — моноширинный. */
+/* Антиква (Cormorant Garamond) — заголовки и цифры; Manrope — текст; бренд — округлый M PLUS. */
 h1,
 h2,
-h3,
-h4 {
-  font-family: var(--font-display);
-  font-weight: 800;
-  line-height: 1.06;
-  letter-spacing: -0.015em;
+h3 {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
   color: var(--ink);
   text-wrap: balance;
   margin: 0;
+}
+h1 em,
+h2 em,
+h3 em {
+  font-style: italic;
+  font-weight: 500;
 }
 h2 {
   font-size: var(--text-h2);
 }
 h3 {
   font-size: var(--text-h3);
-  font-weight: 700;
 }
 p {
   margin: 0;
   text-wrap: pretty;
 }
 
-.eyebrow {
+/* малые прописные с разрядкой — подписи разделов */
+.overline {
   display: inline-flex;
   align-items: center;
-  gap: 0.6em;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 0.78rem;
-  letter-spacing: 0.22em;
+  gap: 14px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.32em;
   text-transform: uppercase;
   color: var(--gold-deep);
 }
-.eyebrow::before {
+.overline::before {
   content: "";
-  width: 22px;
-  height: 2px;
-  border-radius: 2px;
+  width: 34px;
+  height: 1px;
   background: currentColor;
 }
 
 .lead {
   font-size: var(--text-lead);
   color: var(--ink-soft);
-  line-height: 1.6;
-}
-
-.board-font {
-  font-family: var(--font-board);
-  letter-spacing: 0.06em;
+  line-height: 1.65;
 }

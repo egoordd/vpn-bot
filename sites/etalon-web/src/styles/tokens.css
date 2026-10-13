@@ -1,56 +1,57 @@
 /*
- * Etalon VPN — «рейс в свободный интернет».
- * Небо светло-голубое (основная тема), чернила — фирменный тёмно-синий,
- * золото ключа — акцент «первого класса». Табло — тёмно-синее с золотыми буквами.
+ * Etalon VPN — премиальная светлая тема.
+ * Жемчужно-голубой фон, глубокий тёмно-синий текст, золото — только тонкие линии
+ * и детали. Антиква в заголовках, гротеск в тексте, много воздуха.
  */
 :root {
   color-scheme: light;
 
-  --sky-50: #F4F9FF;
-  --sky-100: #E8F2FF;
-  --sky-200: #D2E6FF;
-  --sky-300: #B4D4FA;
-  --sky-500: #5E9BE6;
-  --sky-600: #3B7BD0;
+  --pearl: #F5F8FC;
+  --pearl-2: #EDF3FA;
+  --mist: #E2ECF7;
+  --frost: #D3E2F2;
+  --azure: #9DBFE3;
 
-  --navy: #0F1A33;
-  --navy-2: #1B2A4F;
-  --navy-3: #2B3B63;
-  --ink: #0F1A33;
-  --ink-soft: #4A5878;
-  --ink-dim: #7C88A3;
+  --navy: #0B1530;
+  --navy-2: #15224A;
+  --navy-3: #22315E;
+  --ink: #0B1530;
+  --ink-soft: #46526F;
+  --ink-dim: #808BA6;
 
-  --gold: #D4B06A;
-  --gold-deep: #B08A43;
-  --gold-soft: #F1E3C2;
-  --ivory: #F4ECDD;
+  --gold: #C9A45C;
+  --gold-light: #E7D3A2;
+  --gold-deep: #A8843F;
+  --ivory: #F6F0E4;
   --white: #FFFFFF;
 
-  --line: rgb(15 26 51 / 0.09);
-  --line-strong: rgb(15 26 51 / 0.16);
-  --dash: rgb(15 26 51 / 0.22);
+  --hair: rgb(11 21 48 / 0.1);
+  --hair-strong: rgb(11 21 48 / 0.18);
+  --hair-gold: rgb(201 164 92 / 0.55);
+  --glass: rgb(255 255 255 / 0.62);
+  --glass-line: rgb(255 255 255 / 0.85);
 
-  --shadow-card: 0 1px 2px rgb(30 70 140 / 0.06), 0 22px 50px -28px rgb(30 70 140 / 0.38);
-  --shadow-lift: 0 2px 6px rgb(30 70 140 / 0.08), 0 40px 80px -38px rgb(30 70 140 / 0.55);
-  --shadow-gold: 0 16px 34px -16px rgb(176 138 67 / 0.75);
+  --shadow-soft: 0 1px 1px rgb(20 40 80 / 0.04), 0 24px 60px -36px rgb(20 40 80 / 0.35);
+  --shadow-deep: 0 2px 4px rgb(20 40 80 / 0.05), 0 50px 100px -50px rgb(20 40 80 / 0.55);
 
-  --font-display: "M PLUS Rounded 1c", "SF Pro Rounded", system-ui, sans-serif;
-  --font-body: var(--font-manrope), "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-board: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-serif: var(--font-cormorant), "Cormorant Garamond", "Times New Roman", serif;
+  --font-sans: var(--font-manrope), "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-brand: "M PLUS Rounded 1c", var(--font-manrope), system-ui, sans-serif;
 
+  --text-xs: 0.74rem;
   --text-sm: clamp(0.875rem, 0.85rem + 0.12vw, 0.94rem);
   --text-base: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
-  --text-lead: clamp(1.08rem, 1rem + 0.4vw, 1.28rem);
-  --text-h3: clamp(1.2rem, 1.1rem + 0.4vw, 1.4rem);
-  --text-h2: clamp(1.9rem, 1.4rem + 2.2vw, 3.1rem);
-  --text-hero: clamp(2.5rem, 1.5rem + 4.4vw, 5rem);
+  --text-lead: clamp(1.08rem, 1rem + 0.42vw, 1.3rem);
+  --text-h3: clamp(1.55rem, 1.3rem + 0.9vw, 2.1rem);
+  --text-h2: clamp(2.4rem, 1.6rem + 3.2vw, 4.4rem);
+  --text-hero: clamp(3rem, 1.6rem + 6.2vw, 7.2rem);
 
-  --space-section: clamp(4.5rem, 3rem + 6vw, 8.5rem);
-  --gutter: clamp(1rem, 0.6rem + 2vw, 2.5rem);
-  --max: 1200px;
-  --radius: 22px;
-  --radius-lg: 30px;
+  --space-section: clamp(5.5rem, 3.5rem + 8vw, 11rem);
+  --gutter: clamp(1.1rem, 0.6rem + 2.4vw, 3rem);
+  --max: 1240px;
+  --radius: 26px;
+  --radius-lg: 36px;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --duration: 700ms;
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
 }

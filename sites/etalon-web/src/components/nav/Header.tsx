@@ -37,8 +37,8 @@ export function Header() {
             </a>
           ))}
         </nav>
-        <Button href={botLink()} size="md" className="hdr__cta">
-          Получить билет
+        <Button href={botLink()} variant="outline" className="hdr__cta">
+          Попробовать
         </Button>
         <button
           type="button"
@@ -58,9 +58,7 @@ export function Header() {
               {l.label}
             </a>
           ))}
-          <Button href={botLink()} variant="gold">
-            3 дня бесплатно
-          </Button>
+          <Button href={botLink()}>3 дня бесплатно</Button>
         </nav>
       )}
     </header>

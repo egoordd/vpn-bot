@@ -1,25 +1,25 @@
 .logo {
   display: inline-flex;
   align-items: center;
-  gap: 0.6em;
-  font-family: var(--font-display);
+  gap: 0.65em;
+  font-family: var(--font-brand);
   font-weight: 800;
-  font-size: 1rem;
-  letter-spacing: 0.24em;
+  font-size: 0.98rem;
+  letter-spacing: 0.26em;
   color: var(--ink);
 }
 .logo__mark {
-  height: 1.9em;
+  height: 1.95em;
   width: auto;
   color: var(--gold);
-  transition: transform 300ms var(--ease-out);
+  transition: transform 400ms var(--ease-out);
 }
 .logo:hover .logo__mark {
-  transform: rotate(-8deg);
+  transform: rotate(-10deg);
 }
 .logo__upn {
   margin-left: 0.5em;
   color: var(--gold-deep);
   font-weight: 700;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.22em;
 }

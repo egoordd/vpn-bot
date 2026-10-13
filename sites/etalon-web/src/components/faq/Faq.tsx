@@ -1,18 +1,18 @@
 import { TRIAL_DAYS_LABEL } from "@/lib/tariffs";
-import "./help.css";
+import "./faq.css";
 
 const QUESTIONS = [
   {
     q: "Что такое автопилот?",
-    a: "Это первый пункт в списке приложения, со значком ⚡️. Он сам сверяет все серверы и держит соединение на самом быстром; если направление начнёт тормозить — перестроит маршрут без вашего участия.",
+    a: "Это первый пункт в списке приложения, со значком ⚡️. Он сам сверяет серверы и держит соединение на самом быстром, а если связь проседает — перестраивает маршрут без вашего участия.",
   },
   {
     q: "Будут ли работать банки и Госуслуги?",
     a: "Да. Выберите «🇷🇺 Режим РУ-сервисов» — российские сайты и приложения пойдут напрямую, а всё остальное — через VPN. Выключать VPN не придётся.",
   },
   {
-    q: "Сложно подключиться?",
-    a: "Нет. Нужно одно бесплатное приложение — Happ. Бот пришлёт ссылку на него и кнопку «Добавить в Happ», дальше всё работает само.",
+    q: "Как подключиться?",
+    a: "Нужно одно бесплатное приложение — Happ. Бот пришлёт ссылку на него и кнопку «Добавить в Happ», дальше всё работает само.",
   },
   {
     q: "Есть бесплатный период?",
@@ -28,21 +28,22 @@ const QUESTIONS = [
   },
 ];
 
-export function HelpDesk() {
+export function Faq() {
   return (
-    <section id="help" className="section help" aria-labelledby="help-title">
-      <div className="container help__layout">
+    <section id="faq" className="section faq" aria-labelledby="faq-title">
+      <div className="container faq__layout">
         <header className="section-head reveal">
-          <span className="eyebrow">Справочная</span>
-          <h2 id="help-title">Ответы до вылета</h2>
-          <p className="lead">Не нашли ответ — бот подскажет и поможет с подключением.</p>
+          <span className="overline">Вопросы</span>
+          <h2 id="faq-title">
+            Коротко <em>о главном</em>
+          </h2>
         </header>
-        <div className="help__list">
+        <div className="faq__list">
           {QUESTIONS.map((item, i) => (
-            <details key={item.q} className="help__item reveal" name="help" open={i === 0}>
+            <details key={item.q} className="faq__item reveal" name="faq" open={i === 0}>
               <summary>
                 <span>{item.q}</span>
-                <span className="help__icon" aria-hidden />
+                <span className="faq__icon" aria-hidden />
               </summary>
               <p>{item.a}</p>
             </details>

@@ -8,7 +8,9 @@ export function Footer() {
       <div className="container ftr__row">
         <div className="ftr__brand">
           <Logo />
-          <p>Etalon VPN — {SITE.tagline}.</p>
+          <p>
+            Интернет, <em>каким он должен быть</em>.
+          </p>
         </div>
         <nav className="ftr__nav" aria-label="Разделы">
           {NAV_LINKS.map((l) => (

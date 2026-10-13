@@ -1,12 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope } from "next/font/google";
+import { Cormorant_Garamond, Manrope } from "next/font/google";
 
 import { SITE } from "@/lib/site";
 import "./globals.css";
 
 const manrope = Manrope({ subsets: ["latin", "cyrillic"], display: "swap", variable: "--font-manrope" });
-// Фирменный M PLUS Rounded 1c подключён файлами из public/fonts (styles/fonts.css): у Google он
-// разбит на 378 кусков с японскими иероглифами, а нам нужны только латиница и кириллица.
+const cormorant = Cormorant_Garamond({
+  subsets: ["latin", "cyrillic"],
+  weight: ["500", "600"],
+  style: ["normal", "italic"],
+  display: "swap",
+  variable: "--font-cormorant",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE.url),
@@ -23,11 +28,11 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-export const viewport: Viewport = { themeColor: "#E8F2FF", colorScheme: "light" };
+export const viewport: Viewport = { themeColor: "#F5F8FC", colorScheme: "light" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={manrope.variable}>
+    <html lang="ru" className={`${manrope.variable} ${cormorant.variable}`}>
       <body>
         <a href="#main" className="skip-link">
           К основному содержимому
