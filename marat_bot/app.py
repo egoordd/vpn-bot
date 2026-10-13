@@ -15,6 +15,7 @@ from marat_bot import admin  # noqa: E402
 from marat_bot import docs  # noqa: E402
 from marat_bot import keyboards as kb  # noqa: E402
 from marat_bot import support  # noqa: E402
+from marat_bot import webapp  # noqa: E402
 from marat_bot import texts  # noqa: E402
 from marat_bot.core import (  # noqa: E402
     INBOUNDS, NAME, PLANS, PROXIES, TRIAL_TRAFFIC_BYTES, Access, Store, date_msk, happ_link, panel_username, sub_link,
@@ -309,6 +310,28 @@ async def _handle(tg: Tg, update: dict) -> None:
         log.exception("update %s failed", update.get("update_id"))
 
 
+WEBAPP_PORT = int(os.environ.get("MARAT_WEBAPP_PORT", "0") or 0)
+WEBAPP_PREFIX = os.environ.get("MARAT_WEBAPP_PREFIX", "/mapp/app")
+
+
+async def _start_webapp(tg: Tg, token: str) -> None:
+    """Mini App: сервер страницы и API в этом же процессе + кнопка «Открыть VPN» у поля ввода."""
+    if not WEBAPP_PORT:
+        return
+    application = webapp.make_app(
+        prefix=WEBAPP_PREFIX, bot_token=token, bot_username=lambda: _bot_username, my_access=_my_access,
+        issue_trial=_issue_trial, support_available=lambda: support.available(_store()),
+    )
+    await webapp.start(application, WEBAPP_PORT)
+    if kb.WEBAPP_URL.startswith("https://"):
+        try:
+            await tg.call("setChatMenuButton", menu_button={
+                "type": "web_app", "text": "Открыть VPN", "web_app": {"url": kb.WEBAPP_URL},
+            })
+        except Exception:
+            log.exception("setChatMenuButton failed")
+
+
 async def main() -> None:
     global _bot_username
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -326,6 +349,7 @@ async def main() -> None:
             await tg.call(method, **{field: value})
         except Exception:
             log.exception("%s failed", method)
+    await _start_webapp(tg, token)
     await tg.call("deleteWebhook")
     log.info("polling as @%s", _bot_username)
     offset = None

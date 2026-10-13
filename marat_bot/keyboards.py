@@ -9,6 +9,8 @@ from marat_bot import docs, texts
 from marat_bot.core import PLANS, Access
 
 SUPPORT_URL = os.environ.get("MARAT_SUPPORT_URL", "").strip()
+# Mini App (14.10.2026): публичный https-адрес страницы приложения; пусто — кнопки нет.
+WEBAPP_URL = os.environ.get("MARAT_WEBAPP_URL", "").strip()
 NEWS_URL = os.environ.get("MARAT_NEWS_URL", "").strip()
 
 APPS = {
@@ -38,6 +40,12 @@ def _support() -> dict:
     return _button("support", SUPPORT_URL or "support")
 
 
+def _app_rows() -> list[list[dict]]:
+    if not WEBAPP_URL.startswith("https://"):
+        return []
+    return [[{"text": texts.BUTTONS["app"], "web_app": {"url": WEBAPP_URL}}]]
+
+
 def _docs_rows() -> list[list[dict]]:
     return [[_button("docs", "docs")]] if docs.links() else []
 
@@ -48,6 +56,8 @@ def _news() -> dict:
 
 def main(access: Access | None, admin: bool = False) -> dict:
     markup = _main(access)
+    # Приложение — сразу под главной кнопкой экрана.
+    markup["inline_keyboard"][1:1] = _app_rows()
     markup["inline_keyboard"].extend(_docs_rows())
     if admin:
         markup["inline_keyboard"].append([_button("admin", "adm")])

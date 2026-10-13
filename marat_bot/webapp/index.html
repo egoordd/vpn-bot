@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0B1530">
+<title>VPN</title>
+<link rel="stylesheet" href="static/app.css">
+<script src="https://telegram.org/js/telegram-web-app.js?59"></script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F6E3B0"/><stop offset=".38" stop-color="#D4B06A"/>
+      <stop offset=".62" stop-color="#A9823F"/><stop offset="1" stop-color="#EBD39A"/>
+    </linearGradient>
+    <linearGradient id="gold-shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <symbol id="key" viewBox="0 0 260 532">
+      <path fill-rule="evenodd" d="M107 0a107 107 0 1 1 0 214a107 107 0 1 1 0-214zm0 50a57 57 0 1 0 0 114a57 57 0 1 0 0-114z"/>
+      <rect x="82.5" y="180" width="49" height="351" rx="24.5"/>
+      <rect x="82.5" y="297" width="169.5" height="48" rx="24"/>
+      <rect x="82.5" y="391" width="130.5" height="48" rx="24"/>
+      <rect x="82.5" y="482" width="169.5" height="49" rx="24.5"/>
+    </symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10.5 18.5h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2 19h20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2.5 9.5h19M6 15h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></symbol>
+    <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3.5" y="9" width="17" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2.5 9h19M12 9v12M12 9C10 4 6 5 7.5 7.5S12 9 12 9Zm0 0c2-5 6-4 4.5-1.5S12 9 12 9Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  </defs>
+</svg>
+
+<main id="app" class="app" aria-live="polite">
+  <section class="screen screen--loading" id="loading">
+    <div class="emblem emblem--sm"><svg viewBox="0 0 260 532"><use href="#key" fill="url(#gold)"/></svg></div>
+    <p class="muted">Загружаю ваш доступ…</p>
+  </section>
+
+  <section class="screen" id="tab-home" hidden>
+    <div class="emblem">
+      <div class="emblem__halo"></div>
+      <svg viewBox="0 0 260 532" class="emblem__key"><use href="#key" fill="url(#gold)"/><use href="#key" fill="url(#gold-shine)"/></svg>
+    </div>
+    <h1 class="days" id="days">—</h1>
+    <div class="status-row">
+      <span class="pill" id="status"><i></i><b>—</b></span>
+      <button class="btn-ghost" id="renew" type="button">Продлить</button>
+    </div>
+    <article class="card" id="plan-card">
+      <p class="overline">Ваш тариф</p>
+      <h2 id="plan-title">—</h2>
+      <p class="muted" id="plan-devices">—</p>
+      <div class="meter" id="traffic" hidden><div class="meter__bar"><span></span></div><p class="muted" id="traffic-text"></p></div>
+    </article>
+    <button class="card card--row" id="invite" type="button">
+      <span><b>Пригласить друга</b><em id="invite-text">Друг получит 3 дня бесплатно</em></span>
+      <svg class="icon icon--gold"><use href="#i-gift"/></svg>
+    </button>
+    <button class="cta" id="main-cta" type="button"><svg class="icon"><use href="#i-wifi"/></svg><span>Добавить устройство</span></button>
+  </section>
+
+  <section class="screen" id="tab-devices" hidden>
+    <header class="screen__head"><h1>Устройства</h1><p class="muted" id="devices-count">—</p></header>
+    <ul class="list" id="devices"></ul>
+    <p class="note">Сменили телефон? Старое устройство освободит место само через 14 дней без подключений — или напишите в поддержку, сбросим сразу.</p>
+    <button class="cta" id="devices-cta" type="button"><svg class="icon"><use href="#i-wifi"/></svg><span>Добавить устройство</span></button>
+  </section>
+
+  <section class="screen" id="tab-plans" hidden>
+    <header class="screen__head"><h1>Тарифы</h1><p class="muted" id="plans-lead">Все страны, Авто-обход и до 5 устройств в каждом</p></header>
+    <div class="plans" id="plans"></div>
+    <p class="note">Оплата разовая, без автосписаний.</p>
+  </section>
+
+  <section class="screen" id="tab-profile" hidden>
+    <header class="screen__head profile">
+      <div class="avatar" id="avatar">E</div>
+      <div><h1 id="profile-name">—</h1><p class="muted" id="profile-id">—</p></div>
+    </header>
+    <article class="card" id="link-card" hidden>
+      <p class="overline">Ссылка подписки</p>
+      <code id="sub-url">—</code>
+      <button class="btn-ghost btn-ghost--wide" id="copy" type="button"><svg class="icon"><use href="#i-copy"/></svg>Скопировать</button>
+    </article>
+    <ul class="list list--menu" id="menu"></ul>
+  </section>
+
+  <section class="screen" id="error" hidden>
+    <div class="emblem emblem--sm"><svg viewBox="0 0 260 532"><use href="#key" fill="url(#gold)"/></svg></div>
+    <h1 class="error-title">Не получилось открыть</h1>
+    <p class="muted" id="error-text">Откройте приложение из Telegram-бота.</p>
+    <button class="btn-ghost" id="retry" type="button">Повторить</button>
+  </section>
+</main>
+
+<nav class="tabbar" id="tabbar" hidden aria-label="Разделы">
+  <button type="button" data-tab="home" aria-current="page"><svg class="icon"><use href="#i-home"/></svg><span>Главная</span></button>
+  <button type="button" data-tab="devices"><svg class="icon"><use href="#i-phone"/></svg><span>Устройства</span></button>
+  <button type="button" data-tab="plans"><svg class="icon"><use href="#i-card"/></svg><span>Тарифы</span></button>
+  <button type="button" data-tab="profile"><svg class="icon"><use href="#i-user"/></svg><span>Профиль</span></button>
+</nav>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="static/app.js"></script>
+</body>
+</html>
