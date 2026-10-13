@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from marat_bot import admin  # noqa: E402
 from marat_bot import docs  # noqa: E402
+from marat_bot import i18n  # noqa: E402
 from marat_bot import keyboards as kb  # noqa: E402
 from marat_bot import support  # noqa: E402
 from marat_bot import webapp  # noqa: E402
@@ -27,14 +28,8 @@ log = logging.getLogger("marat_bot")
 _issue_lock = asyncio.Lock()
 _bot_username = ""
 
-STUBS = {
-    "support": texts.STUB_SUPPORT,
-    "news": texts.STUB_NEWS,
-    "promo": texts.STUB_PROMO,
-    "review": texts.STUB_REVIEW,
-    "link": texts.STUB_LINK,
-    "pay": texts.STUB_PAY,
-}
+# Заглушки разделов: текст — из набора текстов человека (у многоязычной темы — на его языке).
+STUBS = {key: f"STUB_{key.upper()}" for key in ("support", "news", "promo", "review", "link", "pay")}
 CAPTION_LIMIT = 1024
 COMMANDS = [
     {"command": "start", "description": "🏠 Главное меню"},
@@ -44,11 +39,16 @@ COMMANDS = [
     {"command": "promo", "description": "🎟 Промокод"},
     {"command": "support", "description": "💬 Поддержка"},
     {"command": "help", "description": "❓ Помощь и все команды"},
-]
+] + ([{"command": "language", "description": "🌐 Язык"}] if texts.LANGUAGES else [])
 # Конфетти поверх сообщения «Доступ открыт» (эффекты Telegram работают в личных чатах).
 EFFECT_PARTY = "5046509860389126442"
-HANDLED = {"menu", "trial", "me", "connect", "tariffs", "help", "how", "ref", "adm", "support", "docs"}
-HANDLED_PREFIXES = ("dev:", "plan:", "stub:", "adm:")
+HANDLED = {"menu", "trial", "me", "connect", "tariffs", "help", "how", "ref", "adm", "support", "docs", "lang"}
+HANDLED_PREFIXES = ("dev:", "plan:", "stub:", "adm:", "lang:")
+
+
+def _lang(user: int, sender: dict) -> str:
+    """Выбранный человеком язык, а пока не выбрал — догадка по настройкам Telegram."""
+    return _store().lang(user) or i18n.guess(sender.get("language_code"))
 
 
 @functools.lru_cache(maxsize=1)
@@ -114,7 +114,7 @@ async def _issue_trial(telegram_id: int) -> tuple[Access | None, bool]:
 
 def _banner(screen: str | None, text: str) -> str | None:
     """Картинка экрана, если у темы она есть и подпись влезает в лимит Telegram."""
-    path = texts.BANNERS.get(screen or "")
+    path = getattr(texts.current(), "BANNERS", texts.BANNERS).get(screen or "")
     if not path:
         return None
     visible = html.unescape(re.sub(r"<[^>]+>", "", text))
@@ -155,9 +155,9 @@ async def _support_prompt(tg: Tg, chat: int, user: int) -> None:
         await tg.send(chat, "💬 Поддержка:", kb.help_menu())
     elif support.available(_store()):
         support.open_window(user)
-        await tg.send(chat, support.PROMPT, kb.support_prompt())
+        await tg.send(chat, support.msg("PROMPT"), kb.support_prompt())
     else:
-        await tg.send(chat, texts.STUB_SUPPORT, kb.help_menu())
+        await tg.send(chat, texts.current().STUB_SUPPORT, kb.help_menu())
 
 
 async def on_message(tg: Tg, message: dict) -> None:
@@ -169,9 +169,10 @@ async def on_message(tg: Tg, message: dict) -> None:
     command = words[0].split("@")[0].lower() if text.startswith("/") else ""
     store = _store()
     store.touch(user, sender.get("username"), sender.get("first_name"))
+    t = texts.use(_lang(user, sender))
     is_admin = admin.is_admin(store, sender)
     if is_admin and not command and message.get("reply_to_message"):
-        if await support.reply(tg, store, message, kb.support_answer()):
+        if await support.reply(tg, store, message, kb.support_answer):
             return
     if command == "/support" or (command == "/start" and words[1:2] == ["support"]):
         await _support_prompt(tg, chat, user)
@@ -189,25 +190,28 @@ async def on_message(tg: Tg, message: dict) -> None:
             await admin.handle(tg, chat, command, words[1:], store, client, not_found)
         except Exception:
             log.exception("admin command %s failed", command)
-            await tg.send(chat, texts.ERROR)
+            await tg.send(chat, t.ERROR)
         return
-    if command == "/help":
-        await send_screen(tg, chat, "help", texts.help_text(user), kb.help_menu())
+    if texts.LANGUAGES and (command == "/language" or (command == "/start" and store.lang(user) is None)):
+        # Приглашение с выбором языка — при первом /start; «Назад» только когда открыт из меню.
+        await send_screen(tg, chat, "lang", t.LANG_PROMPT, kb.languages(_lang(user, sender), back=command == "/language"))
+    elif command == "/help":
+        await send_screen(tg, chat, "help", t.help_text(user), kb.help_menu())
     elif command == "/promo":
-        await tg.send(chat, texts.STUB_PROMO, kb.back())
+        await tg.send(chat, t.STUB_PROMO, kb.back())
     elif command == "/tariffs":
-        await send_screen(tg, chat, "tariffs", texts.tariffs(), kb.tariffs())
+        await send_screen(tg, chat, "tariffs", t.tariffs(), kb.tariffs())
     elif command in ("/connect", "/status", "/me"):
         access = await _my_access(user)
         if not access:
-            await tg.send(chat, texts.NEED_ACCESS, kb.main(None))
+            await tg.send(chat, t.NEED_ACCESS, kb.main(None))
         elif command == "/connect":
-            await send_screen(tg, chat, "connect", texts.PICK_DEVICE, kb.devices())
+            await send_screen(tg, chat, "connect", t.PICK_DEVICE, kb.devices())
         else:
-            await send_screen(tg, chat, "status", texts.status(access, sub_link(access.token)), kb.my_subscription())
+            await send_screen(tg, chat, "status", t.status(access, sub_link(access.token)), kb.my_subscription())
     else:
         access = await _my_access(user)
-        await send_screen(tg, chat, "home", texts.home(access, sender.get("first_name")), kb.main(access, is_admin))
+        await send_screen(tg, chat, "home", t.home(access, sender.get("first_name")), kb.main(access, is_admin))
 
 
 async def on_callback(tg: Tg, call: dict) -> None:
@@ -216,6 +220,8 @@ async def on_callback(tg: Tg, call: dict) -> None:
     name = call["from"].get("first_name")
     chat = call["message"]["chat"]["id"]
     msg = call["message"]["message_id"]
+
+    t = texts.use(_lang(user, call["from"]))
 
     async def show(text: str, markup: dict, screen: str | None = None) -> None:
         await edit_screen(tg, chat, msg, screen, text, markup)
@@ -233,69 +239,84 @@ async def on_callback(tg: Tg, call: dict) -> None:
             text = await (admin.users_text if data == "adm:users" else admin.panel_text)(_store(), client)
         except Exception:
             log.exception("admin screen %s failed", data)
-            await alert(texts.ERROR)
+            await alert(t.ERROR)
             return
         await show(text, admin.keyboard())
     elif data == "menu":
         support.close(user)
         access = await _my_access(user)
-        await show(texts.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])), "home")
+        await show(t.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])), "home")
     elif data == "trial":
         try:
             access, issued = await _issue_trial(user)
         except Exception:
             log.exception("trial issue failed for %s", user)
-            await alert(texts.ERROR)
+            await alert(t.ERROR)
             return
         if not issued:
-            await alert(texts.ALREADY)
-            await edit_screen(tg, chat, msg, "home", texts.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])))
+            await alert(t.ALREADY)
+            await edit_screen(tg, chat, msg, "home", t.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])))
             return
-        until = date_msk(access.expire) if access and access.expire else "—"
+        until = getattr(t, "date_text", date_msk)(access.expire) if access and access.expire else "—"
         _store().touch(user, call["from"].get("username"), name)
         # Меню обновляется на «доступ активен», а выдача приходит отдельным сообщением с конфетти.
-        await show(texts.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])), "home")
-        await send_screen(tg, chat, "issued", texts.issued(until), kb.devices(), effect=EFFECT_PARTY)
+        await show(t.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])), "home")
+        await send_screen(tg, chat, "issued", t.issued(until), kb.devices(), effect=EFFECT_PARTY)
     elif data in ("me", "connect") or data.startswith("dev:"):
         access = await _my_access(user)
         if not access:
-            await alert(texts.NEED_ACCESS)
+            await alert(t.NEED_ACCESS)
         elif data == "me":
-            await show(texts.status(access, sub_link(access.token)), kb.my_subscription(), "status")
+            await show(t.status(access, sub_link(access.token)), kb.my_subscription(), "status")
         elif data == "connect":
-            await show(texts.PICK_DEVICE, kb.devices(), "connect")
+            await show(t.PICK_DEVICE, kb.devices(), "connect")
         else:
             device, store_url = kb.APPS.get(data.split(":", 1)[1], kb.APPS["ios"])
-            await show(texts.steps(device, sub_link(access.token)), kb.device_steps(store_url, happ_link(access.token)),
+            await show(t.steps(device, sub_link(access.token)), kb.device_steps(store_url, happ_link(access.token)),
                        "steps")
     elif data == "tariffs":
-        await show(texts.tariffs(), kb.tariffs(), "tariffs")
+        await show(t.tariffs(), kb.tariffs(), "tariffs")
     elif data.startswith("plan:"):
-        plan = next(((label, price) for d, label, price in PLANS if f"plan:{d}" == data), None)
+        plan = next(((kb.plan_label(d, label), price) for d, label, price in PLANS if f"plan:{d}" == data), None)
         if plan:
-            await show(texts.checkout(*plan) + docs.checkout_note(), kb.checkout(), "checkout")
+            await show(t.checkout(*plan) + docs.checkout_note(), kb.checkout(), "checkout")
         else:
             await tg.answer(call["id"])
     elif data == "help":
-        await show(texts.help_text(user), kb.help_menu(), "help")
+        await show(t.help_text(user), kb.help_menu(), "help")
     elif data == "how":
-        await show(texts.HOW_IT_WORKS, kb.back(), "how")
+        await show(t.HOW_IT_WORKS, kb.back(), "how")
     elif data == "ref":
         link = f"https://t.me/{_bot_username}?start=ref{user}" if _bot_username else "—"
-        await show(texts.referral(link), kb.back(), "ref")
+        await show(t.referral(link), kb.back(), "ref")
     elif data == "support":
         if not support.available(_store()):
-            await alert(texts.STUB_SUPPORT)
+            await alert(t.STUB_SUPPORT)
             return
         support.open_window(user)
-        await show(support.PROMPT, kb.support_prompt())
+        await show(support.msg("PROMPT"), kb.support_prompt())
     elif data == "docs":
         if not docs.links():
             await tg.answer(call["id"])
             return
         await show(docs.screen_text(), kb.docs_menu())
+    elif texts.LANGUAGES and data == "lang":
+        await show(t.LANG_PROMPT, kb.languages(_lang(user, call["from"]), back=True), "lang")
+    elif texts.LANGUAGES and data.startswith("lang:"):
+        code = data.split(":", 1)[1]
+        if code not in texts.LANGUAGES:
+            await tg.answer(call["id"])
+            return
+        _store().set_lang(user, code)
+        t = texts.use(code)
+        flag, language = texts.LANGUAGES[code]
+        # Как в приглашении: сообщение с выбором становится «язык установлен», меню — отдельным сообщением.
+        await show(t.LANG_SET.format(language=f"{flag} {language}"), None, "lang")
+        access = await _my_access(user)
+        await send_screen(tg, chat, "home", t.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])))
     elif data.startswith("stub:"):
-        await alert(STUBS.get(data.split(":", 1)[1], "Скоро появится."))
+        stub = STUBS.get(data.split(":", 1)[1])
+        await alert(getattr(t, stub) if stub else "Скоро появится.")
     else:
         await tg.answer(call["id"])
 
@@ -349,6 +370,20 @@ async def main() -> None:
             await tg.call(method, **{field: value})
         except Exception:
             log.exception("%s failed", method)
+    # Многоязычная тема: меню команд и описание бота — на языке приложения Telegram у человека.
+    for code in texts.LANGUAGES:
+        if code == "ru":
+            continue
+        local = texts.localized(code)
+        try:
+            await tg.call("setMyCommands", language_code=code, commands=[
+                {"command": c["command"], "description": local.COMMAND_MENU.get(c["command"], c["description"])}
+                for c in COMMANDS
+            ])
+            await tg.call("setMyShortDescription", language_code=code, short_description=local.SHORT_DESCRIPTION)
+            await tg.call("setMyDescription", language_code=code, description=local.DESCRIPTION)
+        except Exception:
+            log.exception("localized profile for %s failed", code)
     await _start_webapp(tg, token)
     await tg.call("deleteWebhook")
     log.info("polling as @%s", _bot_username)

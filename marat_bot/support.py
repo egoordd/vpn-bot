@@ -34,6 +34,13 @@ FAILED = "Не получилось передать сообщение — по
 ANSWER = "💬 <b>Ответ поддержки</b>"
 
 
+def msg(name: str) -> str:
+    """Текст поддержки на языке человека: у многоязычной темы — SUPPORT_<имя>, иначе русский."""
+    from marat_bot import texts
+
+    return getattr(texts.current(), f"SUPPORT_{name}", globals()[name])
+
+
 @dataclass
 class _Window:
     deadline: float
@@ -99,9 +106,9 @@ async def forward(tg, store: Store, message: dict) -> str:
     user = message["from"]["id"]
     window = _windows.get(user)
     if window is None:
-        return FAILED
+        return msg("FAILED")
     if window.sent >= MAX_MESSAGES:
-        return LIMIT
+        return msg("LIMIT")
     delivered = 0
     for chat in recipients(store):
         try:
@@ -117,22 +124,34 @@ async def forward(tg, store: Store, message: dict) -> str:
         except Exception:
             log.exception("support: message from %s not delivered to admin %s", user, chat)
     if not delivered:
-        return FAILED
+        return msg("FAILED")
     window.sent += 1
     log.info("support: message from %s delivered to %d admin(s)", user, delivered)
-    return SENT
+    return msg("SENT")
 
 
-async def reply(tg, store: Store, message: dict, markup: dict) -> bool:
-    """Ответ админа реплаем на обращение → пользователю. False — это не ответ на обращение."""
+async def reply(tg, store: Store, message: dict, markup) -> bool:
+    """Ответ админа реплаем на обращение → пользователю. False — это не ответ на обращение.
+
+    markup — клавиатура под ответом или функция, которая её строит: её зовём уже на языке
+    пользователя, чтобы и заголовок, и кнопка были на его языке, а не на языке админа."""
+    from marat_bot import texts
+
     target = message.get("reply_to_message") or {}
     chat = message["chat"]["id"]
     user = store.support_user(chat, target.get("message_id", 0)) if target else None
     if user is None:
         return False
+    admin_texts = texts.current()
+    user_texts = texts.use(store.lang(user))
     try:
-        await tg.send(user, ANSWER)
-        await tg.copy(user, chat, message["message_id"], markup=markup)
+        header = getattr(user_texts, "SUPPORT_ANSWER", ANSWER)
+        keyboard = markup() if callable(markup) else markup
+    finally:
+        texts.use(getattr(admin_texts, "LANG", None))
+    try:
+        await tg.send(user, header)
+        await tg.copy(user, chat, message["message_id"], markup=keyboard)
     except Exception:
         log.exception("support: answer to %s not delivered", user)
         await tg.send(chat, "❌ Не доставлено — возможно, пользователь остановил бота.")

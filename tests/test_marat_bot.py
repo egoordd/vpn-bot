@@ -825,15 +825,22 @@ def test_avangard_banners_exist_and_every_caption_fits():
         assert len(visible.encode("utf-16-le")) // 2 <= app.CAPTION_LIMIT, len(visible)
 
 
-def test_avangard_offers_only_germany_and_netherlands_and_stays_neutral():
-    texts_ = _theme_screens(avangard) + [avangard.DESCRIPTION, avangard.SHORT_DESCRIPTION]
-    for text in texts_:
-        low = text.lower()
-        assert "unlock" not in low and "анлок" not in low
-        assert "ру-сервис" not in low and "🇷🇺" not in text, "у Avangard нет российских серверов"
-        assert "заблокир" not in low and "блокиров" not in low, "без рекламы обхода блокировок"
-    assert "🇩🇪" in avangard.welcome() and "🇳🇱" in avangard.welcome()
-    assert len(avangard.SHORT_DESCRIPTION) <= 120 and len(avangard.DESCRIPTION) <= 512
+def test_avangard_offers_the_etalon_servers_in_every_language_and_stays_neutral():
+    from marat_bot.themes import avangard_strings as strings
+
+    keys = set(strings.STRINGS["ru"])
+    for lang in strings.LANGUAGES:
+        t = avangard.localized(lang)
+        assert set(strings.STRINGS[lang]) == keys, lang
+        assert set(strings.STRINGS[lang]["buttons"]) == set(strings.STRINGS["ru"]["buttons"]), lang
+        assert "🇵🇱 🇫🇮 🇳🇱 🇺🇸" in t.welcome(), "серверы как у Etalon"
+        screens = [t.welcome("Ян"), t.issued("1"), t.PICK_DEVICE, t.steps("Android", "L"), t.tariffs(),
+                   t.checkout("1", 199), t.referral("L"), t.help_text(1), t.HOW_IT_WORKS, t.DESCRIPTION,
+                   t.SHORT_DESCRIPTION]
+        for text in screens:
+            low = text.lower()
+            assert "unlock" not in low and not [w for w in _RISKY if w in low], (lang, text[:60])
+        assert len(t.SHORT_DESCRIPTION) <= 120 and len(t.DESCRIPTION) <= 512, lang
     body = inspect.getsource(avangard).split('"""', 2)[-1]
     assert "Марат" not in body and "Etalon" not in body
 
@@ -869,3 +876,113 @@ def test_branded_bots_never_advertise_bypassing_blocks():
 
 def test_price_per_month_rounds_half_up_like_the_sites():
     assert core.per_month(180, 999) == 167 and core.per_month(90, 549) == 183 and core.per_month(365, 1799) == 148
+
+
+
+# --- 14.10.2026: языки интерфейса (Avangard GT) ---
+
+from marat_bot import i18n  # noqa: E402
+
+
+def test_language_helpers_speak_every_language():
+    assert i18n.days(3, "ru") == "3 дня" and i18n.days(3, "uk") == "3 дні" and i18n.days(1, "en") == "1 day"
+    assert i18n.days(5, "uk") == "5 днів" and i18n.days(3, "zh") == "3 天" and i18n.days(3, "fa") == "3 روز"
+    now = 1_800_000_000
+    assert i18n.left(now + 2 * 86400 + 3600, "en", now=now) == "2 days 1 h"
+    assert i18n.left(now + 300, "zh", now=now) == "5 分钟"
+    assert "Moscow" in i18n.date_text(now, "en") and "月" in i18n.date_text(now, "zh") and "مسکو" in i18n.date_text(now, "fa")
+    assert i18n.guess("ru") == "ru" and i18n.guess("uk") == "uk" and i18n.guess("zh-hans") == "zh"
+    assert i18n.guess("fa") == "fa" and i18n.guess("de") == "en" and i18n.guess(None) == "en" and i18n.guess("kk") == "ru"
+
+
+def test_every_language_screen_fits_a_caption():
+    import html as _html
+    import re as _re
+    from marat_bot import app
+    from marat_bot.themes import avangard_strings as strings
+
+    access = core.Access("corp_avg_1", "T" * 22, int(time.time()) + 86400, "active", 1024**3, 10 * 1024**3)
+    link = "https://a.212.233.122.241.sslip.io/sub/" + "x" * 60
+    for lang in strings.LANGUAGES:
+        t = avangard.localized(lang)
+        for text in (t.welcome("Константин Константинопольский"), t.issued(t.date_text(int(time.time()))),
+                     t.steps("iPhone / iPad", link), t.status(access, link), t.home(access), t.tariffs(),
+                     t.help_text(8627023174), t.HOW_IT_WORKS, t.referral(link)):
+            visible = _html.unescape(_re.sub(r"<[^>]+>", "", text))
+            assert len(visible.encode("utf-16-le")) // 2 <= app.CAPTION_LIMIT, (lang, len(visible))
+
+
+def _lang_bot(monkeypatch, tmp_path):
+    from marat_bot import app, texts
+
+    monkeypatch.setenv("MARAT_DB", str(tmp_path / "u.sqlite3"))
+    app._store.cache_clear()
+    monkeypatch.setattr(texts, "_theme", avangard)
+    monkeypatch.setattr(texts, "LANGUAGES", avangard.LANGUAGES)
+    monkeypatch.setattr(texts, "BANNERS", {})
+    for lang in avangard.LANGUAGES:
+        monkeypatch.setattr(avangard.localized(lang), "BANNERS", {})
+    return app
+
+
+def test_first_start_asks_for_the_language_then_speaks_it(monkeypatch, tmp_path):
+    import asyncio
+
+    app = _lang_bot(monkeypatch, tmp_path)
+    tg = _FakeTg()
+
+    async def run():
+        await app.on_message(tg, {"text": "/start", "chat": {"id": 5}, "from": {"id": 5, "language_code": "en"}})
+        await app.on_callback(tg, _call("lang:zh"))
+        await app.on_message(tg, {"text": "/start", "chat": {"id": 5}, "from": {"id": 5, "language_code": "en"}})
+
+    asyncio.run(run())
+    app._store.cache_clear()
+    prompt, picker = tg.sent[0][1], tg.sent[0][2]
+    assert prompt == avangard.localized("en").LANG_PROMPT, "первый /start — выбор языка, на языке Telegram"
+    labels = [b["text"] for row in picker["inline_keyboard"] for b in row]
+    assert labels == ["🇷🇺 Русский", "✅ 🇬🇧 English", "🇺🇦 Українська", "🇨🇳 中文", "🇮🇷 فارسی"], "без «Назад» при первом входе"
+    assert "中文" in tg.edits[0][2] and tg.edits[0][3] is None, "сообщение с выбором стало «язык установлен»"
+    assert "你好" in tg.sent[1][1] and "你好" in tg.sent[2][1], "дальше — на выбранном языке, повторно не спрашиваем"
+
+
+def test_language_can_be_changed_from_the_menu_with_a_back_button(monkeypatch, tmp_path):
+    import asyncio
+
+    app = _lang_bot(monkeypatch, tmp_path)
+    app._store().set_lang(5, "uk")
+    tg = _FakeTg()
+
+    async def run():
+        await app.on_message(tg, {"text": "/language", "chat": {"id": 5}, "from": {"id": 5}})
+        await app.on_callback(tg, _call("lang"))
+
+    asyncio.run(run())
+    app._store.cache_clear()
+    for markup in (tg.sent[0][2], tg.edits[0][3]):
+        rows = markup["inline_keyboard"]
+        assert rows[-1][0]["text"] == "⬅️ Назад" and rows[-1][0]["callback_data"] == "menu"
+        assert any(b["text"].startswith("✅ 🇺🇦") for row in rows for b in row)
+
+
+def test_single_language_bots_never_ask(monkeypatch, tmp_path):
+    import asyncio
+    from marat_bot import app, texts
+
+    monkeypatch.setenv("MARAT_DB", str(tmp_path / "u.sqlite3"))
+    app._store.cache_clear()
+    assert texts.LANGUAGES == {}
+    tg = _FakeTg()
+    asyncio.run(app.on_message(tg, {"text": "/start", "chat": {"id": 5}, "from": {"id": 5, "language_code": "en"}}))
+    app._store.cache_clear()
+    assert "Привет" in tg.sent[0][1], "Etalon и Plata — как раньше, без выбора языка"
+
+
+
+def test_every_language_has_its_own_banners():
+    for lang in avangard.LANGUAGES:
+        banners = avangard.localized(lang).BANNERS
+        assert set(banners) == set(avangard.BANNERS), lang
+        for screen, path in banners.items():
+            assert os.path.isfile(path), (lang, screen, path)
+            assert (f"/{lang}/" in path) == (lang != "ru"), (lang, path)

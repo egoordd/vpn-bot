@@ -10,7 +10,9 @@ racing red, надписи — SF Pro сверхширокий Black (ось Wid
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import tempfile
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -141,35 +143,78 @@ def background() -> Image.Image:
     return im
 
 
-def screen(name: str, title: str, subtitle: str, chips: list[str] | None = None) -> None:
-    im = background()
+HIRAGINO = "/System/Library/Fonts/Hiragino Sans GB.ttc"
+SWIFT_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "render_text.swift")
+
+
+def _swift_renderer() -> str:
+    """Собрать (один раз) утилиту CoreText — ею рисуются надписи на фарси."""
+    binary = os.path.join(tempfile.gettempdir(), "avangard_render_text")
+    if not os.path.exists(binary) or os.path.getmtime(binary) < os.path.getmtime(SWIFT_SRC):
+        subprocess.run(["swiftc", "-O", SWIFT_SRC, "-o", binary], check=True)
+    return binary
+
+
+def text_layer(text: str, size: int, lang: str, weight: int = 900, width: int = 150,
+               color: tuple[int, int, int] = WHITE) -> Image.Image:
+    """Строка текста на прозрачном слое. Латиница/кириллица — SF Pro сверхширокий, китайский —
+    Hiragino Sans GB, фарси — системный шрифт через CoreText (PIL без raqm его не соединяет)."""
+    if lang == "fa":
+        names = {500: "medium", 700: "bold", 900: "black"}
+        out = os.path.join(tempfile.gettempdir(), f"avg_fa_{abs(hash((text, size, weight, color)))}.png")
+        hexcolor = "#%02X%02X%02X" % color
+        subprocess.run([_swift_renderer(), text, str(size), names.get(weight, "bold"), hexcolor, out], check=True)
+        return Image.open(out).convert("RGBA")
+    if lang == "zh":
+        f = ImageFont.truetype(HIRAGINO, size, index=1 if weight >= 600 else 0)
+    else:
+        f = font(size, weight=weight, width=width)
+    left, top, right, bottom = f.getbbox(text)
+    layer = Image.new("RGBA", (right - left + 12, bottom - top + 12), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).text((6 - left, 6 - top), text, font=f, fill=color + (255,))
+    return layer
+
+
+def slant(layer: Image.Image) -> Image.Image:
+    """Наклон вправо, как на ливрее (фарси не наклоняем — справа налево он выглядел бы падающим)."""
+    pad = int(layer.height * SLANT) + 2
+    wide = Image.new("RGBA", (layer.width + pad, layer.height), (0, 0, 0, 0))
+    wide.paste(layer, (0, 0))
+    return wide.transform(wide.size, Image.AFFINE, (1, SLANT, -SLANT * layer.height, 0, 1, 0), resample=Image.BICUBIC)
+
+
+def screen(out_dir: str, lang: str, name: str, title: str, subtitle: str, chips: list[str] | None = None) -> None:
+    im = background().convert("RGBA")
     d = ImageDraw.Draw(im)
     d.polygon([(80, 150), (150, 150), (146, 158), (76, 158)], fill=RED)
     lines = title.split("\n")
     size = 76 if max(len(line) for line in lines) <= 11 else 60
-    y = 250
+    if lang == "zh":
+        size = 84
+    y = 190
     for line in lines:
-        slanted_text(im, (72, y), line, font(size), WHITE, spacing=2)
-        y += int(size * 1.1)
-    sub = font(30, weight=500, width=100)
-    y += 12
+        layer = text_layer(line, size, lang)
+        layer = layer if lang == "fa" else slant(layer)
+        im.alpha_composite(layer, (66, y))
+        y += int(layer.height * 1.02)
+    y += 18
     for line in subtitle.split("\n"):
-        d.text((76, y), line, font=sub, fill=MUTED, anchor="ls")
-        y += 42
+        layer = text_layer(line, 30, lang, weight=500, width=100, color=MUTED)
+        im.alpha_composite(layer, (70, y))
+        y += 44
     if chips:
-        x, cy = 74, y + 36
-        cf = font(23, weight=700, width=110)
+        x, top = 74, y + 14
         for chip in chips:
-            tw = d.textlength(chip, font=cf)
-            d.polygon([(x + 10, cy - 34), (x + tw + 52, cy - 34), (x + tw + 42, cy + 14), (x, cy + 14)],
-                      outline=RED, width=2)
-            d.text((x + 24, cy - 2), chip, font=cf, fill=WHITE, anchor="ls")
-            x += int(tw) + 70
+            layer = text_layer(chip, 23, lang, weight=700, width=110)
+            w, h = layer.width + 30, 48
+            d.polygon([(x + 10, top), (x + w + 10, top), (x + w, top + h), (x, top + h)], outline=RED, width=2)
+            im.alpha_composite(layer, (x + 14, top + (h - layer.height) // 2))
+            x += w + 26
     signature(im)
-    im.save(os.path.join(OUT, f"{name}.jpg"), quality=90, optimize=True, progressive=True)
+    im.convert("RGB").save(os.path.join(out_dir, f"{name}.jpg"), quality=90, optimize=True, progressive=True)
 
 
-def hero(size: tuple[int, int] = (W, H), tagline: str = "ИНТЕРНЕТ НА ВЫСОКОЙ ПЕРЕДАЧЕ") -> Image.Image:
+def hero(size: tuple[int, int] = (W, H), tagline: str = "", lang: str = "ru") -> Image.Image:
     w, h = size
     im = carbon(size)
     glow = Image.new("L", size, 0)
@@ -183,10 +228,61 @@ def hero(size: tuple[int, int] = (W, H), tagline: str = "ИНТЕРНЕТ НА �
     bw = int(bh * 2.1) + int(bh * SLANT)
     badge(im, int(w / 2 - bw / 2), int(h * 0.60), bh)
     if tagline:
-        d = ImageDraw.Draw(im)
-        tf = font(int(h * 0.03), weight=700, width=120)
-        d.text((w / 2, h * 0.86), tagline, font=tf, fill=MUTED, anchor="ms")
+        rgba = im.convert("RGBA")
+        layer = text_layer(tagline, int(h * 0.032), lang, weight=700, width=120, color=MUTED)
+        rgba.alpha_composite(layer, (int(w / 2 - layer.width / 2), int(h * 0.83)))
+        im = rgba.convert("RGB")
     return im
+
+
+# Надписи баннеров на языках интерфейса: слоган главной и (заголовок, подпись, чипы) экранов.
+BANNER_TEXTS = {
+    "ru": ("ИНТЕРНЕТ НА ВЫСОКОЙ ПЕРЕДАЧЕ", {
+        "issued": ("СТАРТ\nДАН", "Тест-драйв запущен —\nосталось подключить устройство", ["3 дня", "2 устройства", "10 ГБ"]),
+        "connect": ("ПОДКЛЮЧЕНИЕ", "Три шага до старта", ["1  Happ", "2  Подписка", "3  Авто-обход"]),
+        "status": ("МОЙ\nДОСТУП", "Срок, трафик и ссылка подписки", None),
+        "tariffs": ("ТАРИФЫ", "Все серверы, Авто-обход\nи до 5 устройств в каждом", ["1 мес", "3 мес", "6 мес", "12 мес"]),
+        "help": ("ПОМОЩЬ", "Команды, режимы и что делать,\nесли что-то не работает", None),
+        "how": ("КАК ЭТО\nРАБОТАЕТ", "Одна ссылка — все серверы сразу", ["Польша", "Финляндия", "Нидерланды", "США"]),
+        "ref": ("ПРИГЛАСИТЬ\nДРУГА", "Поделитесь доступом —\nдругу достанется тест-драйв", None),
+    }),
+    "en": ("INTERNET IN HIGH GEAR", {
+        "issued": ("YOU'RE\nOFF", "Test drive started —\nnow connect a device", ["3 days", "2 devices", "10 GB"]),
+        "connect": ("CONNECT", "Three steps to start", ["1  Happ", "2  Subscription", "3  Auto mode"]),
+        "status": ("MY\nACCESS", "Term, traffic and subscription link", None),
+        "tariffs": ("PLANS", "All servers, Auto mode\nand up to 5 devices in each", ["1 mo", "3 mo", "6 mo", "12 mo"]),
+        "help": ("HELP", "Commands, modes and what to do\nif something stops working", None),
+        "how": ("HOW IT\nWORKS", "One link — every server at once", ["Poland", "Finland", "Netherlands", "USA"]),
+        "ref": ("INVITE A\nFRIEND", "Share access —\nyour friend gets a test drive", None),
+    }),
+    "uk": ("ІНТЕРНЕТ НА ВИСОКІЙ ПЕРЕДАЧІ", {
+        "issued": ("СТАРТ\nДАНО", "Тест-драйв запущено —\nзалишилося підключити пристрій", ["3 дні", "2 пристрої", "10 ГБ"]),
+        "connect": ("ПІДКЛЮЧЕННЯ", "Три кроки до старту", ["1  Happ", "2  Підписка", "3  Авто-режим"]),
+        "status": ("МІЙ\nДОСТУП", "Термін, трафік і посилання підписки", None),
+        "tariffs": ("ТАРИФИ", "Усі сервери, Авто-режим\nі до 5 пристроїв у кожному", ["1 міс", "3 міс", "6 міс", "12 міс"]),
+        "help": ("ДОПОМОГА", "Команди, режими і що робити,\nякщо щось не працює", None),
+        "how": ("ЯК ЦЕ\nПРАЦЮЄ", "Одне посилання — усі сервери одразу", ["Польща", "Фінляндія", "Нідерланди", "США"]),
+        "ref": ("ЗАПРОСИТИ\nДРУГА", "Поділіться доступом —\nдруг отримає тест-драйв", None),
+    }),
+    "zh": ("高速档位的互联网", {
+        "issued": ("出发！", "试驾已开始——\n现在连接设备", ["3 天", "2 台设备", "10 GB"]),
+        "connect": ("连接设备", "三步即可开始", ["1  Happ", "2  订阅", "3  自动模式"]),
+        "status": ("我的访问", "期限、流量和订阅链接", None),
+        "tariffs": ("套餐", "所有服务器、自动模式\n每个套餐最多 5 台设备", ["1 个月", "3 个月", "6 个月", "12 个月"]),
+        "help": ("帮助", "命令、模式以及\n无法使用时怎么办", None),
+        "how": ("工作原理", "一个链接——包含所有服务器", ["波兰", "芬兰", "荷兰", "美国"]),
+        "ref": ("邀请好友", "分享访问——\n好友将获得试驾", None),
+    }),
+    "fa": ("اینترنت با دنده‌ی بالا", {
+        "issued": ("حرکت!", "تست‌درایو شروع شد —\nحالا یک دستگاه وصل کنید", ["۳ روز", "۲ دستگاه", "۱۰ گیگ"]),
+        "connect": ("اتصال دستگاه", "سه قدم تا شروع", ["۱  Happ", "۲  اشتراک", "۳  حالت خودکار"]),
+        "status": ("دسترسی من", "مدت، ترافیک و لینک اشتراک", None),
+        "tariffs": ("تعرفه‌ها", "همه‌ی سرورها، حالت خودکار\nو تا ۵ دستگاه در هر تعرفه", ["۱ ماه", "۳ ماه", "۶ ماه", "۱۲ ماه"]),
+        "help": ("راهنما", "دستورها، حالت‌ها و\nاگر چیزی کار نکرد", None),
+        "how": ("چطور کار می‌کند", "یک لینک — همه‌ی سرورها با هم", ["لهستان", "فنلاند", "هلند", "آمریکا"]),
+        "ref": ("دعوت از دوست", "دسترسی را به اشتراک بگذارید —\nدوستتان تست‌درایو می‌گیرد", None),
+    }),
+}
 
 
 def avatar(size: int = 640) -> Image.Image:
@@ -204,19 +300,17 @@ def avatar(size: int = 640) -> Image.Image:
 
 
 def main() -> None:
-    os.makedirs(OUT, exist_ok=True)
-    hero().save(os.path.join(OUT, "home.jpg"), quality=90, optimize=True, progressive=True)
-    screen("issued", "СТАРТ\nДАН", "Тест-драйв запущен —\nосталось подключить устройство", ["3 дня", "2 устройства", "10 ГБ"])
-    screen("connect", "ПОДКЛЮЧЕНИЕ", "Три шага до старта", ["1  Happ", "2  Подписка", "3  Авто-обход"])
-    screen("status", "МОЙ\nДОСТУП", "Срок, трафик и ссылка подписки")
-    screen("tariffs", "ТАРИФЫ", "Все серверы, Авто-обход\nи до 5 устройств в каждом", ["1 мес", "3 мес", "6 мес", "12 мес"])
-    screen("help", "ПОМОЩЬ", "Команды, режимы и что делать,\nесли что-то не работает")
-    screen("how", "КАК ЭТО\nРАБОТАЕТ", "Одна ссылка — все серверы сразу", ["Германия", "Нидерланды", "Авто-обход"])
-    screen("ref", "ПРИГЛАСИТЬ\nДРУГА", "Поделитесь доступом —\nдругу достанется тест-драйв")
+    for lang, (tagline, screens) in BANNER_TEXTS.items():
+        out_dir = OUT if lang == "ru" else os.path.join(OUT, lang)
+        os.makedirs(out_dir, exist_ok=True)
+        hero(tagline=tagline, lang=lang).save(os.path.join(out_dir, "home.jpg"), quality=90, optimize=True,
+                                              progressive=True)
+        for name, (title, subtitle, chips) in screens.items():
+            screen(out_dir, lang, name, title, subtitle, chips)
     # Для профиля бота в BotFather: аватар (/setuserpic) и картинка описания (/setdescriptionpic, 640×360).
     avatar().save(os.path.join(OUT, "avatar.png"))
-    hero(size=(640, 360), tagline="").save(os.path.join(OUT, "description.jpg"), quality=92)
-    print("готово:", ", ".join(sorted(os.listdir(OUT))))
+    hero(size=(640, 360)).save(os.path.join(OUT, "description.jpg"), quality=92)
+    print("готово:", OUT)
 
 
 if __name__ == "__main__":

@@ -48,16 +48,19 @@ class Look:
     empty: str = "▱"
 
 
-def card(access: Access, look: Look) -> list[str]:
-    """Первая строка — состояние; дальше срок, трафик, устройства."""
+def card(access: Access, look: Look, lang: str = "ru") -> list[str]:
+    """Первая строка — состояние; дальше срок, трафик, устройства (сроки — на языке lang)."""
+    from marat_bot import i18n
+
     if access.active:
         lines = [look.active]
         if access.expire:
-            lines += [look.left.format(left=time_left(access.expire)), look.until.format(date=date_msk(access.expire))]
+            lines += [look.left.format(left=i18n.left(access.expire, lang)),
+                      look.until.format(date=i18n.date_text(access.expire, lang))]
     else:
         lines = [look.limited if access.status == "limited" else look.expired]
         if access.expire:
-            lines.append(look.was_until.format(date=date_msk(access.expire)))
+            lines.append(look.was_until.format(date=i18n.date_text(access.expire, lang)))
     if access.limit_bytes:
         lines.append(look.traffic.format(
             bar=bar(access.used_bytes, access.limit_bytes, full=look.full, empty=look.empty),

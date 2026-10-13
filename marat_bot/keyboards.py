@@ -23,7 +23,8 @@ APPS = {
 
 def _button(key: str, action: str, style: str | None = None, **fmt: object) -> dict:
     """key — подпись из темы, action — https-ссылка или callback, style — цвет главной кнопки экрана."""
-    label = texts.BUTTONS[key].format(**fmt) if fmt else texts.BUTTONS[key]
+    buttons = texts.current().BUTTONS
+    label = buttons[key].format(**fmt) if fmt else buttons[key]
     button = {"text": label}
     button["url" if action.startswith("https://") else "callback_data"] = action
     if style:
@@ -43,7 +44,7 @@ def _support() -> dict:
 def _app_rows() -> list[list[dict]]:
     if not WEBAPP_URL.startswith("https://"):
         return []
-    return [[{"text": texts.BUTTONS["app"], "web_app": {"url": WEBAPP_URL}}]]
+    return [[{"text": texts.current().BUTTONS["app"], "web_app": {"url": WEBAPP_URL}}]]
 
 
 def _docs_rows() -> list[list[dict]]:
@@ -94,8 +95,14 @@ def my_subscription() -> dict:
     )
 
 
+def plan_label(days: int, default: str) -> str:
+    """Подпись срока на языке человека (у многоязычной темы), иначе — из MARAT_PLANS."""
+    localize = getattr(texts.current(), "plan_label", None)
+    return localize(days, default) if localize else default
+
+
 def tariffs() -> dict:
-    rows = [[_button("plan", f"plan:{days}", label=label, price=price)] for days, label, price in PLANS]
+    rows = [[_button("plan", f"plan:{days}", label=plan_label(days, label), price=price)] for days, label, price in PLANS]
     found = docs.links()
     terms = [[_button("pay_terms", found["refund"])]] if found else []
     return _kb(*rows, *terms, [_button("menu", "menu")])
@@ -148,12 +155,26 @@ def device_steps(store_url: str, happ_url: str) -> dict:
 
 
 def help_menu() -> dict:
+    language = [[_button("lang", "lang")]] if texts.LANGUAGES else []
     return _kb(
         [_button("connect_short", "connect"), _button("how", "how")],
         [_support(), _news()],
+        *language,
         *_docs_rows(),
         [_button("menu", "menu")],
     )
+
+
+def languages(chosen: str | None, back: bool) -> dict:
+    """Выбор языка как в приглашении: по два в ряд, выбранный — с ✅; «Назад» — когда открыт из меню."""
+    buttons = [
+        {"text": ("✅ " if code == chosen else "") + f"{flag} {name}", "callback_data": f"lang:{code}"}
+        for code, (flag, name) in texts.LANGUAGES.items()
+    ]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    if back:
+        rows.append([_button("lang_back", "menu")])
+    return {"inline_keyboard": rows}
 
 
 def back() -> dict:

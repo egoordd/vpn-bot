@@ -153,6 +153,7 @@ class Store:
             if column not in columns:
                 self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
         self._db.execute("CREATE TABLE IF NOT EXISTS admins (username TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL)")
+        self._db.execute("CREATE TABLE IF NOT EXISTS langs (telegram_id INTEGER PRIMARY KEY, lang TEXT NOT NULL)")
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS support_links (admin_chat INTEGER NOT NULL, admin_msg INTEGER NOT NULL, "
             "user_id INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (admin_chat, admin_msg))"
@@ -204,6 +205,14 @@ class Store:
 
     def bind_admin(self, username: str, telegram_id: int) -> None:
         self._db.execute("INSERT OR IGNORE INTO admins (username, telegram_id) VALUES (?, ?)", (username, telegram_id))
+        self._db.commit()
+
+    def lang(self, telegram_id: int) -> str | None:
+        row = self._db.execute("SELECT lang FROM langs WHERE telegram_id = ?", (telegram_id,)).fetchone()
+        return row[0] if row else None
+
+    def set_lang(self, telegram_id: int, lang: str) -> None:
+        self._db.execute("INSERT OR REPLACE INTO langs (telegram_id, lang) VALUES (?, ?)", (telegram_id, lang))
         self._db.commit()
 
     def link_support(self, admin_chat: int, admin_msg: int, user_id: int) -> None:
