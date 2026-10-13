@@ -1237,6 +1237,34 @@ def foreign_only_links(links: list[str], exits: frozenset[str]) -> list[str]:
     return compact_links([link for link in links if _link_exit(link) in exits])
 
 
+# Те же ссылки, но вход — через VK-мост (13.10.2026: «подключались через вк, но
+# показывались как германия и нидерланды»). Домашние провайдеры режут прямые адреса
+# зарубежных серверов, а мост в России — нет. У моста для них отдельные ключи
+# (VK_FULL_IDS «хост выхода:uuid»): весь трафик, и российский тоже, выходит в стране
+# пункта — в отличие от «✅ РУ сервисы · VK», где российское идёт напрямую из VK.
+FOREIGN_VIA_VK_USERS = _names(os.environ.get("FOREIGN_VIA_VK_USERS", ""))
+VK_FULL_IDS = _logins(os.environ.get("VK_FULL_IDS", ""))
+
+
+def build_vk_full_links(exits: frozenset[str]) -> list[str]:
+    """Пункт на каждую разрешённую страну через мост, названный по стране выхода."""
+    dead = _probed_dead_hosts()
+    if not (VK_RELAY_PBK and VK_FULL_IDS) or VK_RELAY_HOST in dead:
+        return []
+    links: list[str] = []
+    for exit_host, uid in VK_FULL_IDS.items():
+        if exit_host not in exits or exit_host in dead:
+            continue
+        node = NODES.get(exit_host, {})
+        name = f"{node.get('flag', '')} {node.get('name', exit_host)}".strip()
+        links.append(
+            f"vless://{uid}@{VK_RELAY_HOST}:{VK_RELAY_PORT}"
+            f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={VK_RELAY_HOST}"
+            f"&fp=firefox&pbk={VK_RELAY_PBK}&sid={VK_RELAY_SID}#{urllib.parse.quote(name)}"
+        )
+    return links
+
+
 # Ссылки «один сервер — один пункт» (11.10.2026, «UNL VPN»: владельцу не нужно
 # «множество протоколов»). По каждому серверу остаётся только VLESS Reality поверх
 # TCP — основной протокол, который понимает любой Happ; без XHTTP, Hysteria2,
@@ -1775,12 +1803,29 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     expired/blank/disabled. Returns None only when the token is unknown (404).
     Shared by the base64 and the JSON («Авто-обход») subscription flavors.
     """
+    resolved = _resolve_links(token)
+    if resolved is None:
+        return None
+    links, userinfo, fallback = resolved
+    if fallback:
+        _BRIDGE_FALLBACK[token] = fallback
+    else:
+        _BRIDGE_FALLBACK.pop(token, None)
+    return links, userinfo
+
+
+# Запасной прямой вход ссылки «через мост» с последнего разбора — его берёт «Авто-обход».
+_BRIDGE_FALLBACK: dict[str, str | None] = {}
+
+
+def _resolve_links(token: str) -> tuple[list[str], str | None, str | None] | None:
+    """resolve_links + запасной прямой вход для ссылок «через мост» (иначе None)."""
     fetched = _fetch_upstream_sub(token)
     if fetched is None:
         return None
     decoded, userinfo = fetched
     if _userinfo_expired(userinfo) or not _marzban_sub_active(token):
-        return [], userinfo
+        return [], userinfo, None
     username = _token_username(token)
     corporate = username in CORP_USERS
     hidden = pick_for(USER_HIDDEN_EXITS, username, frozenset())
@@ -1789,10 +1834,15 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
     )
     combined = [link for link in combined if _uri_host(link) not in hidden]
     if not combined:
-        return [], userinfo
+        return [], userinfo, None
     exits = foreign_exits_for(username)
+    fallback = None
     if exits is not None:
-        combined = foreign_only_links(combined + build_de_via_links(combined), exits)
+        direct = filter_alive(foreign_only_links(combined + build_de_via_links(combined), exits))
+        bridged = filter_alive(build_vk_full_links(exits)) if name_matches(FOREIGN_VIA_VK_USERS, username) else []
+        # Мост не отвечает — в списке временно прямые серверы, а не пустота.
+        combined = bridged or direct
+        fallback = next((link for link in direct if _link_exit(link) == _uri_host(link)), None) if bridged else None
     elif name_matches(COMPACT_USERS, username):
         combined = compact_links(combined)
     elif corporate:
@@ -1812,7 +1862,7 @@ def resolve_links(token: str) -> tuple[list[str], str | None] | None:
             + build_mobile_links(combined)
         )
     _register_probe_targets(combined)
-    return reorder_by_proximity(filter_alive(combined)), userinfo
+    return reorder_by_proximity(filter_alive(combined)), userinfo, fallback
 
 
 def build_combined(token: str) -> tuple[str, str | None] | None:
@@ -1839,6 +1889,7 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
     if resolved is None:
         return None
     links, userinfo = resolved
+    fallback = _BRIDGE_FALLBACK.get(token)
     links = pin_addresses(links)
     username = _token_username(token)
     ru_exit = ind_ru_exit_link(username) if username in IND_USERS else None
@@ -1849,12 +1900,16 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
         bridge = None if compat else bridge_auto_pool(links, username, balancer_exclusions())
         exits = foreign_exits_for(username)
         udp = auto_udp_for(username)
+        pool = compat_auto_pool(links) if compat else (bridge[0] if bridge else None)
+        spare = bridge[1] if bridge else None
         if exits is not None:
             udp = [uri for uri in udp if pin_host(_uri_host(uri) or "") in {pin_host(h) for h in exits}]
+        if fallback:
+            # Через мост: автовыбор между странами моста, прямой сервер — только запасной.
+            pool, spare, udp = links, pin_address(fallback), []
         configs = build_json_subscription(
             links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria, auto_udp=udp,
-            auto_pool=compat_auto_pool(links) if compat else (bridge[0] if bridge else None),
-            auto_strategy="competitor" if compat else None, auto_fallback=bridge[1] if bridge else None,
+            auto_pool=pool, auto_strategy="competitor" if compat else None, auto_fallback=spare,
             split=exits is None,
         )
     if configs:

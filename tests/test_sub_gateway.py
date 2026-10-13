@@ -2435,3 +2435,38 @@ def test_other_links_are_unaffected_by_foreign_only(monkeypatch):
     _foreign(monkeypatch)
     links, _ = sub_gateway.resolve_links(_panel_token("exp_other_1"))
     assert any("212.233.122.241" in l for l in links), "обычная ссылка по-прежнему с мостом"
+
+
+def _via_vk(monkeypatch):
+    _foreign(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "FOREIGN_VIA_VK_USERS", frozenset({"exp_denl_7d"}))
+    monkeypatch.setattr(sub_gateway, "VK_FULL_IDS", {DE_EXIT: "full-de-uuid", NL_HOST: "full-nl-uuid"})
+
+
+def test_foreign_link_through_vk_shows_countries_but_connects_to_vk(monkeypatch):
+    _via_vk(monkeypatch)
+    links, _ = sub_gateway.resolve_links(_panel_token("exp_denl_7d"))
+    names = sorted(urllib.parse.unquote(l.rsplit("#", 1)[-1]) for l in links)
+    assert names == ["🇩🇪 Германия", "🇳🇱 Нидерланды"], names
+    assert {sub_gateway._uri_host(l) for l in links} == {"212.233.122.241.sslip.io"}
+    assert sorted(sub_gateway._uri_userinfo(l) for l in links) == ["full-de-uuid", "full-nl-uuid"]
+    assert not any("РУ" in n for n in names)
+
+
+def test_foreign_link_through_vk_auto_uses_both_bridge_keys_and_direct_fallback(monkeypatch):
+    _via_vk(monkeypatch)
+    configs = _auto_of("exp_denl_7d")
+    assert [c["remarks"] for c in configs][1:] == ["🇩🇪 Германия", "🇳🇱 Нидерланды"] or len(configs) == 3
+    auto = configs[0]
+    ids = sorted(o["settings"]["vnext"][0]["users"][0]["id"] for o in _proxies(auto))
+    assert ids == ["full-de-uuid", "full-nl-uuid"], "оба ключа моста, без Hysteria2 мимо моста"
+    fallback = next(o for o in auto["outbounds"] if o["tag"] == "fallback")
+    assert fallback["settings"]["vnext"][0]["address"] == "107.189.22.160"
+    assert auto["routing"]["balancers"][0]["fallbackTag"] == "fallback"
+
+
+def test_foreign_link_falls_back_to_direct_entries_when_vk_is_dead(monkeypatch):
+    _via_vk(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {"212.233.122.241.sslip.io"})
+    links, _ = sub_gateway.resolve_links(_panel_token("exp_denl_7d"))
+    assert links and not any("212.233.122.241" in l for l in links)
