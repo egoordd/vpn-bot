@@ -1,0 +1,31 @@
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6em;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--text-base);
+  letter-spacing: 0.24em;
+  color: var(--text);
+}
+
+.logo__mark {
+  height: 1.9em;
+  width: auto;
+  color: var(--brand-gold);
+  overflow: visible;
+  transition: transform var(--duration) var(--ease-out-expo);
+}
+.logo:hover .logo__mark {
+  transform: translateY(-1px) rotate(-6deg);
+}
+
+.logo__word {
+  color: var(--text);
+}
+.logo__upn {
+  color: var(--brand-gold-deep);
+  margin-left: 0.5em;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}

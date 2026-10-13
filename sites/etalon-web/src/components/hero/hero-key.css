@@ -1,0 +1,43 @@
+.herokey {
+  position: relative;
+  width: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.herokey__halo {
+  position: absolute;
+  width: min(62%, 22rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--glow-gold) 0%, transparent 68%);
+  filter: blur(6px);
+}
+
+.herokey__mark {
+  position: relative;
+  width: min(20%, 7.5rem);
+  height: auto;
+  color: var(--brand-gold);
+  overflow: visible;
+  filter: drop-shadow(0 26px 45px var(--glow-gold));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .herokey__mark {
+    animation: herokey-turn 9s var(--ease-out-expo) infinite;
+    transform-origin: 41% 20%;
+  }
+}
+
+@keyframes herokey-turn {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  40% {
+    transform: translateY(-10px) rotate(0deg);
+  }
+  55%, 70% {
+    transform: translateY(-10px) rotate(-14deg);
+  }
+}

@@ -1,0 +1,74 @@
+.hero {
+  position: relative;
+  z-index: 1;
+  padding-block: clamp(1.5rem, 1rem + 2vw, 3rem) var(--space-section);
+}
+
+.hero__inner {
+  position: relative;
+  z-index: 1;
+  min-height: calc(100svh - 7rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: clamp(1.5rem, 1rem + 2.5vw, 3rem);
+}
+
+.hero__visual {
+  width: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.hero__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.4rem;
+  max-width: 44rem;
+}
+
+.hero__title {
+  max-width: 20ch;
+  text-shadow: 0 1px 0 oklch(100% 0 0 / 0.4), 0 14px 30px var(--glow-accent);
+}
+.hero__title-accent {
+  position: relative;
+  background: var(--grad-ember);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero__lead {
+  max-width: 50ch;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  justify-content: center;
+  margin-top: 0.4rem;
+}
+
+.hero__points {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem 1.4rem;
+  margin-top: 0.6rem;
+}
+.hero__points li {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.hero__points svg {
+  color: var(--text);
+  flex-shrink: 0;
+}

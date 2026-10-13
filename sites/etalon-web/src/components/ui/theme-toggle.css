@@ -1,0 +1,31 @@
+.ttoggle {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  box-shadow: var(--shadow-sm);
+  transition:
+    color var(--duration) var(--ease-out-expo),
+    border-color var(--duration) var(--ease-out-expo),
+    transform var(--duration) var(--ease-out-expo);
+}
+.ttoggle:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+/* Light theme shows the moon (click → dark); dark shows the sun. */
+.ttoggle__sun {
+  display: none;
+}
+:root[data-theme="dark"] .ttoggle__moon {
+  display: none;
+}
+:root[data-theme="dark"] .ttoggle__sun {
+  display: block;
+}
