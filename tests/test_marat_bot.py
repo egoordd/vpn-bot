@@ -798,3 +798,55 @@ def test_docs_screen_is_valid_html(monkeypatch):
         HTMLParser().feed(text)
         assert text.count("<b>") == text.count("</b>")
     assert "help@example.com" in docs.screen_text()
+
+
+# --- 13.10.2026: тема avangard («Avangard GT») — свой Marzban заказчика, 🇩🇪 🇳🇱 без РУ ---
+
+from marat_bot.themes import avangard  # noqa: E402
+
+
+def test_avangard_banners_exist_and_every_caption_fits():
+    import html as _html
+    import re as _re
+    from marat_bot import app
+
+    for screen, path in avangard.BANNERS.items():
+        assert os.path.isfile(path), (screen, path)
+    access = core.Access("corp_avg_1", "T" * 22, int(time.time()) + 86400, "active", 1024**3, 10 * 1024**3)
+    long_link = "https://panel.example.com:8443/sub/" + "x" * 80
+    screens = [
+        avangard.welcome("Константин Константинопольский"), avangard.issued("31 декабря, 23:59 МСК"),
+        avangard.PICK_DEVICE, avangard.steps("iPhone / iPad", long_link), avangard.status(access, long_link),
+        avangard.tariffs(), avangard.checkout("12 месяцев", 1799), avangard.help_text(8627023174),
+        avangard.HOW_IT_WORKS, avangard.referral("https://t.me/x?start=ref1"),
+    ]
+    for text in screens:
+        visible = _html.unescape(_re.sub(r"<[^>]+>", "", text))
+        assert len(visible.encode("utf-16-le")) // 2 <= app.CAPTION_LIMIT, len(visible)
+
+
+def test_avangard_offers_only_germany_and_netherlands_and_stays_neutral():
+    texts_ = _theme_screens(avangard) + [avangard.DESCRIPTION, avangard.SHORT_DESCRIPTION]
+    for text in texts_:
+        low = text.lower()
+        assert "unlock" not in low and "анлок" not in low
+        assert "ру-сервис" not in low and "🇷🇺" not in text, "у Avangard нет российских серверов"
+        assert "заблокир" not in low and "блокиров" not in low, "без рекламы обхода блокировок"
+    assert "🇩🇪" in avangard.welcome() and "🇳🇱" in avangard.welcome()
+    assert len(avangard.SHORT_DESCRIPTION) <= 120 and len(avangard.DESCRIPTION) <= 512
+    body = inspect.getsource(avangard).split('"""', 2)[-1]
+    assert "Марат" not in body and "Etalon" not in body
+
+
+def test_inbounds_and_panel_come_from_the_environment():
+    code = (
+        "import marat_bot.core as c, marat_bot.app as a; "
+        "client, _ = a._panel(); print(c.INBOUNDS['vless']); print(client.base_url, client.username)"
+    )
+    env = {**os.environ, "MARAT_INBOUNDS": "VLESS DE, VLESS NL ", "MARAT_PANEL_URL": "https://panel.example:8443/",
+           "MARAT_PANEL_USERNAME": "avangard", "MARAT_PANEL_PASSWORD": "x", "MARAT_THEME": "avangard",
+           "MARAT_PREFIX": "corp_avg_"}
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env,
+                         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.splitlines() == ["['VLESS DE', 'VLESS NL']", "https://panel.example:8443 avangard"]

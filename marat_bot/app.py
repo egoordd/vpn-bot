@@ -55,10 +55,18 @@ def _store() -> Store:
     return Store(os.environ.get("MARAT_DB", "/var/lib/marat-bot/users.sqlite3"))
 
 
+PANEL_URL = os.environ.get("MARAT_PANEL_URL", "").strip()
+
+
 def _panel():
-    # Панель — через клиент основного бота (те же доступы из /opt/vpn-bot/.env).
     from services.marzban_client import MarzbanClient, MarzbanNotFoundError
 
+    if PANEL_URL:
+        # Свой Marzban заказчика (Avangard GT): логин его админа из окружения службы.
+        client = MarzbanClient(PANEL_URL, username=os.environ.get("MARAT_PANEL_USERNAME", ""),
+                               password=os.environ.get("MARAT_PANEL_PASSWORD", ""))
+        return client, MarzbanNotFoundError
+    # Иначе — наша панель, доступы основного бота из /opt/vpn-bot/.env.
     return MarzbanClient(), MarzbanNotFoundError
 
 

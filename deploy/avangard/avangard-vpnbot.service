@@ -1,0 +1,27 @@
+[Unit]
+Description=Avangard GT Telegram bot (free trial, own Marzban)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/avangard-bot
+EnvironmentFile=/etc/avangard-bot.env
+ExecStart=/opt/avangard-bot/.venv/bin/python -m marat_bot.app
+User=avangard
+Restart=always
+RestartSec=5
+StateDirectory=avangard-bot
+StateDirectoryMode=0750
+Environment=MARAT_DB=/var/lib/avangard-bot/users.sqlite3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+[Install]
+WantedBy=multi-user.target

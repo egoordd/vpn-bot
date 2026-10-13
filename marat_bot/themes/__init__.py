@@ -2,7 +2,8 @@
 
 MARAT_THEME выбирает тему службы: classic — исходная, orbit — «Ярослав VPN»,
 etalon — «Etalon VPN» (бывший «Марат VPN»), plata — «Plata VPN» (бывший «Ярослав VPN»);
-у etalon и plata баннеры: BANNERS {экран: файл}.
+avangard — «Avangard GT» (свой Marzban заказчика, 🇩🇪 🇳🇱);
+у etalon, plata и avangard баннеры: BANNERS {экран: файл}.
 INTERFACE — что обязана определить тема; тест сверяет это для всех тем.
 """
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import importlib
 from types import ModuleType
 
-THEMES = ("classic", "orbit", "etalon", "plata")
+THEMES = ("classic", "orbit", "etalon", "plata", "avangard")
 INTERFACE = (
     "NAME", "TRIAL", "BUTTONS", "welcome", "issued", "ALREADY", "PICK_DEVICE", "steps", "status", "home",
     "tariffs", "checkout", "referral", "COMMANDS_GUIDE", "help_text", "HOW_IT_WORKS", "SHORT_DESCRIPTION",
