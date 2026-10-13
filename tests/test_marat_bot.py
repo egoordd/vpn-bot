@@ -850,3 +850,18 @@ def test_inbounds_and_panel_come_from_the_environment():
                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     assert res.returncode == 0, res.stderr
     assert res.stdout.splitlines() == ["['VLESS DE', 'VLESS NL']", "https://panel.example:8443 avangard"]
+
+
+# --- 13.10.2026: формулировки для платёжных провайдеров (Platega, ЮKassa) ---
+
+from marat_bot.themes import plata  # noqa: E402
+
+_RISKY = ("заблокир", "блокиров", "youtube", "instagram", "chatgpt", "без границ", "свободного интернета",
+          "не открывается", "без ограничений")
+
+
+def test_branded_bots_never_advertise_bypassing_blocks():
+    for theme in (etalon, plata, avangard):
+        for text in _theme_screens(theme) + [theme.DESCRIPTION, theme.SHORT_DESCRIPTION, theme.HOW_IT_WORKS]:
+            low = text.lower()
+            assert not [w for w in _RISKY if w in low], (theme.__name__, text[:80])

@@ -138,7 +138,7 @@ def screen(name: str, title: str, subtitle: str, chips: list[str] | None = None)
     im.save(os.path.join(OUT, f"{name}.jpg"), quality=90, optimize=True, progressive=True)
 
 
-def hero(size=(W, H), tagline: str | None = "Безопасный интернет без границ") -> Image.Image:
+def hero(size=(W, H), tagline: str | None = "Безопасный и быстрый интернет") -> Image.Image:
     w, h = size
     im = Image.new("RGB", size, CREAM)
     glow = Image.new("L", size, 0)
