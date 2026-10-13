@@ -56,6 +56,10 @@ export function Pricing() {
             начать в боте
           </a>
         </p>
+        <p className="pricing__docs reveal">
+          <a href="/tariffs/">Подробно о тарифах и оплате</a>
+          <a href="/terms/#refund">Условия возврата</a>
+        </p>
       </div>
     </section>
   );

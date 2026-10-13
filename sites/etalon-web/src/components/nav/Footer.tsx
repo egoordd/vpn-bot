@@ -1,5 +1,5 @@
 import { Logo } from "@/components/ui/Logo";
-import { NAV_LINKS, SITE, botLink } from "@/lib/site";
+import { LEGAL_LINKS, NAV_LINKS, SITE, botLink } from "@/lib/site";
 import "./footer.css";
 
 export function Footer() {
@@ -23,6 +23,13 @@ export function Footer() {
           </a>
         </nav>
       </div>
+      <nav className="container ftr__legal" aria-label="Документы">
+        {LEGAL_LINKS.map((l) => (
+          <a key={l.href} href={l.href}>
+            {l.label}
+          </a>
+        ))}
+      </nav>
       <div className="container ftr__bottom">
         <span>© {new Date().getFullYear()} {SITE.name}</span>
         <span>Используйте сервис ответственно и в рамках закона.</span>

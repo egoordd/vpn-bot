@@ -156,6 +156,10 @@ class Store:
             if column not in columns:
                 self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
         self._db.execute("CREATE TABLE IF NOT EXISTS admins (username TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL)")
+        self._db.execute(
+            "CREATE TABLE IF NOT EXISTS support_links (admin_chat INTEGER NOT NULL, admin_msg INTEGER NOT NULL, "
+            "user_id INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (admin_chat, admin_msg))"
+        )
         self._db.commit()
 
     def get(self, telegram_id: int) -> str | None:
@@ -204,6 +208,20 @@ class Store:
     def bind_admin(self, username: str, telegram_id: int) -> None:
         self._db.execute("INSERT OR IGNORE INTO admins (username, telegram_id) VALUES (?, ?)", (username, telegram_id))
         self._db.commit()
+
+    def link_support(self, admin_chat: int, admin_msg: int, user_id: int) -> None:
+        """Сообщение обращения в чате админа → кто писал (чтобы ответ «реплаем» дошёл до него)."""
+        self._db.execute(
+            "INSERT OR REPLACE INTO support_links (admin_chat, admin_msg, user_id, created_at) VALUES (?, ?, ?, ?)",
+            (admin_chat, admin_msg, user_id, int(time.time())),
+        )
+        self._db.commit()
+
+    def support_user(self, admin_chat: int, admin_msg: int) -> int | None:
+        row = self._db.execute(
+            "SELECT user_id FROM support_links WHERE admin_chat = ? AND admin_msg = ?", (admin_chat, admin_msg)
+        ).fetchone()
+        return row[0] if row else None
 
 
 @dataclass(frozen=True)

@@ -29,12 +29,27 @@
 .ftr__nav a:hover {
   color: var(--gold-deep);
 }
+.ftr__legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin-top: 36px;
+}
+.ftr__legal a {
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+  background: linear-gradient(var(--hair-strong), var(--hair-strong)) left bottom / 100% 1px no-repeat;
+  transition: color 200ms ease;
+}
+.ftr__legal a:hover {
+  color: var(--gold-deep);
+}
 .ftr__bottom {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 40px;
+  margin-top: 22px;
   padding-top: 22px;
   border-top: 1px solid var(--hair);
   color: var(--ink-dim);

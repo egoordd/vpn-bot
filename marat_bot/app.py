@@ -12,7 +12,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from marat_bot import admin  # noqa: E402
+from marat_bot import docs  # noqa: E402
 from marat_bot import keyboards as kb  # noqa: E402
+from marat_bot import support  # noqa: E402
 from marat_bot import texts  # noqa: E402
 from marat_bot.core import (  # noqa: E402
     INBOUNDS, NAME, PLANS, PROXIES, TRIAL_TRAFFIC_BYTES, Access, Store, date_msk, happ_link, panel_username, sub_link,
@@ -44,7 +46,7 @@ COMMANDS = [
 ]
 # Конфетти поверх сообщения «Доступ открыт» (эффекты Telegram работают в личных чатах).
 EFFECT_PARTY = "5046509860389126442"
-HANDLED = {"menu", "trial", "me", "connect", "tariffs", "help", "how", "ref", "adm"}
+HANDLED = {"menu", "trial", "me", "connect", "tariffs", "help", "how", "ref", "adm", "support", "docs"}
 HANDLED_PREFIXES = ("dev:", "plan:", "stub:", "adm:")
 
 
@@ -138,6 +140,17 @@ async def edit_screen(tg: Tg, chat: int, msg: int, screen: str | None, text: str
     await tg.delete(chat, msg)
 
 
+async def _support_prompt(tg: Tg, chat: int, user: int) -> None:
+    """Открыть обращение в поддержку (команда, кнопка или ссылка ?start=support с сайта)."""
+    if kb.SUPPORT_URL:
+        await tg.send(chat, "💬 Поддержка:", kb.help_menu())
+    elif support.available(_store()):
+        support.open_window(user)
+        await tg.send(chat, support.PROMPT, kb.support_prompt())
+    else:
+        await tg.send(chat, texts.STUB_SUPPORT, kb.help_menu())
+
+
 async def on_message(tg: Tg, message: dict) -> None:
     text = (message.get("text") or "").strip()
     chat = message["chat"]["id"]
@@ -148,6 +161,17 @@ async def on_message(tg: Tg, message: dict) -> None:
     store = _store()
     store.touch(user, sender.get("username"), sender.get("first_name"))
     is_admin = admin.is_admin(store, sender)
+    if is_admin and not command and message.get("reply_to_message"):
+        if await support.reply(tg, store, message, kb.support_answer()):
+            return
+    if command == "/support" or (command == "/start" and words[1:2] == ["support"]):
+        await _support_prompt(tg, chat, user)
+        return
+    if command:
+        support.close(user)
+    elif chat == user and support.is_open(user):
+        await tg.send(chat, await support.forward(tg, store, message))
+        return
     if is_admin and command in ("/start", "/admin"):
         await admin.set_menu(tg, chat, COMMANDS)
     if is_admin and command in admin.COMMANDS:
@@ -162,8 +186,6 @@ async def on_message(tg: Tg, message: dict) -> None:
         await send_screen(tg, chat, "help", texts.help_text(user), kb.help_menu())
     elif command == "/promo":
         await tg.send(chat, texts.STUB_PROMO, kb.back())
-    elif command == "/support":
-        await tg.send(chat, texts.STUB_SUPPORT if not kb.SUPPORT_URL else "💬 Поддержка:", kb.help_menu())
     elif command == "/tariffs":
         await send_screen(tg, chat, "tariffs", texts.tariffs(), kb.tariffs())
     elif command in ("/connect", "/status", "/me"):
@@ -206,6 +228,7 @@ async def on_callback(tg: Tg, call: dict) -> None:
             return
         await show(text, admin.keyboard())
     elif data == "menu":
+        support.close(user)
         access = await _my_access(user)
         await show(texts.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])), "home")
     elif data == "trial":
@@ -241,7 +264,7 @@ async def on_callback(tg: Tg, call: dict) -> None:
     elif data.startswith("plan:"):
         plan = next(((label, price) for d, label, price in PLANS if f"plan:{d}" == data), None)
         if plan:
-            await show(texts.checkout(*plan), kb.checkout(), "checkout")
+            await show(texts.checkout(*plan) + docs.checkout_note(), kb.checkout(), "checkout")
         else:
             await tg.answer(call["id"])
     elif data == "help":
@@ -251,6 +274,17 @@ async def on_callback(tg: Tg, call: dict) -> None:
     elif data == "ref":
         link = f"https://t.me/{_bot_username}?start=ref{user}" if _bot_username else "—"
         await show(texts.referral(link), kb.back(), "ref")
+    elif data == "support":
+        if not support.available(_store()):
+            await alert(texts.STUB_SUPPORT)
+            return
+        support.open_window(user)
+        await show(support.PROMPT, kb.support_prompt())
+    elif data == "docs":
+        if not docs.links():
+            await tg.answer(call["id"])
+            return
+        await show(docs.screen_text(), kb.docs_menu())
     elif data.startswith("stub:"):
         await alert(STUBS.get(data.split(":", 1)[1], "Скоро появится."))
     else:

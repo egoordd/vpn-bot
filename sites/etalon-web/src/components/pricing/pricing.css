@@ -139,6 +139,22 @@
   font-weight: 600;
   background: linear-gradient(var(--gold), var(--gold)) left bottom / 100% 1px no-repeat;
 }
+.pricing__docs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 28px;
+  margin-top: 16px;
+  font-size: var(--text-sm);
+}
+.pricing__docs a {
+  color: var(--ink-soft);
+  background: linear-gradient(var(--hair-strong), var(--hair-strong)) left bottom / 100% 1px no-repeat;
+  transition: color 200ms ease;
+}
+.pricing__docs a:hover {
+  color: var(--gold-deep);
+}
 @media (max-width: 1080px) {
   .plans {
     grid-template-columns: repeat(2, 1fr);

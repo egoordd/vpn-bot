@@ -98,6 +98,11 @@ class _FakeTg:
     async def send(self, chat, text, markup=None, effect=None):
         self.sent.append((chat, text, markup))
         self.effects = [*getattr(self, "effects", []), effect]
+        return {"message_id": 1000 + len(self.sent)}
+
+    async def copy(self, chat, from_chat, message_id, markup=None, reply_to=None):
+        self.copies = [*getattr(self, "copies", []), (chat, from_chat, message_id, markup, reply_to)]
+        return 5000 + len(self.copies)
 
     async def call(self, method, **params):
         self.calls = [*getattr(self, "calls", []), (method, params)]
@@ -498,7 +503,10 @@ def test_orbit_screens_are_valid_html_and_unbranded():
 
 def test_orbit_looks_different_from_classic():
     assert orbit.welcome("Яр") != classic.welcome("Яр")
-    same = {k for k in themes.BUTTON_KEYS if orbit.BUTTONS[k] == classic.BUTTONS[k]}
+    from marat_bot.themes.common import DOC_BUTTONS
+
+    # Кнопки документов и поддержки общие намеренно — сравниваем только оформление темы.
+    same = {k for k in themes.BUTTON_KEYS if k not in DOC_BUTTONS and orbit.BUTTONS[k] == classic.BUTTONS[k]}
     assert len(same) <= 4, same
     assert "●" in orbit.status(core.Access("corp_yar_1", "T", int(time.time()) + 60, "active", 5 * 1024**3, 10 * 1024**3), "L")
 
@@ -617,3 +625,176 @@ def test_plata_banners_exist_captions_fit_and_texts_are_clean():
     body = inspect.getsource(plata).split('"""', 2)[-1]
     assert "Ярослав" not in body and "Марат" not in body
     assert plata.BUTTONS["trial"].startswith("🛡") and len(plata.SHORT_DESCRIPTION) <= 120
+
+
+# --- 13.10.2026: поддержка в боте и документы (требование платёжного провайдера) ---
+
+from marat_bot import docs, support  # noqa: E402
+
+
+def _support_env(monkeypatch, tmp_path, admins=frozenset({1})):
+    from marat_bot import app
+
+    monkeypatch.setenv("MARAT_DB", str(tmp_path / "u.sqlite3"))
+    app._store.cache_clear()
+    monkeypatch.setattr(admin, "ADMIN_IDS", admins)
+    monkeypatch.setattr(admin, "ADMIN_NAMES", frozenset())
+    monkeypatch.setattr(support, "_windows", {})
+    return app
+
+
+def _user_msg(text, user=5, message_id=70, **extra):
+    return {"message_id": message_id, "text": text, "chat": {"id": user},
+            "from": {"id": user, "first_name": "Ира", "username": "ira"}, **extra}
+
+
+def test_support_message_reaches_admin_and_the_reply_comes_back(monkeypatch, tmp_path):
+    import asyncio
+
+    app = _support_env(monkeypatch, tmp_path)
+    tg = _FakeTg()
+
+    async def run():
+        await app.on_callback(tg, _call("support"))
+        await app.on_message(tg, _user_msg("Не подключается на iPhone", message_id=71))
+        await app.on_message(tg, {"message_id": 72, "photo": [{"file_id": "x"}], "chat": {"id": 5}, "from": {"id": 5}})
+        card_id = next(i for i, (chat, text, _) in enumerate(tg.sent, start=1001) if chat == 1 and "Обращение" in text)
+        await app.on_message(tg, {"message_id": 9, "text": "Обновите подписку", "chat": {"id": 1},
+                                  "from": {"id": 1}, "reply_to_message": {"message_id": card_id}})
+        return card_id
+
+    card_id = asyncio.run(run())
+    app._store.cache_clear()
+    assert support.PROMPT in [e[2] for e in tg.edits]
+    cards = [t for chat, t, _ in tg.sent if chat == 1 and "Обращение" in t]
+    assert len(cards) == 1 and "@ira" in cards[0] and "<code>5</code>" in cards[0], "одна карточка на окно"
+    to_admin = [c for c in tg.copies if c[0] == 1]
+    assert [(c[1], c[2], c[4]) for c in to_admin] == [(5, 71, card_id), (5, 72, card_id)]
+    assert [t for chat, t, _ in tg.sent if chat == 5].count(support.SENT) == 2
+    answer = [c for c in tg.copies if c[0] == 5]
+    assert answer and answer[0][1:3] == (1, 9) and "support" in kb_callbacks(answer[0][3])
+    assert (5, support.ANSWER, None) in tg.sent and (1, "✅ Ответ отправлен.", None) in tg.sent
+
+
+def kb_callbacks(markup):
+    from marat_bot import keyboards as kb
+
+    return kb.callbacks(markup)
+
+
+def test_admin_can_reply_to_the_copied_message_too(monkeypatch, tmp_path):
+    import asyncio
+
+    app = _support_env(monkeypatch, tmp_path)
+    tg = _FakeTg()
+
+    async def run():
+        await app.on_message(tg, _user_msg("/support"))
+        await app.on_message(tg, _user_msg("Вопрос по оплате", message_id=80))
+        copy_id = 5000 + len(tg.copies)  # id последней копии у админа (см. _FakeTg.copy)
+        await app.on_message(tg, {"message_id": 11, "text": "Ок", "chat": {"id": 1}, "from": {"id": 1},
+                                  "reply_to_message": {"message_id": copy_id}})
+
+    asyncio.run(run())
+    app._store.cache_clear()
+    assert any(c[0] == 5 and c[2] == 11 for c in tg.copies)
+
+
+def test_messages_outside_the_window_are_not_forwarded(monkeypatch, tmp_path):
+    import asyncio
+
+    app = _support_env(monkeypatch, tmp_path)
+    tg = _FakeTg()
+
+    async def run():
+        await app.on_message(tg, _user_msg("привет"))
+        await app.on_message(tg, _user_msg("/support"))
+        await app.on_message(tg, _user_msg("/start"))
+        await app.on_message(tg, _user_msg("ещё привет"))
+
+    asyncio.run(run())
+    app._store.cache_clear()
+    assert not getattr(tg, "copies", []), "команда закрывает обращение, без окна ничего не уходит"
+
+
+def test_support_window_expires_and_limits_flood(monkeypatch):
+    monkeypatch.setattr(support, "_windows", {})
+    support.open_window(5, now=1000)
+    assert support.is_open(5, now=1000 + support.WINDOW_SECONDS - 1)
+    assert not support.is_open(5, now=1000 + support.WINDOW_SECONDS + 1)
+
+    import asyncio
+
+    class _Store:
+        def admin_id(self, name):
+            return None
+
+        def get(self, user):
+            return None
+
+        def link_support(self, *args):
+            pass
+
+    monkeypatch.setattr(admin, "ADMIN_IDS", frozenset({1}))
+    monkeypatch.setattr(admin, "ADMIN_NAMES", frozenset())
+    support.open_window(5)
+    tg = _FakeTg()
+    replies = [asyncio.run(support.forward(tg, _Store(), _user_msg("x", message_id=i))) for i in range(12)]
+    assert replies[:support.MAX_MESSAGES] == [support.SENT] * support.MAX_MESSAGES
+    assert replies[support.MAX_MESSAGES:] == [support.LIMIT] * 2
+
+
+def test_without_admins_support_stays_a_stub(monkeypatch, tmp_path):
+    import asyncio
+
+    app = _support_env(monkeypatch, tmp_path, admins=frozenset())
+    tg = _FakeTg()
+
+    async def run():
+        await app.on_callback(tg, _call("support"))
+        await app.on_message(tg, _user_msg("/support"))
+
+    asyncio.run(run())
+    app._store.cache_clear()
+    assert (("cb", texts.STUB_SUPPORT, True)) in tg.answers
+    assert tg.sent[-1][1] == texts.STUB_SUPPORT and not support._windows
+
+
+def test_site_link_opens_support(monkeypatch, tmp_path):
+    import asyncio
+
+    app = _support_env(monkeypatch, tmp_path)
+    tg = _FakeTg()
+    asyncio.run(app.on_message(tg, _user_msg("/start support")))
+    app._store.cache_clear()
+    assert tg.sent[-1][1] == support.PROMPT and support.is_open(5)
+
+
+def test_docs_buttons_appear_only_with_a_site(monkeypatch):
+    from marat_bot import app, keyboards as kb
+
+    monkeypatch.setattr(docs, "SITE_URL", "")
+    assert "docs" not in kb.callbacks(kb.main(None)) and docs.checkout_note() == ""
+
+    monkeypatch.setattr(docs, "SITE_URL", "https://etalon.example")
+    for markup in (kb.main(None), kb.help_menu()):
+        assert "docs" in kb.callbacks(markup)
+    urls = [b.get("url") for row in kb.docs_menu()["inline_keyboard"] for b in row]
+    assert "https://etalon.example/privacy/" in urls and "https://etalon.example/terms/" in urls
+    assert "https://etalon.example/tariffs/" in urls
+    assert any(b.get("url") == "https://etalon.example/terms/#refund"
+               for row in kb.tariffs()["inline_keyboard"] for b in row)
+    assert "пользовательское соглашение" in docs.checkout_note()
+    for markup in (kb.docs_menu(), kb.support_prompt(), kb.support_answer(), kb.checkout(), kb.tariffs()):
+        for data in kb.callbacks(markup):
+            assert data in app.HANDLED or data.startswith(app.HANDLED_PREFIXES), data
+
+
+def test_docs_screen_is_valid_html(monkeypatch):
+    from html.parser import HTMLParser
+
+    monkeypatch.setattr(docs, "SUPPORT_EMAIL", "help@example.com")
+    for text in (docs.screen_text(), support.PROMPT, support.ANSWER):
+        HTMLParser().feed(text)
+        assert text.count("<b>") == text.count("</b>")
+    assert "help@example.com" in docs.screen_text()

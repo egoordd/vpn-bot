@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from marat_bot.core import DEVICES, NAME, PLANS, Access, per_month
-from marat_bot.themes.common import COMMAND_LINES, FLAGS, TRIAL, TRIAL_GB, Look, card, escape_name, quote
+from marat_bot.themes.common import COMMAND_LINES, DOC_BUTTONS, FLAGS, TRIAL, TRIAL_GB, Look, card, escape_name, quote
 
 LOOK = Look(
     active="🟢 <b>Активна</b> · пробный период",
@@ -49,6 +49,7 @@ BUTTONS = {
     "dev_macos": "🍏 macOS",
     "plan": "▸ {label} · {price} ₽",
     "admin": "🛠 Админка",
+    **DOC_BUTTONS,
 }
 
 

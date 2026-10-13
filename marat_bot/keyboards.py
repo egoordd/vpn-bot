@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 
-from marat_bot import texts
+from marat_bot import docs, texts
 from marat_bot.core import PLANS, Access
 
 SUPPORT_URL = os.environ.get("MARAT_SUPPORT_URL", "").strip()
@@ -34,7 +34,12 @@ def _kb(*rows: list[dict]) -> dict:
 
 
 def _support() -> dict:
-    return _button("support", SUPPORT_URL or "stub:support")
+    # Внешняя ссылка, если задана; иначе обращение прямо в боте (без админов бот ответит заглушкой).
+    return _button("support", SUPPORT_URL or "support")
+
+
+def _docs_rows() -> list[list[dict]]:
+    return [[_button("docs", "docs")]] if docs.links() else []
 
 
 def _news() -> dict:
@@ -43,6 +48,7 @@ def _news() -> dict:
 
 def main(access: Access | None, admin: bool = False) -> dict:
     markup = _main(access)
+    markup["inline_keyboard"].extend(_docs_rows())
     if admin:
         markup["inline_keyboard"].append([_button("admin", "adm")])
     return markup
@@ -80,14 +86,39 @@ def my_subscription() -> dict:
 
 def tariffs() -> dict:
     rows = [[_button("plan", f"plan:{days}", label=label, price=price)] for days, label, price in PLANS]
-    return _kb(*rows, [_button("menu", "menu")])
+    found = docs.links()
+    terms = [[_button("pay_terms", found["refund"])]] if found else []
+    return _kb(*rows, *terms, [_button("menu", "menu")])
 
 
 def checkout() -> dict:
+    found = docs.links()
+    terms = [[_button("terms", found["terms"])]] if found else []
     return _kb(
         [_button("pay", "stub:pay", "primary")],
+        *terms,
         [_button("to_tariffs", "tariffs"), _button("menu_short", "menu")],
     )
+
+
+def docs_menu() -> dict:
+    """Экран «Документы»: каждый документ — отдельной кнопкой (так требует платёжный провайдер)."""
+    found = docs.links()
+    return _kb(
+        [_button("privacy", found["privacy"])],
+        [_button("terms", found["terms"])],
+        [_button("site_tariffs", found["tariffs"])],
+        [_support()],
+        [_button("menu", "menu")],
+    )
+
+
+def support_prompt() -> dict:
+    return _kb([_button("support_cancel", "menu")])
+
+
+def support_answer() -> dict:
+    return _kb([_button("support_reply", "support"), _button("menu_short", "menu")])
 
 
 def devices() -> dict:
@@ -110,6 +141,7 @@ def help_menu() -> dict:
     return _kb(
         [_button("connect_short", "connect"), _button("how", "how")],
         [_support(), _news()],
+        *_docs_rows(),
         [_button("menu", "menu")],
     )
 

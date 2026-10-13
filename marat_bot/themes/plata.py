@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 
 from marat_bot.core import DEVICES, NAME, PLANS, Access, per_month
-from marat_bot.themes.common import COMMAND_LINES, FLAGS, TRIAL, TRIAL_GB, Look, card, escape_name, quote
+from marat_bot.themes.common import COMMAND_LINES, DOC_BUTTONS, FLAGS, TRIAL, TRIAL_GB, Look, card, escape_name, quote
 
 _ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "plata")
 BANNERS = {
@@ -63,6 +63,7 @@ BUTTONS = {
     "dev_macos": "💻 Mac",
     "plan": "🛡 {label} — {price} ₽",
     "admin": "🛠 Админка",
+    **DOC_BUTTONS,
 }
 
 

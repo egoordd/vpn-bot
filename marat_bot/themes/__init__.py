@@ -21,6 +21,7 @@ BUTTON_KEYS = (
     "trial", "tariffs", "how", "help", "support", "link", "connect", "connect_short", "me", "ref", "promo",
     "review", "renew", "renew_short", "news", "menu", "menu_short", "to_tariffs", "pay", "other_device",
     "install", "add", "dev_ios", "dev_android", "dev_windows", "dev_macos", "plan", "admin",
+    "docs", "privacy", "terms", "site_tariffs", "pay_terms", "support_cancel", "support_reply",
 )
 
 

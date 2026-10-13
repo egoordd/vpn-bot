@@ -9,6 +9,16 @@ from marat_bot.core import DEVICES, TRIAL_DAYS, TRIAL_TRAFFIC_BYTES, Access, bar
 FLAGS = "🇵🇱 🇫🇮 🇳🇱 🇺🇸"
 TRIAL = days_word(TRIAL_DAYS)
 TRIAL_GB = TRIAL_TRAFFIC_BYTES // 1024**3
+# Документы и поддержка (13.10.2026, требование платёжного провайдера) — одинаковые во всех темах.
+DOC_BUTTONS = {
+    "docs": "📄 Документы",
+    "privacy": "🔒 Политика конфиденциальности",
+    "terms": "📜 Пользовательское соглашение",
+    "site_tariffs": "💳 Тарифы и оплата на сайте",
+    "pay_terms": "📜 Условия оплаты и возврата",
+    "support_cancel": "← Отменить",
+    "support_reply": "✍️ Ответить поддержке",
+}
 
 
 def quote(*lines: str, expandable: bool = False) -> str:

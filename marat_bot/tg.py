@@ -119,6 +119,15 @@ class Tg:
         self._remember(path, result)
         return result
 
+    async def copy(self, chat_id: int, from_chat_id: int, message_id: int, markup: dict | None = None,
+                   reply_to: int | None = None) -> int:
+        """Копия сообщения любого типа (текст, фото, файл) без подписи «переслано»; возвращает id копии."""
+        result = await self.call("copyMessage", chat_id=chat_id, from_chat_id=from_chat_id, message_id=message_id,
+                                 reply_markup=markup,
+                                 reply_parameters={"message_id": reply_to, "allow_sending_without_reply": True}
+                                 if reply_to else None)
+        return result["message_id"]
+
     async def delete(self, chat_id: int, message_id: int) -> None:
         try:
             await self.call("deleteMessage", chat_id=chat_id, message_id=message_id)

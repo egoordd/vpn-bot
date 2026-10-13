@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from marat_bot.core import DEVICES, NAME, PLANS, Access, per_month
-from marat_bot.themes.common import COMMAND_LINES, FLAGS, TRIAL, TRIAL_GB, Look, card, escape_name, quote
+from marat_bot.themes.common import COMMAND_LINES, DOC_BUTTONS, FLAGS, TRIAL, TRIAL_GB, Look, card, escape_name, quote
 
 TAGLINE = "<i>Интернет без границ — в один тап</i>"
 
@@ -54,6 +54,7 @@ BUTTONS = {
     "dev_macos": "💻 Mac",
     "plan": "💎 {label} — {price} ₽",
     "admin": "🛠 Админка",
+    **DOC_BUTTONS,
 }
 
 
