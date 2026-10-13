@@ -1,4 +1,20 @@
-# «Avangard GT» — отдельный Marzban заказчика + бот (13.10.2026)
+# «Avangard GT» — бот заказчика (13–14.10.2026)
+
+## Сейчас (14.10.2026): на нашей панели, как Etalon
+
+Владелец: «пока повременим с Marzban — пусть выдаются подписки как у Марата». Служба
+`avangard-vpnbot` на бот-сервере (юнит в этой папке — копия yaroslav-vpnbot), код
+`/opt/vpn-bot/marat_bot`, база `/var/lib/avangard-bot/users.sqlite3`, окружение
+`/etc/avangard-bot.env` (root:unlockapp 640): MARAT_BOT_TOKEN, MARAT_NAME="Avangard GT",
+MARAT_PREFIX=corp_avg_, MARAT_THEME=avangard, MARAT_SUB_BASE=https://a.212.233.122.241.sslip.io,
+MARAT_ADMINS= (ник заказчика — когда пришлют). Учётки `corp_avg_<telegram id>`, входы как у Etalon
+(PL, FI2, AMS, US2), в Happ — «Avangard GT»: Авто-обход, Режим РУ-сервисов, 4 страны.
+Шлюз `/etc/unlock-subgw.env`: `corp_avg_*` в UNBRANDED_USERS, SUB_TITLES (Avangard GT),
+MANUAL_DEVICE_LIMITS (2), USER_SHARED_CORP_HOSTS (FI-2), COMPACT_USERS, SUB_BASES (a.212…).
+VK-фронт: `/etc/nginx/sites-available/avangard-front` (копия yaroslav-front), LE-серт a.212….
+Пять языков интерфейса с выбором при первом /start (themes/avangard_strings.py, баннеры по языкам).
+
+## Позже: отдельный Marzban заказчика (план 13.10, отложен)
 
 Третий заказчик (после Etalon и Plata) — тот, кому 13.10 выдана тест-ссылка `exp_denl_7d`.
 Решение владельца: **полностью отдельный Marzban на новом сервере** (к нашей панели доступа нет),
