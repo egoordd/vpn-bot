@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 import aiohttp
 
@@ -22,6 +23,7 @@ class Tg:
     def __init__(self, token: str):
         self._base = f"https://api.telegram.org/bot{token}/"
         self._session: aiohttp.ClientSession | None = None
+        self._file_ids: dict[str, str] = {}
 
     async def _http(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -58,6 +60,70 @@ class Tg:
             if "message is not modified" in str(exc):
                 return None
             raise
+
+    async def _call_file(self, method: str, field: str, path: str, **params):
+        """Тот же вызов, но с загрузкой файла (multipart)."""
+        form = aiohttp.FormData()
+        for key, value in params.items():
+            if value is not None:
+                form.add_field(key, json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value))
+        with open(path, "rb") as fh:
+            form.add_field(field, fh.read(), filename=os.path.basename(path), content_type="image/jpeg")
+        session = await self._http()
+        async with session.post(self._base + method, data=form) as resp:
+            data = await resp.json(content_type=None)
+        if not data.get("ok"):
+            raise TelegramError(f"{method}: {data.get('description')}")
+        return data.get("result")
+
+    def _remember(self, path: str, result) -> None:
+        photos = (result or {}).get("photo") if isinstance(result, dict) else None
+        if photos:
+            self._file_ids[path] = photos[-1]["file_id"]
+
+    async def send_photo(self, chat_id: int, path: str, caption: str, markup: dict | None = None,
+                         effect: str | None = None):
+        """Баннер с подписью. Файл грузится один раз, дальше — по file_id из Telegram."""
+        params = dict(chat_id=chat_id, caption=caption, parse_mode="HTML", reply_markup=markup)
+        for attempt_effect in ((effect, None) if effect else (None,)):
+            try:
+                if path in self._file_ids:
+                    result = await self.call("sendPhoto", photo=self._file_ids[path], **params,
+                                             message_effect_id=attempt_effect)
+                else:
+                    result = await self._call_file("sendPhoto", "photo", path, **params,
+                                                   message_effect_id=attempt_effect)
+                self._remember(path, result)
+                return result
+            except TelegramError:
+                if attempt_effect is None:
+                    raise
+                log.warning("message effect %s rejected, sending without it", attempt_effect)
+        return None
+
+    async def edit_media(self, chat_id: int, message_id: int, path: str, caption: str, markup: dict | None = None):
+        """Сменить баннер и подпись у сообщения-картинки (TelegramError, если сообщение текстовое)."""
+        media = {"type": "photo", "caption": caption, "parse_mode": "HTML"}
+        try:
+            if path in self._file_ids:
+                result = await self.call("editMessageMedia", chat_id=chat_id, message_id=message_id,
+                                         media={**media, "media": self._file_ids[path]}, reply_markup=markup)
+            else:
+                result = await self._call_file("editMessageMedia", "banner", path, chat_id=chat_id,
+                                               message_id=message_id, media={**media, "media": "attach://banner"},
+                                               reply_markup=markup)
+        except TelegramError as exc:
+            if "message is not modified" in str(exc):
+                return None
+            raise
+        self._remember(path, result)
+        return result
+
+    async def delete(self, chat_id: int, message_id: int) -> None:
+        try:
+            await self.call("deleteMessage", chat_id=chat_id, message_id=message_id)
+        except TelegramError:
+            pass
 
     async def answer(self, callback_id: str, text: str | None = None, alert: bool = False):
         return await self.call("answerCallbackQuery", callback_query_id=callback_id, text=text,

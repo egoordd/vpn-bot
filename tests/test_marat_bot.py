@@ -102,6 +102,19 @@ class _FakeTg:
     async def call(self, method, **params):
         self.calls = [*getattr(self, "calls", []), (method, params)]
 
+    async def send_photo(self, chat, path, caption, markup=None, effect=None):
+        self.photos = [*getattr(self, "photos", []), (chat, path, caption, markup)]
+        self.effects = [*getattr(self, "effects", []), effect]
+
+    async def edit_media(self, chat, msg, path, caption, markup=None):
+        if getattr(self, "text_messages", False):
+            from marat_bot.tg import TelegramError
+            raise TelegramError("editMessageMedia: there is no media in the message to edit")
+        self.media_edits = [*getattr(self, "media_edits", []), (chat, msg, path, caption, markup)]
+
+    async def delete(self, chat, msg):
+        self.deleted = [*getattr(self, "deleted", []), (chat, msg)]
+
     async def edit(self, chat, msg, text, markup=None):
         self.edits.append((chat, msg, text, markup))
 
@@ -524,3 +537,58 @@ def test_second_bot_is_configured_by_environment():
         res = _import_core({"MARAT_PREFIX": bad})
         assert res.returncode != 0 and "MARAT_PREFIX" in res.stderr, bad
     assert _import_core({"MARAT_THEME": "neon"}).returncode != 0
+
+
+# --- 13.10.2026: тема etalon («Etalon VPN») с баннерами ---
+
+from marat_bot.themes import etalon  # noqa: E402
+
+
+def test_etalon_banners_exist_and_every_caption_fits():
+    from marat_bot import app
+
+    for screen, path in etalon.BANNERS.items():
+        assert os.path.isfile(path), (screen, path)
+    access = core.Access("corp_mrt_1", "T" * 22, int(time.time()) + 86400, "active", 1024**3, 10 * 1024**3)
+    long_link = "https://m.212.233.122.241.sslip.io/sub/" + "x" * 60
+    screens = {
+        "home": etalon.welcome("Константин Константинопольский"), "issued": etalon.issued("31 декабря, 23:59 МСК"),
+        "connect": etalon.PICK_DEVICE, "steps": etalon.steps("iPhone / iPad", long_link),
+        "status": etalon.status(access, long_link), "tariffs": etalon.tariffs(), "checkout": etalon.checkout("12 месяцев", 1799),
+        "help": etalon.help_text(8988612696), "how": etalon.HOW_IT_WORKS, "ref": etalon.referral("https://t.me/x?start=ref1"),
+    }
+    import html as _html
+    import re as _re
+    for screen, text in screens.items():
+        visible = _html.unescape(_re.sub(r"<[^>]+>", "", text))
+        assert len(visible.encode("utf-16-le")) // 2 <= app.CAPTION_LIMIT, (screen, len(visible))
+
+
+def test_etalon_texts_are_valid_and_unbranded():
+    for text in _theme_screens(etalon) + [etalon.DESCRIPTION, etalon.SHORT_DESCRIPTION]:
+        assert "unlock" not in text.lower() and "анлок" not in text.lower(), text
+    assert len(etalon.SHORT_DESCRIPTION) <= 120 and len(etalon.DESCRIPTION) <= 512
+    assert themes.load("etalon").BUTTONS["trial"].startswith("🔑")
+    body = inspect.getsource(etalon).split('"""', 2)[-1]
+    assert "Марат" not in body, "имя бота — только из MARAT_NAME"
+
+
+def test_screens_use_banners_and_fall_back_to_new_message(monkeypatch, tmp_path):
+    import asyncio
+    from marat_bot import app, texts
+
+    monkeypatch.setattr(texts, "BANNERS", etalon.BANNERS)
+    monkeypatch.setenv("MARAT_DB", str(tmp_path / "u.sqlite3"))
+    app._store.cache_clear()
+    tg = _FakeTg()
+    asyncio.run(app.on_message(tg, {"text": "/start", "chat": {"id": 5}, "from": {"id": 5}}))
+    assert tg.photos and tg.photos[0][1].endswith("home.jpg") and not tg.sent
+    asyncio.run(app.on_callback(tg, _call("tariffs")))
+    assert tg.media_edits[-1][2].endswith("tariffs.jpg")
+    tg.text_messages = True
+    asyncio.run(app.on_callback(tg, _call("how")))
+    assert tg.photos[-1][1].endswith("how.jpg") and tg.deleted == [(5, 7)], "старое сообщение заменено новым"
+    long_text = "x" * 2000
+    asyncio.run(app.send_screen(tg, 5, "help", long_text))
+    assert tg.sent[-1][1] == long_text, "длинная подпись — обычным текстом"
+    app._store.cache_clear()

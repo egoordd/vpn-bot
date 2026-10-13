@@ -1,6 +1,7 @@
 """Оформление ботов: у каждого заказчика своя тема с одинаковым набором имён.
 
-MARAT_THEME выбирает тему службы: classic — «Марат VPN», orbit — «Ярослав VPN».
+MARAT_THEME выбирает тему службы: classic — исходная, orbit — «Ярослав VPN»,
+etalon — «Etalon VPN» (бывший «Марат VPN», с баннерами: BANNERS {экран: файл}).
 INTERFACE — что обязана определить тема; тест сверяет это для всех тем.
 """
 from __future__ import annotations
@@ -8,7 +9,7 @@ from __future__ import annotations
 import importlib
 from types import ModuleType
 
-THEMES = ("classic", "orbit")
+THEMES = ("classic", "orbit", "etalon")
 INTERFACE = (
     "NAME", "TRIAL", "BUTTONS", "welcome", "issued", "ALREADY", "PICK_DEVICE", "steps", "status", "home",
     "tariffs", "checkout", "referral", "COMMANDS_GUIDE", "help_text", "HOW_IT_WORKS", "SHORT_DESCRIPTION",
