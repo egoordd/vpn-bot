@@ -1,0 +1,40 @@
+.ftr {
+  padding: 46px 0 34px;
+  background: var(--sky-100);
+  border-top: 1px solid var(--line);
+}
+.ftr__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+}
+.ftr__brand p {
+  margin-top: 12px;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+.ftr__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 26px;
+}
+.ftr__nav a {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.ftr__nav a:hover {
+  color: var(--ink);
+}
+.ftr__bottom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 34px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-dim);
+  font-size: 0.85rem;
+}

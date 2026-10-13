@@ -1,74 +1,51 @@
 .btn {
-  --btn-bg: var(--surface);
-  --btn-fg: var(--text);
-  --btn-border: var(--border-strong);
-  --btn-shadow: var(--shadow-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5em;
-  border: 1px solid var(--btn-border);
-  background: var(--btn-bg);
-  color: var(--btn-fg);
-  border-radius: 0.7rem;
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-sm);
-  line-height: 1;
-  letter-spacing: -0.01em;
-  padding: 0.8rem 1.3rem;
+  gap: 10px;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-weight: 700;
   white-space: nowrap;
-  box-shadow: var(--btn-shadow);
-  transition:
-    transform var(--duration-fast) var(--ease-out-expo),
-    background-color var(--duration) var(--ease-out-expo),
-    border-color var(--duration) var(--ease-out-expo),
-    box-shadow var(--duration) var(--ease-out-expo);
-  will-change: transform;
+  transition: transform 180ms var(--ease-out), box-shadow 180ms var(--ease-out), background-color 180ms ease;
 }
-
-.btn:hover {
+.btn--lg {
+  min-height: 56px;
+  padding: 0 28px;
+  font-size: 1.04rem;
+}
+.btn--md {
+  min-height: 44px;
+  padding: 0 20px;
+  font-size: 0.95rem;
+}
+.btn--navy {
+  background: var(--navy);
+  color: var(--white);
+  box-shadow: 0 14px 30px -14px rgb(15 26 51 / 0.7);
+}
+.btn--navy:hover {
   transform: translateY(-2px);
+  background: var(--navy-2);
+}
+.btn--gold {
+  background: var(--gold);
+  color: var(--navy);
+  box-shadow: var(--shadow-gold);
+}
+.btn--gold:hover {
+  transform: translateY(-2px);
+  background: #DDBC7B;
+}
+.btn--ghost {
+  background: rgb(255 255 255 / 0.72);
+  color: var(--navy);
+  box-shadow: inset 0 0 0 1.5px var(--sky-300);
+}
+.btn--ghost:hover {
+  background: var(--white);
+  box-shadow: inset 0 0 0 1.5px var(--sky-500);
 }
 .btn:active {
   transform: translateY(0);
-}
-
-.btn--lg {
-  font-size: var(--text-base);
-  padding: 1rem 1.7rem;
-  border-radius: 0.8rem;
-}
-
-.btn--primary {
-  --btn-bg: var(--accent);
-  --btn-fg: var(--accent-ink);
-  --btn-border: transparent;
-  --btn-shadow: 0 14px 30px -10px var(--glow-accent), 0 4px 10px -4px var(--glow-accent);
-}
-.btn--primary:hover {
-  --btn-bg: var(--accent-strong);
-  --btn-shadow: 0 22px 46px -12px var(--glow-accent), 0 6px 14px -4px var(--glow-accent);
-}
-
-.btn--premium {
-  --btn-bg: var(--premium);
-  --btn-fg: var(--premium-ink);
-  --btn-border: transparent;
-  --btn-shadow: 0 12px 28px -12px var(--glow-premium);
-}
-.btn--premium:hover {
-  --btn-bg: var(--premium-strong);
-}
-
-.btn--ghost {
-  --btn-bg: transparent;
-  --btn-fg: var(--text);
-  --btn-border: var(--border-strong);
-  --btn-shadow: none;
-}
-.btn--ghost:hover {
-  --btn-bg: var(--hover-wash);
-  --btn-border: var(--accent);
-  --btn-fg: var(--accent);
 }

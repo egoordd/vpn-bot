@@ -1,0 +1,154 @@
+.onboard {
+  background: linear-gradient(180deg, var(--sky-50), var(--sky-100));
+}
+.onboard__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+.autopilot {
+  grid-column: span 4;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+  align-items: center;
+  padding: clamp(26px, 4vw, 44px);
+  border-radius: var(--radius-lg);
+  color: var(--ivory);
+  background:
+    radial-gradient(60% 90% at 0% 0%, rgb(212 176 106 / 0.18), transparent 60%),
+    linear-gradient(140deg, var(--navy-2), var(--navy));
+  box-shadow: var(--shadow-lift);
+}
+.autopilot h3 {
+  color: var(--white);
+  font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2.2rem);
+  margin: 10px 0 14px;
+}
+.autopilot p {
+  color: rgb(244 236 221 / 0.78);
+  max-width: 60ch;
+}
+.autopilot__tag {
+  font-family: var(--font-board);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.autopilot__dial {
+  position: relative;
+  width: 200px;
+  aspect-ratio: 1;
+  margin-inline: auto;
+}
+.autopilot__dial svg {
+  width: 100%;
+  height: 100%;
+}
+.dial__ring {
+  fill: rgb(255 255 255 / 0.04);
+  stroke: rgb(255 255 255 / 0.12);
+  stroke-width: 6;
+}
+.dial__arc {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-dasharray: 230 400;
+  transform: rotate(-200deg);
+  transform-origin: 60px 60px;
+}
+.dial__needle {
+  stroke: var(--ivory);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transform-origin: 60px 60px;
+}
+.dial__hub {
+  fill: var(--gold);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dial__needle {
+    animation: needle 6s var(--ease-out) infinite;
+  }
+}
+@keyframes needle {
+  0%, 100% { transform: rotate(-60deg); }
+  30% { transform: rotate(48deg); }
+  45% { transform: rotate(30deg); }
+  70% { transform: rotate(40deg); }
+}
+.autopilot__badge {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--navy);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+.amenity {
+  padding: 26px 24px 28px;
+  border-radius: var(--radius);
+  background: var(--white);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-card);
+  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+.amenity:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lift);
+}
+.amenity__icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: var(--sky-100);
+  color: var(--sky-600);
+  margin-bottom: 18px;
+}
+.amenity__icon svg {
+  width: 28px;
+  height: 28px;
+}
+.amenity h3 {
+  font-size: 1.12rem;
+  margin-bottom: 8px;
+}
+.amenity p {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 1000px) {
+  .onboard__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .autopilot {
+    grid-column: span 2;
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+  .autopilot__dial {
+    width: 160px;
+    margin-inline: 0;
+  }
+}
+@media (max-width: 560px) {
+  .onboard__grid {
+    grid-template-columns: 1fr;
+  }
+  .autopilot {
+    grid-column: auto;
+  }
+}

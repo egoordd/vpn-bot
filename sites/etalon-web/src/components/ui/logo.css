@@ -4,28 +4,22 @@
   gap: 0.6em;
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: var(--text-base);
+  font-size: 1rem;
   letter-spacing: 0.24em;
-  color: var(--text);
+  color: var(--ink);
 }
-
 .logo__mark {
   height: 1.9em;
   width: auto;
-  color: var(--brand-gold);
-  overflow: visible;
-  transition: transform var(--duration) var(--ease-out-expo);
+  color: var(--gold);
+  transition: transform 300ms var(--ease-out);
 }
 .logo:hover .logo__mark {
-  transform: translateY(-1px) rotate(-6deg);
-}
-
-.logo__word {
-  color: var(--text);
+  transform: rotate(-8deg);
 }
 .logo__upn {
-  color: var(--brand-gold-deep);
   margin-left: 0.5em;
+  color: var(--gold-deep);
   font-weight: 700;
   letter-spacing: 0.2em;
 }

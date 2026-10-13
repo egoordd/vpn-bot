@@ -1,74 +1,331 @@
 .hero {
   position: relative;
-  z-index: 1;
-  padding-block: clamp(1.5rem, 1rem + 2vw, 3rem) var(--space-section);
+  overflow: hidden;
+  padding: clamp(2.5rem, 1rem + 5vw, 5.5rem) 0 clamp(4rem, 3rem + 5vw, 7.5rem);
+  background: linear-gradient(180deg, #CFE5FF 0%, #E3F0FF 46%, var(--sky-50) 100%);
 }
 
-.hero__inner {
-  position: relative;
-  z-index: 1;
-  min-height: calc(100svh - 7rem);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: clamp(1.5rem, 1rem + 2.5vw, 3rem);
+/* ---------- небо ---------- */
+.hero__sky {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
-
-.hero__visual {
+.cloud {
+  position: absolute;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.85);
+  filter: blur(18px);
+}
+.cloud--1 {
+  width: 420px;
+  height: 120px;
+  left: -60px;
+  top: 14%;
+}
+.cloud--2 {
+  width: 520px;
+  height: 140px;
+  right: -120px;
+  top: 6%;
+  opacity: 0.8;
+}
+.cloud--3 {
+  width: 360px;
+  height: 110px;
+  right: 18%;
+  bottom: 4%;
+  opacity: 0.7;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cloud--1 {
+    animation: drift 38s linear infinite alternate;
+  }
+  .cloud--2 {
+    animation: drift 46s linear infinite alternate-reverse;
+  }
+  .cloud--3 {
+    animation: drift 52s linear infinite alternate;
+  }
+}
+@keyframes drift {
+  to {
+    transform: translateX(80px);
+  }
+}
+.hero__route {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  display: grid;
-  place-items: center;
+  height: 100%;
+}
+.hero__route path#route {
+  fill: none;
+  stroke: rgb(59 123 208 / 0.35);
+  stroke-width: 2;
+  stroke-dasharray: 2 10;
+  stroke-linecap: round;
+}
+.hero__plane path {
+  fill: var(--navy);
 }
 
-.hero__copy {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.4rem;
-  max-width: 44rem;
-}
-
-.hero__title {
-  max-width: 20ch;
-  text-shadow: 0 1px 0 oklch(100% 0 0 / 0.4), 0 14px 30px var(--glow-accent);
-}
-.hero__title-accent {
+/* ---------- текст ---------- */
+.hero__grid {
   position: relative;
-  background: var(--grad-ember);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: clamp(2rem, 4vw, 4.5rem);
+  align-items: center;
 }
-
+.hero__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px 8px 12px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.75);
+  box-shadow: var(--shadow-card);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--navy);
+}
+.hero__status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #34B36F;
+  box-shadow: 0 0 0 4px rgb(52 179 111 / 0.18);
+}
+.hero__title {
+  margin-top: 26px;
+  font-size: var(--text-hero);
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+}
+.hero__title span {
+  color: var(--navy);
+  background: linear-gradient(180deg, transparent 64%, rgb(212 176 106 / 0.55) 64%);
+  padding: 0 0.05em;
+}
 .hero__lead {
-  max-width: 50ch;
+  margin-top: 24px;
+  max-width: 34ch;
 }
-
 .hero__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.9rem;
-  justify-content: center;
-  margin-top: 0.4rem;
+  gap: 14px;
+  margin-top: 34px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero__copy > * {
+    animation: hero-in 800ms var(--ease-out) both;
+  }
+  .hero__copy > :nth-child(2) { animation-delay: 80ms; }
+  .hero__copy > :nth-child(3) { animation-delay: 160ms; }
+  .hero__copy > :nth-child(4) { animation-delay: 240ms; }
+  .pass {
+    animation: pass-in 1100ms var(--ease-out) 250ms both;
+  }
+}
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+}
+@keyframes pass-in {
+  from {
+    opacity: 0;
+    transform: translateY(40px) rotate(-1deg);
+  }
 }
 
-.hero__points {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.6rem 1.4rem;
-  margin-top: 0.6rem;
+/* ---------- посадочный талон ---------- */
+.pass {
+  --notch: 16px;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 112px;
+  margin: 0;
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: var(--shadow-lift);
+  transform: rotate(2deg);
+  /* выемки перфорации сверху и снизу на линии отрыва */
+  -webkit-mask:
+    radial-gradient(circle var(--notch) at calc(100% - 112px) 0, transparent 98%, #000) top / 100% 51% no-repeat,
+    radial-gradient(circle var(--notch) at calc(100% - 112px) 100%, transparent 98%, #000) bottom / 100% 51% no-repeat;
+  mask:
+    radial-gradient(circle var(--notch) at calc(100% - 112px) 0, transparent 98%, #000) top / 100% 51% no-repeat,
+    radial-gradient(circle var(--notch) at calc(100% - 112px) 100%, transparent 98%, #000) bottom / 100% 51% no-repeat;
 }
-.hero__points li {
+.pass__main {
+  padding: 26px 28px 28px;
+}
+.pass__top {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
 }
-.hero__points svg {
-  color: var(--text);
-  flex-shrink: 0;
+.pass__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  font-size: 0.85rem;
+}
+.pass__key {
+  height: 26px;
+  width: auto;
+  color: var(--gold);
+}
+.pass__tag {
+  font-family: var(--font-board);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.pass__route {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 0;
+}
+.pass__route > div {
+  display: grid;
+}
+.pass__to {
+  text-align: right;
+}
+.pass__code {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2rem, 1.4rem + 2vw, 2.9rem);
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.pass__city {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.pass__plane {
+  width: 100%;
+  height: 24px;
+}
+.pass__plane path:first-child {
+  stroke: var(--sky-500);
+  stroke-width: 2;
+  fill: none;
+}
+.pass__plane path:last-child {
+  fill: var(--gold);
+}
+.pass__fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px 18px;
+  margin: 0;
+  padding-top: 18px;
+  border-top: 1px dashed var(--dash);
+}
+.pass__fields dt {
+  font-family: var(--font-board);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.pass__fields dd {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+}
+.pass__stub {
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 4px;
+  padding: 28px 12px;
+  background: var(--navy);
+  color: var(--ivory);
+  border-left: 2px dashed rgb(255 255 255 / 0.35);
+}
+.pass__stub-label {
+  font-family: var(--font-board);
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgb(244 236 221 / 0.65);
+}
+.pass__stub-value {
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: var(--gold);
+  font-size: 1.05rem;
+}
+.pass__barcode {
+  margin-top: auto;
+  width: 54px;
+  height: 160px;
+  border-radius: 4px;
+  background: repeating-linear-gradient(
+    180deg,
+    var(--ivory) 0 2px,
+    transparent 2px 4px,
+    var(--ivory) 4px 5px,
+    transparent 5px 8px,
+    var(--ivory) 8px 11px,
+    transparent 11px 13px
+  );
+  opacity: 0.85;
+}
+
+@media (max-width: 960px) {
+  .hero__grid {
+    grid-template-columns: 1fr;
+  }
+  .pass {
+    transform: none;
+    max-width: 560px;
+  }
+}
+@media (max-width: 560px) {
+  .pass {
+    grid-template-columns: 1fr 76px;
+    -webkit-mask:
+      radial-gradient(circle var(--notch) at calc(100% - 76px) 0, transparent 98%, #000) top / 100% 51% no-repeat,
+      radial-gradient(circle var(--notch) at calc(100% - 76px) 100%, transparent 98%, #000) bottom / 100% 51% no-repeat;
+    mask:
+      radial-gradient(circle var(--notch) at calc(100% - 76px) 0, transparent 98%, #000) top / 100% 51% no-repeat,
+      radial-gradient(circle var(--notch) at calc(100% - 76px) 100%, transparent 98%, #000) bottom / 100% 51% no-repeat;
+  }
+  .pass__main {
+    padding: 20px 18px 22px;
+  }
+  .pass__fields {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .pass__tag {
+    display: none;
+  }
+  .pass__barcode {
+    width: 40px;
+    height: 120px;
+  }
+  .hero__actions .btn {
+    width: 100%;
+  }
 }

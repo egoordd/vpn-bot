@@ -1,170 +1,56 @@
 /*
- * Etalon VPN — токены по образцу сайта UnLock (та же сетка и ритм).
- * Светлая тема (основная): ледяной голубой холст, тёмно-синие чернила бренда,
- * золото ключа — акцент. Тёмная тема: фирменный тёмно-синий с золотом.
+ * Etalon VPN — «рейс в свободный интернет».
+ * Небо светло-голубое (основная тема), чернила — фирменный тёмно-синий,
+ * золото ключа — акцент «первого класса». Табло — тёмно-синее с золотыми буквами.
  */
 :root {
   color-scheme: light;
 
-  /* --- Surfaces (warm bone → white) --- */
-  --bg: oklch(95.8% 0.024 245);
-  --bg-elev: oklch(98% 0.012 245);
-  --surface: oklch(100% 0 0);
-  --surface-2: oklch(97% 0.016 245);
-  --surface-3: oklch(93.5% 0.03 245);
+  --sky-50: #F4F9FF;
+  --sky-100: #E8F2FF;
+  --sky-200: #D2E6FF;
+  --sky-300: #B4D4FA;
+  --sky-500: #5E9BE6;
+  --sky-600: #3B7BD0;
 
-  /* --- Ink (warm obsidian) --- */
-  --text: oklch(23% 0.055 265);
-  --text-muted: oklch(43% 0.045 262);
-  --text-dim: oklch(56% 0.04 258);
+  --navy: #0F1A33;
+  --navy-2: #1B2A4F;
+  --navy-3: #2B3B63;
+  --ink: #0F1A33;
+  --ink-soft: #4A5878;
+  --ink-dim: #7C88A3;
 
-  /* --- "Accent" = deep ink (no hue) --- */
-  --accent: oklch(24% 0.06 265);
-  --accent-strong: oklch(17% 0.05 265);
-  --accent-2: oklch(38% 0.08 262);
-  --accent-3: oklch(50% 0.1 255);
-  --accent-ink: oklch(98.5% 0.008 245); /* light text on ink fills */
-  --accent-wash: oklch(24% 0.06 265 / 0.07);
-  --accent-line: oklch(24% 0.06 265 / 0.2);
-  --grad-ember: linear-gradient(100deg, oklch(55% 0.14 252), oklch(24% 0.06 265) 58%, oklch(62% 0.1 78));
+  --gold: #D4B06A;
+  --gold-deep: #B08A43;
+  --gold-soft: #F1E3C2;
+  --ivory: #F4ECDD;
+  --white: #FFFFFF;
 
-  /* --- Premium: differentiated by ink treatment, not hue --- */
-  --premium: oklch(76% 0.095 80);
-  --premium-strong: oklch(68% 0.1 78);
-  --premium-ink: oklch(23% 0.055 265);
-  --premium-wash: oklch(76% 0.095 80 / 0.14);
-  --premium-line: oklch(70% 0.1 80 / 0.4);
+  --line: rgb(15 26 51 / 0.09);
+  --line-strong: rgb(15 26 51 / 0.16);
+  --dash: rgb(15 26 51 / 0.22);
 
-  /* --- 3D padlock metal (light theme = dark graphite metal) --- */
-  --lock-hi: oklch(40% 0.01 70);
-  --lock-mid: oklch(26% 0.008 70);
-  --lock-lo: oklch(15% 0.006 70);
-  --lock-edge: oklch(11% 0.005 70);
-  --lock-key: oklch(94% 0.004 90);
-  --lock-floor: oklch(22% 0.02 70 / 0.22);
-  --map-panel: oklch(55% 0.12 250 / 0.07);
+  --shadow-card: 0 1px 2px rgb(30 70 140 / 0.06), 0 22px 50px -28px rgb(30 70 140 / 0.38);
+  --shadow-lift: 0 2px 6px rgb(30 70 140 / 0.08), 0 40px 80px -38px rgb(30 70 140 / 0.55);
+  --shadow-gold: 0 16px 34px -16px rgb(176 138 67 / 0.75);
 
-  /* --- Фирменные цвета Etalon (лист заказчика) --- */
-  --brand-navy: #0F1A33;
-  --brand-gold: #D4B06A;
-  --brand-gold-deep: #B8924A;
-  --brand-ivory: #F4ECDD;
-  --glow-gold: oklch(76% 0.095 80 / 0.38);
-  --page-glow-1: oklch(72% 0.12 245 / 0.32);
-  --page-glow-2: oklch(82% 0.08 230 / 0.4);
+  --font-display: "M PLUS Rounded 1c", "SF Pro Rounded", system-ui, sans-serif;
+  --font-body: var(--font-manrope), "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-board: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  /* --- Semantic state (muted) --- */
-  --ok: oklch(58% 0.14 155);
-  --warn: oklch(55% 0.1 72);
-  --danger: oklch(54% 0.18 25);
+  --text-sm: clamp(0.875rem, 0.85rem + 0.12vw, 0.94rem);
+  --text-base: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+  --text-lead: clamp(1.08rem, 1rem + 0.4vw, 1.28rem);
+  --text-h3: clamp(1.2rem, 1.1rem + 0.4vw, 1.4rem);
+  --text-h2: clamp(1.9rem, 1.4rem + 2.2vw, 3.1rem);
+  --text-hero: clamp(2.5rem, 1.5rem + 4.4vw, 5rem);
 
-  /* --- Lines, washes, shadow-glow (ink on light) --- */
-  --border: oklch(24% 0.06 265 / 0.11);
-  --border-strong: oklch(24% 0.06 265 / 0.2);
-  --hover-wash: oklch(55% 0.12 250 / 0.07);
-  --glow-accent: oklch(55% 0.14 252 / 0.18);
-  --glow-coral: oklch(55% 0.14 252 / 0.14);
-  --glow-premium: oklch(76% 0.095 80 / 0.3);
-
-  /* --- Type scale (fluid; restrained hero so titles fit one screen) --- */
-  --text-xs: clamp(0.75rem, 0.72rem + 0.15vw, 0.8125rem);
-  --text-sm: clamp(0.875rem, 0.84rem + 0.18vw, 0.9375rem);
-  --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.0625rem);
-  --text-lg: clamp(1.125rem, 1.04rem + 0.4vw, 1.3125rem);
-  --text-xl: clamp(1.3rem, 1.15rem + 0.7vw, 1.6rem);
-  --text-2xl: clamp(1.6rem, 1.35rem + 1.2vw, 2.2rem);
-  --text-3xl: clamp(1.85rem, 1.45rem + 1.7vw, 2.75rem);
-  --text-hero: clamp(2.1rem, 1.5rem + 2.7vw, 3.5rem);
-
-  /* --- Rhythm --- */
   --space-section: clamp(4.5rem, 3rem + 6vw, 8.5rem);
-  --gutter: clamp(1.25rem, 0.8rem + 2vw, 2.5rem);
-  --max-content: 1180px;
-  --max-prose: 60ch;
+  --gutter: clamp(1rem, 0.6rem + 2vw, 2.5rem);
+  --max: 1200px;
+  --radius: 22px;
+  --radius-lg: 30px;
 
-  /* --- Radii --- */
-  --radius-sm: 0.55rem;
-  --radius: 0.85rem;
-  --radius-lg: 1.35rem;
-  --radius-xl: 2rem;
-  --radius-pill: 999px;
-
-  /* --- Elevation (soft, warm) --- */
-  --shadow-sm: 0 1px 2px oklch(35% 0.08 255 / 0.08);
-  --shadow:
-    0 2px 6px -2px oklch(35% 0.08 255 / 0.08),
-    0 18px 44px -22px oklch(40% 0.12 255 / 0.28);
-  --shadow-lg:
-    0 8px 22px -12px oklch(35% 0.08 255 / 0.12),
-    0 44px 90px -40px oklch(40% 0.12 255 / 0.34);
-
-  /* --- Motion --- */
-  --duration-fast: 150ms;
-  --duration: 300ms;
-  --duration-slow: 700ms;
-  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-
-  /* --- Z --- */
-  --z-nav: 50;
-  --z-overlay: 80;
-}
-
-/* ============================================================
- * DARK THEME — фирменный тёмно-синий с золотом ([data-theme="dark"])
- * ============================================================ */
-:root[data-theme="dark"] {
-  color-scheme: dark;
-
-  --bg: oklch(19% 0.045 265);
-  --bg-elev: oklch(22% 0.05 265);
-  --surface: oklch(25% 0.052 265);
-  --surface-2: oklch(29% 0.055 265);
-  --surface-3: oklch(34% 0.056 265);
-
-  --text: oklch(95% 0.018 85);
-  --text-muted: oklch(78% 0.025 255);
-  --text-dim: oklch(62% 0.03 255);
-
-  --accent: oklch(76% 0.095 80);
-  --accent-strong: oklch(82% 0.09 82);
-  --accent-2: oklch(70% 0.09 80);
-  --accent-3: oklch(64% 0.08 78);
-  --accent-ink: oklch(19% 0.045 265);
-  --accent-wash: oklch(76% 0.095 80 / 0.12);
-  --accent-line: oklch(76% 0.095 80 / 0.35);
-  --grad-ember: linear-gradient(100deg, oklch(88% 0.06 85), oklch(76% 0.095 80) 55%, oklch(66% 0.1 76));
-
-  --premium: oklch(76% 0.095 80);
-  --premium-strong: oklch(82% 0.09 82);
-  --premium-ink: oklch(19% 0.045 265);
-  --premium-wash: oklch(76% 0.095 80 / 0.12);
-  --premium-line: oklch(76% 0.095 80 / 0.35);
-
-  /* Padlock metal (dark theme = bright silver metal) */
-  --lock-hi: oklch(99% 0.003 90);
-  --lock-mid: oklch(86% 0.006 80);
-  --lock-lo: oklch(66% 0.008 75);
-  --lock-edge: oklch(56% 0.008 75);
-  --lock-key: oklch(18% 0.005 70);
-  --lock-floor: oklch(0% 0 0 / 0.5);
-  --glow-gold: oklch(76% 0.095 80 / 0.42);
-  --page-glow-1: oklch(45% 0.12 260 / 0.35);
-  --page-glow-2: oklch(76% 0.095 80 / 0.08);
-  --map-panel: oklch(76% 0.095 80 / 0.05);
-
-  --border: oklch(95% 0.018 85 / 0.1);
-  --border-strong: oklch(95% 0.018 85 / 0.18);
-  --hover-wash: oklch(95% 0.018 85 / 0.06);
-  --glow-accent: oklch(76% 0.095 80 / 0.28);
-  --glow-coral: oklch(76% 0.095 80 / 0.22);
-  --glow-premium: oklch(76% 0.095 80 / 0.3);
-
-  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.45);
-  --shadow:
-    0 2px 6px -2px oklch(0% 0 0 / 0.5),
-    0 22px 50px -22px oklch(0% 0 0 / 0.72);
-  --shadow-lg:
-    0 10px 26px -14px oklch(0% 0 0 / 0.55),
-    0 50px 100px -40px oklch(0% 0 0 / 0.82);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration: 700ms;
 }

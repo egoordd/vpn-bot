@@ -1,29 +1,27 @@
-import { CtaBanner } from "@/components/cta/CtaBanner";
-import { Faq } from "@/components/faq/Faq";
-import { Features } from "@/components/features/Features";
-import { Hero } from "@/components/hero/Hero";
-import { HowItWorks } from "@/components/how/HowItWorks";
-import { SiteFooter } from "@/components/nav/SiteFooter";
-import { SiteNav } from "@/components/nav/SiteNav";
-import { Pricing } from "@/components/pricing/Pricing";
-import { TrustBar } from "@/components/trust/TrustBar";
-import { Locations } from "@/components/world/Locations";
+import { BoardingHero } from "@/components/hero/BoardingHero";
+import { Departures } from "@/components/board/Departures";
+import { OnBoard } from "@/components/onboard/OnBoard";
+import { CheckIn } from "@/components/checkin/CheckIn";
+import { Tickets } from "@/components/tickets/Tickets";
+import { HelpDesk } from "@/components/help/HelpDesk";
+import { FinalCall } from "@/components/final/FinalCall";
+import { Header } from "@/components/nav/Header";
+import { Footer } from "@/components/nav/Footer";
 
 export default function HomePage() {
   return (
     <>
-      <SiteNav />
+      <Header />
       <main id="main">
-        <Hero />
-        <TrustBar />
-        <Locations />
-        <Features />
-        <HowItWorks />
-        <Pricing />
-        <Faq />
-        <CtaBanner />
+        <BoardingHero />
+        <Departures />
+        <OnBoard />
+        <CheckIn />
+        <Tickets />
+        <HelpDesk />
+        <FinalCall />
       </main>
-      <SiteFooter />
+      <Footer />
     </>
   );
 }
