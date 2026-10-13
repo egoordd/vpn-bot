@@ -117,7 +117,8 @@ def bar(part: float, total: float, width: int = 10, full: str = "▰", empty: st
 
 
 def per_month(days: int, price: int) -> int:
-    return round(price * 30 / days)
+    # Обычное округление (166,5 → 167), как на сайтах; round() в Python дал бы 166 — расхождение с сайтом.
+    return int(price * 30 / days + 0.5)
 
 
 @dataclass(frozen=True)

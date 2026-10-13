@@ -865,3 +865,7 @@ def test_branded_bots_never_advertise_bypassing_blocks():
         for text in _theme_screens(theme) + [theme.DESCRIPTION, theme.SHORT_DESCRIPTION, theme.HOW_IT_WORKS]:
             low = text.lower()
             assert not [w for w in _RISKY if w in low], (theme.__name__, text[:80])
+
+
+def test_price_per_month_rounds_half_up_like_the_sites():
+    assert core.per_month(180, 999) == 167 and core.per_month(90, 549) == 183 and core.per_month(365, 1799) == 148
