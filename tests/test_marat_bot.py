@@ -592,3 +592,28 @@ def test_screens_use_banners_and_fall_back_to_new_message(monkeypatch, tmp_path)
     asyncio.run(app.send_screen(tg, 5, "help", long_text))
     assert tg.sent[-1][1] == long_text, "длинная подпись — обычным текстом"
     app._store.cache_clear()
+
+
+# --- 13.10.2026: тема plata («Plata VPN», бывший «Ярослав VPN») ---
+
+from marat_bot.themes import plata  # noqa: E402
+
+
+def test_plata_banners_exist_captions_fit_and_texts_are_clean():
+    import html as _html
+    import re as _re
+    from marat_bot import app
+
+    for path in plata.BANNERS.values():
+        assert os.path.isfile(path) and "/plata/" in path, path
+    access = core.Access("corp_yar_1", "T" * 22, int(time.time()) + 86400, "active", 1024**3, 10 * 1024**3)
+    link = "https://y.212.233.122.241.sslip.io/sub/" + "x" * 60
+    for text in (plata.welcome("Константин Константинопольский"), plata.steps("iPhone / iPad", link),
+                 plata.status(access, link), plata.help_text(8569423496), plata.tariffs(), plata.HOW_IT_WORKS):
+        visible = _html.unescape(_re.sub(r"<[^>]+>", "", text))
+        assert len(visible.encode("utf-16-le")) // 2 <= app.CAPTION_LIMIT
+    for text in _theme_screens(plata) + [plata.DESCRIPTION, plata.SHORT_DESCRIPTION]:
+        assert "unlock" not in text.lower() and "эталон" not in text.lower(), text
+    body = inspect.getsource(plata).split('"""', 2)[-1]
+    assert "Ярослав" not in body and "Марат" not in body
+    assert plata.BUTTONS["trial"].startswith("🛡") and len(plata.SHORT_DESCRIPTION) <= 120
