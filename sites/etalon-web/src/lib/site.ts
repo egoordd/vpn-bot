@@ -4,7 +4,7 @@ export const SITE = {
   description:
     "Etalon VPN — частная сеть премиум-класса: быстрые серверы в четырёх странах, автоматический выбор маршрута и российские сервисы без отключения VPN. 3 дня бесплатно.",
   botUsername: process.env.NEXT_PUBLIC_TELEGRAM_BOT ?? "etallonvpn_bot",
-  url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://etalon.168.113.210.6.sslip.io",
+  url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://getetalon.site",
 } as const;
 
 export function botLink(payload?: string): string {

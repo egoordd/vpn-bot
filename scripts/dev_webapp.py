@@ -18,7 +18,7 @@ import time
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ.setdefault("MARAT_SITE_URL", "https://etalon.168.113.210.6.sslip.io")
+os.environ.setdefault("MARAT_SITE_URL", "https://getetalon.site")
 os.environ.setdefault("MARAT_NAME", "Etalon VPN")
 
 from aiohttp import web  # noqa: E402
