@@ -310,8 +310,9 @@ async def on_callback(tg: Tg, call: dict) -> None:
         _store().set_lang(user, code)
         t = texts.use(code)
         flag, language = texts.LANGUAGES[code]
-        # Как в приглашении: сообщение с выбором становится «язык установлен», меню — отдельным сообщением.
-        await show(t.LANG_SET.format(language=f"{flag} {language}"), None, "lang")
+        # Как в приглашении: сообщение с выбором становится «язык установлен» (с кнопкой сменить,
+        # если нажал не тот), меню — отдельным сообщением.
+        await show(t.LANG_SET.format(language=f"{flag} {language}"), kb.language_set(), "lang")
         access = await _my_access(user)
         await send_screen(tg, chat, "home", t.home(access, name), kb.main(access, admin.is_admin(_store(), call["from"])))
     elif data.startswith("stub:"):

@@ -825,21 +825,24 @@ def test_avangard_banners_exist_and_every_caption_fits():
         assert len(visible.encode("utf-16-le")) // 2 <= app.CAPTION_LIMIT, len(visible)
 
 
-def test_avangard_offers_the_etalon_servers_in_every_language_and_stays_neutral():
+def test_avangard_offers_germany_and_netherlands_in_every_language_and_stays_neutral():
+    """14.10.2026: серверы как в тест-ссылке заказчика — 🇩🇪 Германия, 🇳🇱 Нидерланды и авто, без РУ-режима."""
     from marat_bot.themes import avangard_strings as strings
 
     keys = set(strings.STRINGS["ru"])
+    others = ("🇵🇱", "🇫🇮", "🇺🇸", "🇷🇺", "РУ-серв", "ru services", "俄罗斯服务", "سرویس‌های روسی")
     for lang in strings.LANGUAGES:
         t = avangard.localized(lang)
         assert set(strings.STRINGS[lang]) == keys, lang
         assert set(strings.STRINGS[lang]["buttons"]) == set(strings.STRINGS["ru"]["buttons"]), lang
-        assert "🇵🇱 🇫🇮 🇳🇱 🇺🇸" in t.welcome(), "серверы как у Etalon"
+        assert "🇩🇪 🇳🇱" in t.welcome() and "🇩🇪 🇳🇱" in t.tariffs() and "🇩🇪 🇳🇱" in t.help_text(1), lang
         screens = [t.welcome("Ян"), t.issued("1"), t.PICK_DEVICE, t.steps("Android", "L"), t.tariffs(),
                    t.checkout("1", 199), t.referral("L"), t.help_text(1), t.HOW_IT_WORKS, t.DESCRIPTION,
                    t.SHORT_DESCRIPTION]
         for text in screens:
             low = text.lower()
             assert "unlock" not in low and not [w for w in _RISKY if w in low], (lang, text[:60])
+            assert not [w for w in others if w.lower() in low], (lang, text[:60])
         assert len(t.SHORT_DESCRIPTION) <= 120 and len(t.DESCRIPTION) <= 512, lang
     body = inspect.getsource(avangard).split('"""', 2)[-1]
     assert "Марат" not in body and "Etalon" not in body
@@ -942,7 +945,9 @@ def test_first_start_asks_for_the_language_then_speaks_it(monkeypatch, tmp_path)
     assert prompt == avangard.localized("en").LANG_PROMPT, "первый /start — выбор языка, на языке Telegram"
     labels = [b["text"] for row in picker["inline_keyboard"] for b in row]
     assert labels == ["🇷🇺 Русский", "✅ 🇬🇧 English", "🇺🇦 Українська", "🇨🇳 中文", "🇮🇷 فارسی"], "без «Назад» при первом входе"
-    assert "中文" in tg.edits[0][2] and tg.edits[0][3] is None, "сообщение с выбором стало «язык установлен»"
+    assert "中文" in tg.edits[0][2], "сообщение с выбором стало «язык установлен»"
+    assert tg.edits[0][3] == {"inline_keyboard": [[{"text": "🌐 更改语言", "callback_data": "lang"}]]}, \
+        "нажал не тот язык — под подтверждением кнопка сменить"
     assert "你好" in tg.sent[1][1] and "你好" in tg.sent[2][1], "дальше — на выбранном языке, повторно не спрашиваем"
 
 
@@ -963,6 +968,23 @@ def test_language_can_be_changed_from_the_menu_with_a_back_button(monkeypatch, t
         rows = markup["inline_keyboard"]
         assert rows[-1][0]["text"] == "⬅️ Назад" and rows[-1][0]["callback_data"] == "menu"
         assert any(b["text"].startswith("✅ 🇺🇦") for row in rows for b in row)
+
+
+def test_main_menu_offers_the_language_only_in_multilingual_bots(monkeypatch, tmp_path):
+    """14.10.2026: «если перепутал и не туда нажал» — язык меняется прямо из главного меню."""
+    from marat_bot import keyboards, texts
+
+    app = _lang_bot(monkeypatch, tmp_path)
+    access = core.Access("corp_avg_1", "T" * 22, int(time.time()) + 86400, "active", 0, 10 * 1024**3)
+    for lang, label in (("ru", "🌐 Язык"), ("fa", "🌐 زبان")):
+        texts.use(lang)
+        for state in (None, access):
+            rows = keyboards.main(state)["inline_keyboard"]
+            assert {"text": label, "callback_data": "lang"} in [b for row in rows for b in row], (lang, state)
+    assert "lang" in app.HANDLED
+    monkeypatch.setattr(texts, "LANGUAGES", {})
+    texts.use("ru")
+    assert "lang" not in keyboards.callbacks(keyboards.main(None)), "у одноязычных Etalon и Plata кнопки нет"
 
 
 def test_single_language_bots_never_ask(monkeypatch, tmp_path):

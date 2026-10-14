@@ -6,10 +6,11 @@
 подпись в пределах 1024 знаков. Тон — крепость, ключ, ворота; формулировки нейтральные —
 про защищённое соединение.
 
-Подписки выдаются как у «Etalon VPN» — наша панель, учётки corp_avg_<id>, 4 страны +
-Авто-выбор + Режим РУ-сервисов. Пять языков интерфейса (ru, en, uk, zh, fa): при первом
-/start бот спрашивает язык; тексты — в avangard_strings.py, здесь — сборка экранов под
-язык (localized). Атрибуты модуля — русский набор (тема по умолчанию).
+Подписки — на нашей панели, учётки corp_avg_<id>; с 14.10.2026 серверы как в тест-ссылке
+заказчика: 🇩🇪 Германия + 🇳🇱 Нидерланды через VK-мост и Авто-выбор, без РУ-режима (шлюз:
+FOREIGN_ONLY_USERS / FOREIGN_VIA_VK_USERS «corp_avg_*»). Пять языков интерфейса (ru, en,
+uk, zh, fa): при первом /start бот спрашивает язык; тексты — в avangard_strings.py, здесь —
+сборка экранов под язык (localized). Атрибуты модуля — русский набор (тема по умолчанию).
 """
 from __future__ import annotations
 
@@ -50,7 +51,7 @@ def _build(lang: str) -> SimpleNamespace:
             f"<b>{NAME}</b> — {s['tagline']}.\n\n"
             + (s["hello_named"].format(name=safe) if safe else s["hello"])
             + s["welcome_body"] + "\n\n"
-            + quote(s["w_servers"].format(flags=FLAGS, countries=s["countries"]), s["w_auto"], s["w_ru"])
+            + quote(s["w_servers"].format(flags=FLAGS, countries=s["countries"]), s["w_auto"])
             + "\n\n" + s["w_trial"].format(trial=trial, devices=DEVICES)
         )
 
@@ -106,7 +107,7 @@ def _build(lang: str) -> SimpleNamespace:
         return (
             s["help_title"] + "\n\n" + s["help_commands"] + "\n" + guide
             + "\n\n" + s["help_modes"] + "\n"
-            + quote(s["mode_auto"], s["mode_ru"], s["mode_country"].format(flags=FLAGS))
+            + quote(s["mode_auto"], s["mode_country"].format(flags=FLAGS))
             + "\n\n" + s["help_broken"] + "\n"
             + quote(s["fix1"], s["fix2"], s["fix3"], s["fix4"], expandable=True)
             + "\n\n" + s["your_id"].format(id=telegram_id)

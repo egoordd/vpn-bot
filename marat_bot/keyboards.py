@@ -55,10 +55,16 @@ def _news() -> dict:
     return _button("news", NEWS_URL or "stub:news")
 
 
+def _language_rows() -> list[list[dict]]:
+    # Только у многоязычной темы: кто нажал не тот язык, меняет его прямо из меню (14.10.2026).
+    return [[_button("lang", "lang")]] if texts.LANGUAGES else []
+
+
 def main(access: Access | None, admin: bool = False) -> dict:
     markup = _main(access)
     # Приложение — сразу под главной кнопкой экрана.
     markup["inline_keyboard"][1:1] = _app_rows()
+    markup["inline_keyboard"].extend(_language_rows())
     markup["inline_keyboard"].extend(_docs_rows())
     if admin:
         markup["inline_keyboard"].append([_button("admin", "adm")])
@@ -155,11 +161,10 @@ def device_steps(store_url: str, happ_url: str) -> dict:
 
 
 def help_menu() -> dict:
-    language = [[_button("lang", "lang")]] if texts.LANGUAGES else []
     return _kb(
         [_button("connect_short", "connect"), _button("how", "how")],
         [_support(), _news()],
-        *language,
+        *_language_rows(),
         *_docs_rows(),
         [_button("menu", "menu")],
     )
@@ -175,6 +180,11 @@ def languages(chosen: str | None, back: bool) -> dict:
     if back:
         rows.append([_button("lang_back", "menu")])
     return {"inline_keyboard": rows}
+
+
+def language_set() -> dict:
+    """Под «язык установлен»: нажал не тот — сразу обратно к выбору."""
+    return _kb([_button("lang_change", "lang")])
 
 
 def back() -> dict:
