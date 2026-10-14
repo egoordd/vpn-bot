@@ -800,7 +800,7 @@ def test_docs_screen_is_valid_html(monkeypatch):
     assert "help@example.com" in docs.screen_text()
 
 
-# --- 13.10.2026: тема avangard («Avangard GT») — свой Marzban заказчика, 🇩🇪 🇳🇱 без РУ ---
+# --- 13.10.2026: тема avangard («Avangard VPN», бывш. «Avangard GT») ---
 
 from marat_bot.themes import avangard  # noqa: E402
 
@@ -879,7 +879,7 @@ def test_price_per_month_rounds_half_up_like_the_sites():
 
 
 
-# --- 14.10.2026: языки интерфейса (Avangard GT) ---
+# --- 14.10.2026: языки интерфейса (Avangard VPN) ---
 
 from marat_bot import i18n  # noqa: E402
 
@@ -993,3 +993,22 @@ def test_etalon_says_auto_choice_not_bypass():
     texts_ = _theme_screens(etalon) + [etalon.DESCRIPTION, etalon.SHORT_DESCRIPTION, etalon.HOW_IT_WORKS]
     assert not [t for t in texts_ if "обход" in t.lower()]
     assert any("Авто-выбор" in t for t in texts_)
+
+
+def test_avangard_speaks_the_castle_brand_not_racing():
+    """14.10.2026: фирменный лист «Замок» — никаких «тест-драйвов», гаражей и баков; авто-режим назван как на баннерах."""
+    from marat_bot.themes import avangard_strings as strings
+
+    racing = ("тест-драйв", "гараж", "трас", "бак ", "заезд", "заїзд", "test drive", "garage", "on track", "tank",
+              "race", "试驾", "车库", "油箱", "比赛", "行驶", "تست‌درایو", "گاراژ", "مسابقه", "باک", "🏁", "⛽", "обход")
+    auto = {"ru": "Авто-выбор", "en": "Auto mode", "uk": "Авто-вибір", "zh": "自动选择", "fa": "انتخاب خودکار"}
+    for lang in strings.LANGUAGES:
+        t = avangard.localized(lang)
+        access = core.Access("corp_avg_1", "T" * 22, int(time.time()) + 86400, "active", 1024**3, 10 * 1024**3)
+        screens = [t.welcome("Ян"), t.issued("1"), t.steps("Android", "L"), t.status(access, "L"), t.home(access),
+                   t.tariffs(), t.checkout("1", 199), t.referral("L"), t.help_text(1), t.HOW_IT_WORKS, t.DESCRIPTION,
+                   t.SHORT_DESCRIPTION, t.NEED_ACCESS, t.ALREADY, *t.BUTTONS.values()]
+        found = [(word, text[:50]) for text in screens for word in racing if word in text.lower()]
+        assert not found, (lang, found)
+        assert auto[lang] in t.steps("Android", "L") and auto[lang] in t.tariffs(), lang
+    assert avangard.LOOK.full == "▰" and avangard.LOOK.empty == "▱"

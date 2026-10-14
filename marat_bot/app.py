@@ -63,7 +63,7 @@ def _panel():
     from services.marzban_client import MarzbanClient, MarzbanNotFoundError
 
     if PANEL_URL:
-        # Свой Marzban заказчика (Avangard GT): логин его админа из окружения службы.
+        # Свой Marzban заказчика (Avangard VPN): логин его админа из окружения службы.
         client = MarzbanClient(PANEL_URL, username=os.environ.get("MARAT_PANEL_USERNAME", ""),
                                password=os.environ.get("MARAT_PANEL_PASSWORD", ""))
         return client, MarzbanNotFoundError

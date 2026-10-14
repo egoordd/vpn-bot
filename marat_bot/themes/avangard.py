@@ -1,13 +1,15 @@
-"""Тема avangard — «Avangard GT» (13.10.2026). Ни слова об основном проекте.
+"""Тема avangard — «Avangard VPN» (13.10.2026). Ни слова об основном проекте.
 
-Гоночный стиль «GT»: графит, карбон, гоночный красный, белые цифры. Каждый основной
-экран — баннер (assets/avangard, генератор scripts/make_avangard_banners.py), подпись в
-пределах 1024 знаков. Формулировки нейтральные — про скорость и защиту соединения.
+С 14.10.2026 — фирменный лист «Замок» (вариант 03): глубокий зелёный #0B231B, античное
+золото #B08A3E, знак — башня с замочной скважиной, надписи Comfortaa прописными. Каждый
+основной экран — баннер (assets/avangard, генератор scripts/make_avangard_banners.py),
+подпись в пределах 1024 знаков. Тон — крепость, ключ, ворота; формулировки нейтральные —
+про защищённое соединение.
 
-14.10.2026: подписки выдаются как у «Etalon VPN» — наша панель, учётки corp_avg_<id>,
-4 страны + Авто-обход + Режим РУ-сервисов. Пять языков интерфейса (ru, en, uk, zh, fa):
-при первом /start бот спрашивает язык; тексты — в avangard_strings.py, здесь — сборка
-экранов под язык (localized). Атрибуты модуля — русский набор (тема по умолчанию).
+Подписки выдаются как у «Etalon VPN» — наша панель, учётки corp_avg_<id>, 4 страны +
+Авто-выбор + Режим РУ-сервисов. Пять языков интерфейса (ru, en, uk, zh, fa): при первом
+/start бот спрашивает язык; тексты — в avangard_strings.py, здесь — сборка экранов под
+язык (localized). Атрибуты модуля — русский набор (тема по умолчанию).
 """
 from __future__ import annotations
 
@@ -37,7 +39,7 @@ _DEVICE_ICONS = {"iPhone / iPad": "📱", "Android": "🤖", "Windows": "🖥", 
 def _build(lang: str) -> SimpleNamespace:
     s = STRINGS[lang]
     trial = i18n.days(TRIAL_DAYS, lang)
-    look = Look(**s["look"], full="▮", empty="▯")
+    look = Look(**s["look"], full="▰", empty="▱")
     ns = SimpleNamespace(LANG=lang, NAME=NAME, TRIAL=trial, LOOK=look, FLAGS=FLAGS, COUNTRIES=s["countries"])
 
     ns.BUTTONS = {key: value.replace("{trial}", trial) for key, value in s["buttons"].items()} | _DEVICE_BUTTONS

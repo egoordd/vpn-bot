@@ -2,7 +2,7 @@
 
 MARAT_THEME выбирает тему службы: classic — исходная, orbit — «Ярослав VPN»,
 etalon — «Etalon VPN» (бывший «Марат VPN»), plata — «Plata VPN» (бывший «Ярослав VPN»);
-avangard — «Avangard GT» (свой Marzban заказчика, 🇩🇪 🇳🇱);
+avangard — «Avangard VPN» (бывший «Avangard GT», с 14.10 фирменный стиль «Замок», 5 языков);
 у etalon, plata и avangard баннеры: BANNERS {экран: файл}.
 INTERFACE — что обязана определить тема; тест сверяет это для всех тем.
 """

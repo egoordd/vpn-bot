@@ -29,7 +29,7 @@ TRIAL_DAYS = int(os.environ.get("MARAT_TRIAL_DAYS", "3"))
 TRIAL_TRAFFIC_BYTES = int(os.environ.get("MARAT_TRIAL_GB", "10")) * 1024**3
 DEVICES = int(os.environ.get("MARAT_DEVICES", "2"))
 SUB_BASE = os.environ.get("MARAT_SUB_BASE", "https://m.212.233.122.241.sslip.io").rstrip("/")
-# Входы панели для новых учёток. У бота на своём Marzban заказчика (Avangard GT) — свои теги:
+# Входы панели для новых учёток. У бота на своём Marzban заказчика (Avangard VPN) — свои теги:
 # MARAT_INBOUNDS «тег, тег, …».
 _DEFAULT_INBOUNDS = "VLESS Reality PL, VLESS Reality FI2, VLESS Reality AMS, VLESS Reality US2"
 INBOUNDS = {"vless": [t.strip() for t in os.environ.get("MARAT_INBOUNDS", _DEFAULT_INBOUNDS).split(",") if t.strip()]}

@@ -1,5 +1,5 @@
 [Unit]
-Description=Avangard GT Telegram bot (free trial, no payments)
+Description=Avangard VPN Telegram bot (free trial, no payments)
 After=network-online.target
 Wants=network-online.target
 

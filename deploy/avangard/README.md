@@ -1,18 +1,22 @@
-# «Avangard GT» — бот заказчика (13–14.10.2026)
+# «Avangard VPN» (бывш. «Avangard GT») — бот заказчика (13–14.10.2026)
 
 ## Сейчас (14.10.2026): на нашей панели, как Etalon
 
 Владелец: «пока повременим с Marzban — пусть выдаются подписки как у Марата». Служба
 `avangard-vpnbot` на бот-сервере (юнит в этой папке — копия yaroslav-vpnbot), код
 `/opt/vpn-bot/marat_bot`, база `/var/lib/avangard-bot/users.sqlite3`, окружение
-`/etc/avangard-bot.env` (root:unlockapp 640): MARAT_BOT_TOKEN, MARAT_NAME="Avangard GT",
+`/etc/avangard-bot.env` (root:unlockapp 640): MARAT_BOT_TOKEN, MARAT_NAME="Avangard VPN",
 MARAT_PREFIX=corp_avg_, MARAT_THEME=avangard, MARAT_SUB_BASE=https://a.212.233.122.241.sslip.io,
 MARAT_ADMINS= (ник заказчика — когда пришлют). Учётки `corp_avg_<telegram id>`, входы как у Etalon
-(PL, FI2, AMS, US2), в Happ — «Avangard GT»: Авто-обход, Режим РУ-сервисов, 4 страны.
-Шлюз `/etc/unlock-subgw.env`: `corp_avg_*` в UNBRANDED_USERS, SUB_TITLES (Avangard GT),
+(PL, FI2, AMS, US2), в Happ — «Avangard VPN»: ⚡️ Авто-выбор, Режим РУ-сервисов, 4 страны.
+Шлюз `/etc/unlock-subgw.env`: `corp_avg_*` в UNBRANDED_USERS, SUB_TITLES (Avangard VPN), AUTO_TITLES (⚡️ Авто-выбор),
 MANUAL_DEVICE_LIMITS (2), USER_SHARED_CORP_HOSTS (FI-2), COMPACT_USERS, SUB_BASES (a.212…).
 VK-фронт: `/etc/nginx/sites-available/avangard-front` (копия yaroslav-front), LE-серт a.212….
 Пять языков интерфейса с выбором при первом /start (themes/avangard_strings.py, баннеры по языкам).
+
+Оформление с 14.10.2026 — лист «Замок» (Avangard_castle.pdf, вариант 03): зелёный #0B231B, золото
+#B08A3E, башня со скважиной, Comfortaa (scripts/fonts, OFL). Баннеры, аватар `avatar.png` и картинка
+описания `description.jpg` — `scripts/make_avangard_banners.py`; аватар и картинку ставят в BotFather.
 
 ## Позже: отдельный Marzban заказчика (план 13.10, отложен)
 
@@ -20,7 +24,7 @@ VK-фронт: `/etc/nginx/sites-available/avangard-front` (копия yaroslav-
 Решение владельца: **полностью отдельный Marzban на новом сервере** (к нашей панели доступа нет),
 серверы **как в тест-ссылке** — 🇩🇪 Германия + 🇳🇱 Нидерланды и ⚡️ Авто-обход без российских серверов,
 бот **как Etalon** (тест-драйв 3 дня / 2 устройства / 10 ГБ, тарифы на витрине, оплата — заглушка,
-поддержка-тикеты админу), тема `avangard` (графит + racing red, баннеры
+поддержка-тикеты админу), тема `avangard` (тогда графит + racing red, баннеры
 `scripts/make_avangard_banners.py`, аватар `marat_bot/themes/assets/avangard/avatar.png`,
 картинка описания `description.jpg` — ставит владелец/заказчик в BotFather).
 
@@ -37,7 +41,7 @@ VK-фронт: `/etc/nginx/sites-available/avangard-front` (копия yaroslav-
 
 ```
 MARAT_BOT_TOKEN=…            # ключ бота — только здесь, в репозиторий не класть
-MARAT_NAME="Avangard GT"
+MARAT_NAME="Avangard VPN"
 MARAT_PREFIX=corp_avg_
 MARAT_THEME=avangard
 MARAT_PANEL_URL=http://127.0.0.1:8000
