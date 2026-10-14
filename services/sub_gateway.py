@@ -40,10 +40,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # script's own dir is on sys.path), so fall back to a flat import.
 try:
     from services.competitor_profile import build_bridge_test_config, build_test_config
-    from services.xray_json import build_individual_subscription, build_json_subscription
+    from services.xray_json import AUTO_REMARKS, build_individual_subscription, build_json_subscription
 except ImportError:  # pragma: no cover - standalone deploy path
     from competitor_profile import build_bridge_test_config, build_test_config
-    from xray_json import build_individual_subscription, build_json_subscription
+    from xray_json import AUTO_REMARKS, build_individual_subscription, build_json_subscription
 
 MARZBAN_BASE = os.environ.get("MARZBAN_BASE", "https://panel.23.95.3.18.sslip.io").rstrip("/")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8090"))
@@ -1006,6 +1006,10 @@ UNBRANDED_TITLE = os.environ.get("UNBRANDED_TITLE", "VPN")[:25]
 # корпоративным заказчикам — «UNL VPN» и «UNL VPN trial»): «имя:Название, …».
 SUB_TITLES = {name: title.strip()[:25] for name, title in _logins(os.environ.get("SUB_TITLES", "")).items()}
 
+# Своё название первого пункта («⚡️ Авто-обход») для отдельных ссылок (14.10.2026: платёжный
+# провайдер «Etalon VPN» попросил «Авто-выбор» вместо «обхода»): «corp_mrt_*:⚡️ Авто-выбор».
+AUTO_TITLES = {name: title.strip()[:40] for name, title in _logins(os.environ.get("AUTO_TITLES", "")).items()}
+
 # Свой адрес подписки и страницы «Открыть в Happ» для ссылок без нашей марки
 # («corp_mrt_*:https://m.212.233.122.241.sslip.io»): иначе в приложение уходил бы
 # PUBLIC_BASE с нашим доменом.
@@ -1910,7 +1914,7 @@ def build_auto_json(token: str, *, hysteria: bool = False) -> tuple[str, str | N
         configs = build_json_subscription(
             links, exclude_from_balancer=balancer_exclusions(), hysteria=hysteria, auto_udp=udp,
             auto_pool=pool, auto_strategy="competitor" if compat else None, auto_fallback=spare,
-            split=exits is None,
+            split=exits is None, auto_remarks=pick_for(AUTO_TITLES, username, AUTO_REMARKS),
         )
     if configs:
         # Compact separators, because the size of this body decides whether a

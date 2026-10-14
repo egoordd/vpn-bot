@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { LegalPage } from "@/components/legal/LegalPage";
-import { SITE, botLink } from "@/lib/site";
+import { SITE } from "@/lib/site";
 import { PLANS, TRIAL, TRIAL_DAYS_LABEL, pluralDays, pricePerMonth, savingPercent } from "@/lib/tariffs";
 
 export const metadata: Metadata = {
@@ -60,17 +60,16 @@ export default function TariffsPage() {
       <h2>Как проходит оплата</h2>
       <ul>
         <li>
-          откройте бота{" "}
-          <a href={botLink()} target="_blank" rel="noopener noreferrer">
-            @{SITE.botUsername}
-          </a>{" "}
-          → «💳 Тарифы» и выберите срок;
+          выберите срок в разделе <a href="/#pricing">«Тарифы»</a> или на странице{" "}
+          <a href="/checkout/">оформления подписки</a>;
         </li>
-        <li>оплатите по СБП (QR-код или ссылка из приложения банка) или криптовалютой;</li>
-        <li>после подтверждения платежа подписка продлевается на оплаченный срок — ссылка для подключения остаётся прежней.</li>
+        <li>укажите адрес электронной почты — на него придут чек и доступ к подписке;</li>
+        <li>оплатите через СБП: по QR-коду или по ссылке из приложения банка;</li>
+        <li>после подтверждения платежа доступ продлевается на оплаченный срок.</li>
       </ul>
       <p className="legal__note">
-        Оплата разовая: автоматических списаний нет. Перед оплатой бот показывает тариф и итоговую сумму.
+        Оплата разовая: автоматических списаний нет. Оплата по СБП скоро будет доступна — до этого можно
+        бесплатно попробовать сервис в течение {TRIAL_DAYS_LABEL}.
       </p>
 
       <h2>Пробный период</h2>

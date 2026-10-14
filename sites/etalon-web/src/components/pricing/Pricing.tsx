@@ -42,7 +42,7 @@ export function Pricing() {
                   {pricePerMonth(plan)} ₽ в месяц
                   {saving > 0 && <span className="plan__save">−{saving}%</span>}
                 </p>
-                <Button href={botLink()} variant={signature ? "gold" : "outline"} className="plan__cta">
+                <Button href={`/checkout/?plan=${plan.code}`} variant={signature ? "gold" : "outline"} className="plan__cta">
                   Выбрать
                 </Button>
               </article>

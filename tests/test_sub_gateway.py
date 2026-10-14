@@ -2520,3 +2520,16 @@ def test_other_links_still_bounce_the_browser_to_happ(monkeypatch):
 
 def test_picker_page_picks_readable_text_on_the_accent():
     assert sub_gateway._ink_for("#D4B06A") == "#14171f" and sub_gateway._ink_for("#0F1A33") == "#ffffff"
+
+
+# --- 14.10.2026: своё название «Авто» для ссылок Etalon («Авто-выбор» по просьбе платёжного провайдера) ---
+
+def test_auto_entry_title_can_be_set_per_account(monkeypatch):
+    monkeypatch.setattr(sub_gateway, "AUTO_TITLES", {"corp_mrt_*": "⚡️ Авто-выбор"})
+    monkeypatch.setattr(sub_gateway, "HEALTH_ENABLED", False)
+    monkeypatch.setattr(sub_gateway, "_marzban_sub_active", lambda token: True)
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (_vless(NL_HOST) + "\n" + _vless(US_HOST, 2102), None))
+    mrt, _, _ = sub_gateway.build_auto_json(_panel_token(MRT))
+    ours, _, _ = sub_gateway.build_auto_json(_panel_token("tg_1"))
+    assert json.loads(mrt)[0]["remarks"] == "⚡️ Авто-выбор"
+    assert json.loads(ours)[0]["remarks"] == "⚡️ Авто-обход", "наши подписки — как раньше"

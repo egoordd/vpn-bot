@@ -986,3 +986,10 @@ def test_every_language_has_its_own_banners():
         for screen, path in banners.items():
             assert os.path.isfile(path), (lang, screen, path)
             assert (f"/{lang}/" in path) == (lang != "ru"), (lang, path)
+
+
+def test_etalon_says_auto_choice_not_bypass():
+    """14.10.2026: Platega попросила «Авто-выбор» вместо «Авто-обход» у Etalon."""
+    texts_ = _theme_screens(etalon) + [etalon.DESCRIPTION, etalon.SHORT_DESCRIPTION, etalon.HOW_IT_WORKS]
+    assert not [t for t in texts_ if "обход" in t.lower()]
+    assert any("Авто-выбор" in t for t in texts_)

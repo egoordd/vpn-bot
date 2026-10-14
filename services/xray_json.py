@@ -973,6 +973,7 @@ def build_json_subscription(
     auto_strategy: str | None = None,
     auto_fallback: str | None = None,
     split: bool = True,
+    auto_remarks: str = AUTO_REMARKS,
 ) -> list[dict]:
     """Full JSON-array body: both balancers first, then each server on its own.
 
@@ -997,7 +998,7 @@ def build_json_subscription(
     back to the plain base64 subscription).
     """
     balancer = build_balancer_config(
-        links, AUTO_REMARKS, exclude_hosts=exclude_from_balancer, hysteria=hysteria, udp_override=auto_udp,
+        links, auto_remarks, exclude_hosts=exclude_from_balancer, hysteria=hysteria, udp_override=auto_udp,
         pool=auto_pool, strategy_name=auto_strategy, fallback_uri=auto_fallback,
     )
     if balancer is None:
