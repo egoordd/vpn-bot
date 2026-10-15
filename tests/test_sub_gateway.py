@@ -2548,3 +2548,72 @@ def test_extra_subscription_devices_are_counted_separately(device_store):
     assert not sub_gateway.device_allowed("tg_8984740385", "extra-0", limit=2), "пул основной заполнен"
     extra = sub_gateway._token_username(_panel_token("tg_8984740385_s2"))
     assert sub_gateway.device_allowed(extra, "extra-0", limit=2), "у второй подписки свой пул"
+
+
+# --- 16.10.2026: все страны через VK-мост, без отдельных «✅ РУ сервисы» ---------
+# Домашний и мобильный интернет режут прямой TCP к нашим зарубежным адресам до
+# 0,2–1,6 Мбит/с, а через мост в России — 35–42. Пункт страны теперь один и идёт
+# через мост; прямые TCP-дубли этих стран не выдаются, UDP (Hysteria2) и Литва — да.
+
+LT_HOST = "2.59.162.34.sslip.io"
+VK_HOST = "212.233.122.241.sslip.io"
+
+
+def _bridge_all(monkeypatch):
+    _bridge(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "BRIDGE_ALL_USERS", frozenset({"tg_*"}))
+    monkeypatch.setattr(sub_gateway, "VK_FULL_IDS", {DE_EXIT: "full-de-uuid", NL_HOST: "full-nl-uuid"})
+    upstream = "\n".join([
+        _vless(NL_HOST, 2053), f"vless://uuid@{NL_HOST}:2100?security=reality&type=xhttp#xhttp",
+        _vless("78.17.154.225.sslip.io"), "trojan://pw@78.17.154.225.sslip.io:8444?security=tls#trojan",
+        _hy2("78.17.154.225.sslip.io"), _vless(US_HOST, 2102), _vless(LT_HOST, 2101),
+    ])
+    monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+
+
+def _names_of(links):
+    return [urllib.parse.unquote(link.rsplit("#", 1)[-1]) for link in links]
+
+
+def test_bridge_all_gives_one_entry_per_country_through_vk(monkeypatch):
+    _bridge_all(monkeypatch)
+    links, _ = sub_gateway.resolve_links(_panel_token("tg_42"))
+    vk = [link for link in links if sub_gateway._uri_host(link) == VK_HOST]
+    assert sorted(_names_of(vk)) == ["🇩🇪 Германия", "🇳🇱 Нидерланды", "🇵🇱 Польша", "🇺🇸 США"], _names_of(vk)
+    assert sorted(sub_gateway._uri_userinfo(link) for link in vk) == ["full-nl-uuid", "uuid-de", "uuid-pl", "uuid-us"]
+    assert not any("РУ" in name for name in _names_of(links)), _names_of(links)
+
+
+def test_bridge_all_drops_direct_tcp_but_keeps_udp_and_lithuania(monkeypatch):
+    _bridge_all(monkeypatch)
+    links, _ = sub_gateway.resolve_links(_panel_token("tg_42"))
+    direct_tcp = [link for link in links
+                  if link.split("://")[0] in ("vless", "trojan") and sub_gateway._uri_host(link) != VK_HOST]
+    assert [sub_gateway._uri_host(link) for link in direct_tcp] == [LT_HOST]
+    assert any(link.startswith("hysteria2://") for link in links), "UDP режут меньше — оставляем"
+    assert "130.49.143.41" not in "".join(links), "без московского каскада"
+
+
+def test_bridge_all_falls_back_to_direct_servers_when_vk_is_dead(monkeypatch):
+    _bridge_all(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "_probed_dead_hosts", lambda: {VK_HOST})
+    links, _ = sub_gateway.resolve_links(_panel_token("tg_42"))
+    assert any(link.startswith("vless://") and sub_gateway._uri_host(link) == "78.17.154.225.sslip.io" for link in links)
+    assert sub_gateway.build_bridge_country_links() == ([], frozenset())
+
+
+def test_bridge_all_auto_never_falls_back_to_a_throttled_direct_server(monkeypatch):
+    _bridge_all(monkeypatch)
+    configs = _auto_of("tg_42")
+    assert [c["remarks"] for c in configs][:2] == ["⚡️ Авто-обход", "🇷🇺 Режим РУ-сервисов"]
+    auto = configs[0]
+    outs = [o for o in auto["outbounds"] if o["tag"].startswith(("proxy-", "fallback"))]
+    addresses = {(o["settings"].get("vnext") or o["settings"].get("servers") or [o["settings"]])[0].get("address") for o in outs}
+    assert not addresses & {"78.17.154.225", "107.189.22.160", "172.86.119.133", "2.59.162.34"}, addresses
+    assert "212.233.122.241" in addresses
+
+
+def test_bridge_all_does_not_touch_other_links(monkeypatch):
+    _bridge_all(monkeypatch)
+    links, _ = sub_gateway.resolve_links(_panel_token("exp_other_1"))
+    assert any(sub_gateway._uri_host(link) == "78.17.154.225.sslip.io" for link in links)

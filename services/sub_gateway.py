@@ -1257,18 +1257,52 @@ def build_vk_full_links(exits: frozenset[str]) -> list[str]:
     dead = _probed_dead_hosts()
     if not (VK_RELAY_PBK and VK_FULL_IDS) or VK_RELAY_HOST in dead:
         return []
-    links: list[str] = []
-    for exit_host, uid in VK_FULL_IDS.items():
-        if exit_host not in exits or exit_host in dead:
-            continue
-        node = NODES.get(exit_host, {})
-        name = f"{node.get('flag', '')} {node.get('name', exit_host)}".strip()
-        links.append(
-            f"vless://{uid}@{VK_RELAY_HOST}:{VK_RELAY_PORT}"
-            f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={VK_RELAY_HOST}"
-            f"&fp=firefox&pbk={VK_RELAY_PBK}&sid={VK_RELAY_SID}#{urllib.parse.quote(name)}"
-        )
-    return links
+    return [
+        _vk_bridge_link(uid, exit_host)
+        for exit_host, uid in VK_FULL_IDS.items()
+        if exit_host in exits and exit_host not in dead
+    ]
+
+
+def _vk_bridge_link(uid: str, exit_host: str) -> str:
+    """Вход через VK-мост с ключом uid, назван по стране выхода."""
+    node = NODES.get(exit_host, {})
+    name = f"{node.get('flag', '')} {node.get('name', exit_host)}".strip()
+    return (
+        f"vless://{uid}@{VK_RELAY_HOST}:{VK_RELAY_PORT}"
+        f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={VK_RELAY_HOST}"
+        f"&fp=firefox&pbk={VK_RELAY_PBK}&sid={VK_RELAY_SID}#{urllib.parse.quote(name)}"
+    )
+
+
+# Все страны через мост (16.10.2026, владелец: «убери ру сервисы (через VK) из
+# подписок насовсем… чтобы все сервера работали с макс скоростью»). Домашний и
+# мобильный интернет режут прямой TCP к нашим зарубежным адресам до 0,2–1,6 Мбит/с,
+# мост в России — нет (35–42 с того же Wi-Fi). У этих ссылок пункт страны один и
+# идёт через VK: ключом релея (российское выходит из VK напрямую), а если его нет —
+# полным туннелем (VK_FULL_IDS). Прямые TCP-входы этих стран не выдаются;
+# Hysteria2 (UDP режут меньше) и страны без моста остаются. Мост не отвечает —
+# обычный список, а не пустота.
+BRIDGE_ALL_USERS = _names(os.environ.get("BRIDGE_ALL_USERS", ""))
+_TCP_SCHEMES = ("vless", "trojan")
+
+
+def build_bridge_country_links() -> tuple[list[str], frozenset[str]]:
+    """(пункт на каждую страну через VK-мост, адреса выходов этих стран)."""
+    dead = _probed_dead_hosts()
+    if not VK_RELAY_PBK or VK_RELAY_HOST in dead:
+        return [], frozenset()
+    keys = list(VK_RELAY_IDS.items()) + [(h, u) for h, u in VK_FULL_IDS.items() if h not in VK_RELAY_IDS]
+    alive = [(exit_host, uid) for exit_host, uid in keys if exit_host not in dead]
+    return [_vk_bridge_link(uid, h) for h, uid in alive], frozenset(pin_host(h) for h, _ in alive)
+
+
+def without_bridged_tcp(links: list[str], bridged_exits: frozenset[str]) -> list[str]:
+    """Убрать прямые TCP-входы стран, которые есть через мост (их режут до долей мегабита)."""
+    return [
+        link for link in links
+        if not (link.split("://", 1)[0] in _TCP_SCHEMES and pin_host(_link_exit(link) or "") in bridged_exits)
+    ]
 
 
 # Ссылки «один сервер — один пункт» (11.10.2026, «UNL VPN»: владельцу не нужно
@@ -1398,6 +1432,9 @@ def bridge_auto_pool(
     pool = [found[uid] for uid in wanted if uid in found]
     if not pool:
         return None
+    if name_matches(BRIDGE_ALL_USERS, username):
+        # Прямые серверы у этих ссылок урезаны — запасным они не годятся.
+        return pool, None
     skip = {pin_host(VK_RELAY_HOST), pin_host(RU_RELAY_HOST), *exclude}
     fallback = next(
         (link for link in links
@@ -1857,6 +1894,9 @@ def _resolve_links(token: str) -> tuple[list[str], str | None, str | None] | Non
         # Только серверы учётки (без общих Hy2/Trojan) и свой логин Hysteria2.
         hy2 = ind_hy2_link(username)
         combined = [link for link in combined if link.split("://", 1)[0] == "vless"] + ([hy2] if hy2 else [])
+    elif (bridged := build_bridge_country_links() if name_matches(BRIDGE_ALL_USERS, username) else ([], frozenset()))[0]:
+        links_bridged, bridged_exits = bridged
+        combined = without_bridged_tcp(combined, bridged_exits) + links_bridged + build_mobile_links(combined)
     else:
         relay = build_vk_relay_links(combined) if name_matches(VK_RELAY_USERS, username) else []
         compat = build_compat_links(combined) if compat_enabled_for(username) else []
