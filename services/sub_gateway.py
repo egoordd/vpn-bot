@@ -310,7 +310,9 @@ def _token_username(token: str) -> str | None:
         # corp_… — корпоративные учётные записи (см. CORP_USERS), exp_… —
         # экспериментальные (см. VK_RELAY_USERS), ind_… — индивидуальные (см.
         # IND_USERS); все заведены в панели вручную, без аккаунта в боте.
-        if re.fullmatch(r"tg_-?\d{1,20}|(corp|exp|ind)_[a-z0-9_]{1,24}", name):
+        # tg_<id>_s2… — дополнительные подписки аккаунта: без суффикса укороченный
+        # префикс токена читался как основная, и подписки делили пул устройств.
+        if re.fullmatch(r"tg_-?\d{1,20}(?:_s\d{1,2})?|(corp|exp|ind)_[a-z0-9_]{1,24}", name):
             return name
     return None
 
@@ -882,7 +884,7 @@ def build_de_via_links(links: list[str]) -> list[str]:
 
 
 def build_vk_relay_links(links: list[str]) -> list[str]:
-    """«✅ РУ сервисы» через релей на VK Cloud — для тестовой подписки (VK_RELAY_USERS).
+    """«✅ РУ сервисы» через релей на VK Cloud (VK_RELAY_USERS); названия как у московского каскада.
 
     Те же страны и та же проверка живости выхода, что у московского каскада;
     отличие — один порт и свой ключ клиента на каждую страну. Пусто, пока релей
@@ -894,7 +896,7 @@ def build_vk_relay_links(links: list[str]) -> list[str]:
         f"vless://{VK_RELAY_IDS[exit_host]}@{VK_RELAY_HOST}:{VK_RELAY_PORT}"
         f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={VK_RELAY_HOST}"
         f"&fp=firefox&pbk={VK_RELAY_PBK}&sid={VK_RELAY_SID}"
-        f"#{urllib.parse.quote(f'{remark} · VK')}"
+        f"#{urllib.parse.quote(remark)}"
         for _port, remark, exit_host in CASCADE_COUNTRIES
         if exit_host in VK_RELAY_IDS and exit_host not in dead
     ]

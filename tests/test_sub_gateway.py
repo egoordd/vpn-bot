@@ -1484,7 +1484,7 @@ def test_vk_relay_links_pick_the_country_by_client_key(monkeypatch):
         assert "sni=212.233.122.241.sslip.io" in link and "pbk=VKPBK" in link and "sid=VKSID" in link
         assert "max.ru" not in link, "без маскировки под max.ru"
     assert VK_IDS["78.17.154.225.sslip.io"] in links[0]
-    assert urllib.parse.unquote(links[0].partition("#")[2]) == "🇵🇱 Польша ✅ РУ сервисы · VK"
+    assert urllib.parse.unquote(links[0].partition("#")[2]) == "🇵🇱 Польша ✅ РУ сервисы"
 
 
 def test_vk_relay_skips_a_country_whose_exit_is_down(monkeypatch):
@@ -2312,7 +2312,7 @@ def test_vk_relay_can_be_enabled_by_name_pattern(monkeypatch):
     links, _ = sub_gateway.resolve_links(_panel_token("tg_42"))
 
     names = [urllib.parse.unquote(l.rsplit("#", 1)[-1]) for l in links]
-    assert any(n.endswith("✅ РУ сервисы · VK") for n in names), names
+    assert any(n.endswith("✅ РУ сервисы") and "VK" not in n for n in names), names
     assert not any("130.49.143.41" in l for l in links), "московский каскад заменён"
 
 
@@ -2533,3 +2533,18 @@ def test_auto_entry_title_can_be_set_per_account(monkeypatch):
     ours, _, _ = sub_gateway.build_auto_json(_panel_token("tg_1"))
     assert json.loads(mrt)[0]["remarks"] == "⚡️ Авто-выбор"
     assert json.loads(ours)[0]["remarks"] == "⚡️ Авто-обход", "наши подписки — как раньше"
+
+
+def test_extra_subscription_keeps_its_own_username():
+    """Вторая подписка аккаунта (tg_<id>_s2) — своё имя, а не основная: иначе обе делят пул устройств."""
+    assert sub_gateway._token_username(_panel_token("tg_8984740385_s2")) == "tg_8984740385_s2"
+    assert sub_gateway._token_username(_panel_token("tg_8984740385")) == "tg_8984740385"
+    assert sub_gateway._token_username(_panel_token("tg_-100123_s5")) == "tg_-100123_s5"
+
+
+def test_extra_subscription_devices_are_counted_separately(device_store):
+    for n in range(2):
+        assert sub_gateway.device_allowed("tg_8984740385", f"main-{n}", limit=2)
+    assert not sub_gateway.device_allowed("tg_8984740385", "extra-0", limit=2), "пул основной заполнен"
+    extra = sub_gateway._token_username(_panel_token("tg_8984740385_s2"))
+    assert sub_gateway.device_allowed(extra, "extra-0", limit=2), "у второй подписки свой пул"
