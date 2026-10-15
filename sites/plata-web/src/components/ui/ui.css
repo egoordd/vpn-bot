@@ -1,0 +1,88 @@
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+  color: var(--navy);
+}
+.logo--light {
+  color: var(--paper);
+}
+/* На тёмном фоне тёмно-синий щит пропадает — светлый щит, шеврон тот же. */
+.logo--light .logo__mark > path:first-of-type {
+  fill: var(--paper);
+}
+.logo__mark {
+  width: 30px;
+  height: 34px;
+  transition: transform var(--duration) var(--ease-out);
+}
+.logo:hover .logo__mark {
+  transform: translateY(-2px) rotate(-4deg);
+}
+
+.btn {
+  --btn-bg: var(--navy);
+  --btn-fg: var(--paper);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: var(--text-sm);
+  text-decoration: none;
+  white-space: nowrap;
+  color: var(--btn-fg);
+  background: var(--btn-bg);
+  border: 1px solid transparent;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.18) inset, 0 10px 22px -14px rgb(23 40 84 / 0.7);
+  transition: transform var(--duration) var(--ease-out), box-shadow var(--duration) ease, background var(--duration) ease;
+}
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.18) inset, 0 16px 28px -14px rgb(23 40 84 / 0.75);
+}
+.btn:active {
+  transform: translateY(0) scale(0.98);
+}
+.btn--lg {
+  min-height: 58px;
+  padding: 0 30px;
+  font-size: var(--text-base);
+}
+.btn--amber {
+  --btn-bg: var(--amber-grad);
+  --btn-fg: var(--navy-deep);
+  background: var(--amber-grad);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.45) inset, 0 12px 26px -14px rgb(242 164 72 / 0.9);
+}
+.btn--ghost {
+  --btn-bg: transparent;
+  --btn-fg: var(--navy);
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+.btn--ghost:hover {
+  background: var(--paper);
+  box-shadow: var(--shadow-soft);
+}
+.btn--light {
+  --btn-bg: var(--paper);
+  --btn-fg: var(--navy);
+}
+.btn .chev,
+.chev {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  transition: transform var(--duration) var(--ease-out);
+}
+.btn:hover .chev {
+  transform: translateX(3px);
+}

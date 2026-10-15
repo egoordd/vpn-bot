@@ -1,0 +1,121 @@
+.connect__panel {
+  position: relative;
+  overflow: clip;
+  padding: clamp(2rem, 2rem + 3vw, 5rem);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(60% 80% at 100% 0%, rgb(247 200 102 / 0.18), transparent 70%),
+    linear-gradient(160deg, var(--navy-2), var(--navy-deep));
+  color: var(--paper);
+  box-shadow: var(--shadow-lift);
+}
+.connect__panel::after {
+  content: "";
+  position: absolute;
+  right: -60px;
+  bottom: -90px;
+  width: 360px;
+  height: 260px;
+  border: 26px solid rgb(247 200 102 / 0.08);
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  transform: rotate(-45deg);
+  border-radius: 18px;
+  pointer-events: none;
+}
+.connect__head p {
+  color: rgb(255 253 248 / 0.7);
+}
+.connect .eyebrow {
+  color: var(--amber-l);
+}
+.steps {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1rem, 2vw, 1.6rem);
+  counter-reset: step;
+}
+.step {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 26px;
+  border-radius: var(--r);
+  background: rgb(255 255 255 / 0.06);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  transition: background var(--duration) ease, transform var(--duration) var(--ease-out);
+}
+.step:hover {
+  background: rgb(255 255 255 / 0.1);
+  transform: translateY(-4px);
+}
+.step__badge {
+  position: relative;
+  width: 64px;
+  height: 44px;
+  margin-bottom: 6px;
+}
+.step__badge svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.step__badge path {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.step__badge b {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  transform: translate(-50%, -50%);
+  font-size: 1.05rem;
+  color: var(--paper);
+}
+.step h3 {
+  font-size: var(--text-h3);
+}
+.step p {
+  color: rgb(255 253 248 / 0.72);
+}
+.connect__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: clamp(2rem, 4vw, 3rem);
+}
+.connect__devices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+}
+.connect__devices li {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: rgb(255 253 248 / 0.85);
+}
+
+@media (max-width: 860px) {
+  .steps {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 480px) {
+  .connect__foot .btn {
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+}

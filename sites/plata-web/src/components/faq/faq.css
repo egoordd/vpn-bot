@@ -1,0 +1,108 @@
+.faq__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  align-items: start;
+}
+.faq__head {
+  position: sticky;
+  top: 110px;
+  justify-items: start;
+}
+.faq__list {
+  display: grid;
+  gap: 12px;
+}
+.qa {
+  border-radius: var(--r);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  transition: box-shadow var(--duration) ease, border-color var(--duration) ease;
+}
+.qa[open] {
+  border-color: rgb(242 164 72 / 0.5);
+  box-shadow: var(--shadow-soft);
+}
+.qa summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  font-weight: 700;
+  font-size: var(--text-lg);
+  cursor: pointer;
+  list-style: none;
+}
+.qa summary::-webkit-details-marker {
+  display: none;
+}
+.qa__icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-right: 3px solid var(--amber);
+  border-bottom: 3px solid var(--amber);
+  border-radius: 2px;
+  transform: translateY(-3px) rotate(45deg);
+  transition: transform var(--duration) var(--ease-out);
+}
+.qa[open] .qa__icon {
+  transform: translateY(3px) rotate(-135deg);
+}
+.qa p {
+  padding: 0 24px 22px;
+  color: var(--soft);
+}
+
+.cta {
+  padding-top: var(--space-section);
+}
+.cta__panel {
+  position: relative;
+  overflow: clip;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: clamp(1.5rem, 3vw, 3rem);
+  padding: clamp(2rem, 4vw, 3.5rem);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(50% 120% at 0% 50%, rgb(247 200 102 / 0.28), transparent 70%),
+    linear-gradient(120deg, var(--navy), var(--navy-deep));
+  color: var(--paper);
+  box-shadow: var(--shadow-lift);
+}
+.cta__shield {
+  width: clamp(72px, 8vw, 110px);
+  height: auto;
+  filter: drop-shadow(0 16px 24px rgb(0 0 0 / 0.35));
+}
+.cta__copy {
+  display: grid;
+  gap: 8px;
+}
+.cta__copy h2 {
+  font-size: clamp(1.8rem, 1.3rem + 2vw, 2.8rem);
+}
+.cta__copy p {
+  color: rgb(255 253 248 / 0.72);
+}
+.cta__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .faq__grid {
+    grid-template-columns: 1fr;
+  }
+  .faq__head {
+    position: static;
+  }
+  .cta__panel {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+}

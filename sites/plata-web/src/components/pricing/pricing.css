@@ -1,0 +1,160 @@
+.plans {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(0.8rem, 1.5vw, 1.25rem);
+  align-items: stretch;
+}
+.plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 28px 24px 24px;
+  border-radius: var(--r);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft);
+  transition: transform var(--duration) var(--ease-out), box-shadow var(--duration) ease;
+}
+.plan:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow-lift);
+}
+.plan__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.plan h3 {
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+}
+.plan__save {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgb(242 164 72 / 0.16);
+  color: var(--amber-ink);
+  font-weight: 800;
+  font-size: var(--text-xs);
+}
+.plan__price {
+  margin-top: 14px;
+  font-size: clamp(2rem, 1.6rem + 1.2vw, 2.6rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+.plan__per {
+  color: var(--soft);
+  font-size: var(--text-sm);
+}
+.plan__list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  margin: 20px 0 24px;
+  font-size: var(--text-sm);
+  color: var(--soft);
+}
+.plan__list li {
+  position: relative;
+  padding-left: 22px;
+}
+.plan__list li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.55em;
+  width: 9px;
+  height: 9px;
+  border-top: 2.5px solid var(--amber);
+  border-left: 2.5px solid var(--amber);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+.plan__cta {
+  margin-top: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  font-weight: 700;
+  text-decoration: none;
+  transition: background var(--duration) ease, color var(--duration) ease, border-color var(--duration) ease;
+}
+.plan__cta:hover {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--paper);
+}
+.plan__cta:hover .chev {
+  transform: translateX(3px);
+}
+
+.plan--featured {
+  background:
+    radial-gradient(80% 60% at 100% 0%, rgb(247 200 102 / 0.22), transparent 70%),
+    linear-gradient(165deg, var(--navy-2), var(--navy-deep));
+  border-color: transparent;
+  color: var(--paper);
+  box-shadow: var(--shadow-lift);
+}
+.plan--featured .plan__per,
+.plan--featured .plan__list {
+  color: rgb(255 253 248 / 0.72);
+}
+.plan--featured .plan__save {
+  background: var(--amber-grad);
+  color: var(--navy-deep);
+}
+.plan--featured .plan__cta {
+  background: var(--amber-grad);
+  border-color: transparent;
+  color: var(--navy-deep);
+}
+.plan--featured .plan__cta:hover {
+  background: var(--paper);
+  color: var(--navy);
+}
+.plan__ribbon {
+  position: absolute;
+  top: -13px;
+  left: 24px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--amber-grad);
+  color: var(--navy-deep);
+  font-weight: 800;
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+}
+.pricing__note {
+  margin-top: 28px;
+  max-width: 760px;
+  color: var(--soft);
+  font-size: var(--text-sm);
+}
+.pricing__note a {
+  font-weight: 700;
+  text-decoration-color: var(--amber);
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 1020px) {
+  .plans {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 1.6rem;
+  }
+}
+@media (max-width: 520px) {
+  .plans {
+    grid-template-columns: 1fr;
+  }
+}

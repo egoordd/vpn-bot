@@ -1,0 +1,43 @@
+/* Plata VPN — фирменные цвета логотипа: кремовый фон, тёмно-синий щит, янтарный шеврон. */
+:root {
+  --cream: #fef8ec;
+  --cream-2: #fbefd9;
+  --paper: #fffdf8;
+  --navy: #172854;
+  --navy-2: #24376b;
+  --navy-deep: #0f1c3f;
+  --amber: #f2a448;
+  --amber-l: #f7c866;
+  --amber-ink: #b8660f;
+  --ink: #172854;
+  --soft: #4f5b7a;
+  --dim: #7c86a0;
+  --line: rgb(23 40 84 / 0.12);
+  --line-strong: rgb(23 40 84 / 0.22);
+  --ok: #2f8f5b;
+  --danger: #b4452f;
+
+  --amber-grad: linear-gradient(180deg, var(--amber-l), var(--amber));
+
+  --font: var(--font-onest), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+  --text-lg: clamp(1.125rem, 1.05rem + 0.35vw, 1.3rem);
+  --text-h3: clamp(1.3rem, 1.15rem + 0.6vw, 1.6rem);
+  --text-h2: clamp(2rem, 1.4rem + 2.4vw, 3.25rem);
+  --text-hero: clamp(2.6rem, 1.6rem + 4.4vw, 5.1rem);
+
+  --space-section: clamp(4.5rem, 3rem + 6vw, 9rem);
+  --max: 1180px;
+  --gutter: clamp(16px, 4vw, 40px);
+
+  --r-sm: 14px;
+  --r: 22px;
+  --r-lg: 32px;
+  --shadow-soft: 0 1px 2px rgb(23 40 84 / 0.06), 0 12px 32px -20px rgb(23 40 84 / 0.35);
+  --shadow-lift: 0 2px 4px rgb(23 40 84 / 0.06), 0 30px 60px -30px rgb(23 40 84 / 0.45);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration: 260ms;
+}
