@@ -1,0 +1,19 @@
+listen: :51820
+tls:
+  cert: /etc/hysteria/link.crt
+  key: /etc/hysteria/link.key
+obfs:
+  type: salamander
+  salamander:
+    password: <секрет>
+auth:
+  type: password
+  password: <секрет>
+outbounds:
+  - name: de
+    type: socks5
+    socks5:
+      addr: 127.0.0.1:1082
+acl:
+  inline:
+    - de(all)

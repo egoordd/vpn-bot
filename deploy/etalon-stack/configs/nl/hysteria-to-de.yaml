@@ -1,0 +1,10 @@
+server: 77.110.107.198:50000
+auth: <секрет>
+obfs:
+  type: salamander
+  salamander:
+    password: <секрет>
+tls:
+  insecure: true
+socks5:
+  listen: 127.0.0.1:1082

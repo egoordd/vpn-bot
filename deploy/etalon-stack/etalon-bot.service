@@ -1,0 +1,22 @@
+[Unit]
+Description=Etalon VPN Telegram bot (@etallonvpn_bot)
+After=network-online.target docker.service etalon-gateway.service
+
+[Service]
+EnvironmentFile=/etc/etalon/bot.env
+WorkingDirectory=/opt/etalon/bot
+ExecStart=/opt/etalon/bot/.venv/bin/python -m marat_bot.app
+Restart=always
+RestartSec=5
+User=etalon
+Group=etalon
+StateDirectory=etalon-bot
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/etalon-bot
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target

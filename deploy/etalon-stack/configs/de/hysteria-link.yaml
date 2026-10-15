@@ -1,0 +1,11 @@
+listen: :50000
+tls:
+  cert: /etc/hysteria/link.crt
+  key: /etc/hysteria/link.key
+obfs:
+  type: salamander
+  salamander:
+    password: <секрет>
+auth:
+  type: password
+  password: <секрет>

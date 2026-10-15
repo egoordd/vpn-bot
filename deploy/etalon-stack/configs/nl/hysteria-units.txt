@@ -1,0 +1,27 @@
+[Unit]
+Description=Hysteria2 link Netherlands -> Germany exit (Etalon, DE is unreachable from RU)
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/hysteria client -c /etc/hysteria/to-de.yaml
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+[Unit]
+Description=Hysteria2 link endpoint for the Moscow entry (Etalon)
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/hysteria server -c /etc/hysteria/link.yaml
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+[Unit]
+Description=Hysteria2 relay for the Germany exit: Moscow -> NL -> DE (Etalon)
+After=network-online.target hysteria-de.service
+[Service]
+ExecStart=/usr/local/bin/hysteria server -c /etc/hysteria/relay-de.yaml
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target

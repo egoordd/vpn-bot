@@ -6,6 +6,7 @@ import importlib.util
 import json
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -66,3 +67,41 @@ def test_unknown_token_and_foreign_paths_are_404(gw, monkeypatch):
     assert gw.render("/sub/missing0000", "Happ/3.7.0")[0] == 404
     assert gw.render("/api/admin", "Happ/3.7.0")[0] == 404
     assert gw.render("/sub/../../etc/passwd", "Happ/3.7.0")[0] == 404
+
+
+def _limited_upstream(gw, monkeypatch, total):
+    def fake_fetch(token):
+        return list(LINKS), f"upload=0; download=0; total={total}; expire={int(time.time()) + 3600}"
+    monkeypatch.setattr(gw, "fetch_upstream", fake_fetch)
+
+
+# Токен Marzban: base64url("имя,время") без «=» и 10 символов подписи.
+TOKEN = base64.urlsafe_b64encode(b"corp_mrt_42,1792074617").decode().rstrip("=") + "AbCdEfGhIj"
+
+
+def test_trial_allows_two_devices_then_shows_the_limit_entry(gw, monkeypatch, tmp_path):
+    monkeypatch.setattr(gw, "DEVICE_DB", str(tmp_path / "devices.sqlite3"))
+    _limited_upstream(gw, monkeypatch, total=10 * 1024**3)
+    path = f"/sub/{TOKEN}"
+    for hwid in ("phone", "laptop", "phone"):
+        status, _, body = gw.render(path, "Happ/3.7.0", {"x-hwid": hwid, "x-device-model": "iPhone"})
+        assert status == 200 and json.loads(body)[0]["remarks"] == "⚡️ Авто-выбор", hwid
+    status, _, body = gw.render(path, "Happ/3.7.0", {"x-hwid": "tablet"})
+    assert "Лимит устройств" in urllib.parse.unquote(base64.b64decode(body).decode())
+    assert gw.render(path, "Happ/3.7.0", {})[0] == 200, "без x-hwid не блокируем"
+    assert sorted(gw.devices("corp_mrt_42")) == ["laptop", "phone"]
+
+
+def test_paid_subscription_allows_five_devices(gw, monkeypatch, tmp_path):
+    monkeypatch.setattr(gw, "DEVICE_DB", str(tmp_path / "devices.sqlite3"))
+    _limited_upstream(gw, monkeypatch, total=0)
+    for n in range(5):
+        _, _, body = gw.render(f"/sub/{TOKEN}", "Happ/3.7.0", {"x-hwid": f"dev{n}"})
+        assert json.loads(body)[0]["remarks"] == "⚡️ Авто-выбор"
+    _, _, body = gw.render(f"/sub/{TOKEN}", "Happ/3.7.0", {"x-hwid": "dev5"})
+    assert "Лимит устройств" in urllib.parse.unquote(base64.b64decode(body).decode())
+
+
+def test_token_username(gw):
+    assert gw.token_username(TOKEN) == "corp_mrt_42"
+    assert gw.token_username("garbage!!") is None

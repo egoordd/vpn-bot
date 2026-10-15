@@ -1,0 +1,27 @@
+[Unit]
+Description=Hysteria2 link Moscow -> NL relay -> Germany exit (Etalon)
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/hysteria client -c /etc/hysteria/to-de.yaml
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+[Unit]
+Description=Hysteria2 link Moscow -> fr exit (Etalon)
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/hysteria client -c /etc/hysteria/to-fr.yaml
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+[Unit]
+Description=Hysteria2 link Moscow -> Netherlands exit (Etalon)
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/hysteria client -c /etc/hysteria/to-nl.yaml
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target

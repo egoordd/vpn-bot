@@ -4,7 +4,11 @@
 - Happ — JSON-конфиги xray: «⚡️ Авто-выбор» (балансировщик между странами),
   «🇷🇺 Режим РУ-сервисов» и по пункту на страну (xray_json.build_json_subscription);
 - остальным приложениям — обычный base64-список ссылок;
-- истёкшая подписка — пустой список (Marzban отдаёт ссылки и после срока).
+- истёкшая подписка — пустой список (Marzban отдаёт ссылки и после срока);
+- лимит устройств: приложение присылает x-hwid, устройства хранятся в DEVICE_DB (схема та же, что
+  читает мини-приложение бота). Пробный период (в подписке есть лимит трафика) — GW_TRIAL_DEVICES,
+  оплаченный — GW_PAID_DEVICES. Лишнее устройство получает одну запись «Лимит устройств» вместо
+  серверов; приложения без x-hwid не блокируются; устройство без обращений DEVICE_IDLE_DAYS освобождает место.
 
 Только стандартная библиотека Python. Слушает 127.0.0.1 (по умолчанию :2096); снаружи до него
 доходят через nginx на московском входе. Настройки — переменные окружения GW_* (etalon-gateway.env).
@@ -16,8 +20,11 @@ import json
 import logging
 import os
 import re
+import sqlite3
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -32,6 +39,14 @@ AUTO_TITLE = os.environ.get("GW_AUTO_TITLE", "⚡️ Авто-выбор")
 SUPPORT_URL = os.environ.get("GW_SUPPORT_URL", "")
 WEB_URL = os.environ.get("GW_WEB_URL", "")
 UPDATE_HOURS = os.environ.get("GW_UPDATE_HOURS", "12")
+
+DEVICE_DB = os.environ.get("GW_DEVICE_DB", "/var/lib/etalon-gateway/devices.sqlite3")
+TRIAL_DEVICES = int(os.environ.get("GW_TRIAL_DEVICES", "2"))
+PAID_DEVICES = int(os.environ.get("GW_PAID_DEVICES", "5"))
+DEVICE_IDLE_DAYS = int(os.environ.get("GW_DEVICE_IDLE_DAYS", "14"))
+LIMIT_REMARK = os.environ.get("GW_LIMIT_REMARK", "⛔️ Лимит устройств — напишите в поддержку")
+FIELD_MAX = 128
+_DEVICE_LOCK = threading.Lock()
 
 SUB_PATH = re.compile(r"^/sub/([A-Za-z0-9_\-=]{10,300})/?$")
 JSON_CLIENTS = ("happ",)
@@ -62,16 +77,98 @@ def expired(userinfo: str | None) -> bool:
     return bool(match) and 0 < int(match.group(1)) < time.time()
 
 
+def token_username(token: str) -> str | None:
+    """Имя пользователя из токена Marzban: base64url(«имя,время») и 10 символов подписи."""
+    try:
+        data = token[:-10]
+        decoded = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode()
+    except (ValueError, UnicodeDecodeError):
+        return None
+    name, sep, stamp = decoded.partition(",")
+    return name if sep and name and stamp.isdigit() else None
+
+
+def _plan_limit(userinfo: str | None) -> int:
+    match = re.search(r"total=(\d+)", userinfo or "")
+    return TRIAL_DEVICES if match and int(match.group(1)) > 0 else PAID_DEVICES
+
+
+def _store() -> sqlite3.Connection:
+    directory = os.path.dirname(DEVICE_DB)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    conn = sqlite3.connect(DEVICE_DB, timeout=5)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS devices ("
+        " username TEXT NOT NULL, hwid TEXT NOT NULL, model TEXT, os TEXT,"
+        " first_seen REAL NOT NULL, last_seen REAL NOT NULL,"
+        " PRIMARY KEY (username, hwid))"
+    )
+    return conn
+
+
+def device_allowed(username: str, hwid: str, limit: int, model: str | None = None, os_name: str | None = None) -> bool:
+    """Запомнить устройство; False — оно сверх лимита. Ошибка хранилища — в пользу пользователя."""
+    if limit <= 0:
+        return True
+    hwid, model, os_name = hwid[:FIELD_MAX], (model or "")[:FIELD_MAX] or None, (os_name or "")[:FIELD_MAX] or None
+    now = time.time()
+    try:
+        with _DEVICE_LOCK:
+            conn = _store()
+            try:
+                conn.execute("DELETE FROM devices WHERE last_seen < ?", (now - DEVICE_IDLE_DAYS * 86400,))
+                known = conn.execute("SELECT 1 FROM devices WHERE username = ? AND hwid = ?", (username, hwid)).fetchone()
+                if known is None:
+                    used = conn.execute("SELECT COUNT(*) FROM devices WHERE username = ?", (username,)).fetchone()[0]
+                    if used >= limit:
+                        conn.commit()
+                        log.info("device limit: %s %d/%d", username, used, limit)
+                        return False
+                    conn.execute(
+                        "INSERT INTO devices (username, hwid, model, os, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
+                        (username, hwid, model, os_name, now, now),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE devices SET last_seen = ?, model = COALESCE(?, model), os = COALESCE(?, os)"
+                        " WHERE username = ? AND hwid = ?",
+                        (now, model, os_name, username, hwid),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+    except sqlite3.Error:
+        log.exception("device store failed, allowing")
+    return True
+
+
+def devices(username: str) -> list[str]:
+    conn = _store()
+    try:
+        return [row[0] for row in conn.execute("SELECT hwid FROM devices WHERE username = ?", (username,))]
+    finally:
+        conn.close()
+
+
+def _limit_body() -> bytes:
+    link = ("vless://00000000-0000-0000-0000-000000000000@127.0.0.1:1?security=none&type=tcp&encryption=none#"
+            + urllib.parse.quote(LIMIT_REMARK))
+    return base64.b64encode(link.encode())
+
+
 def _b64(text: str) -> str:
     return "base64:" + base64.b64encode(text.encode()).decode()
 
 
-def render(path: str, user_agent: str) -> tuple[int, dict[str, str], bytes]:
-    """(статус, заголовки, тело) ответа на GET path."""
+def render(path: str, user_agent: str, client_headers: dict | None = None) -> tuple[int, dict[str, str], bytes]:
+    """(статус, заголовки, тело) ответа на GET path; client_headers — заголовки запроса (x-hwid и др.)."""
+    client_headers = {k.lower(): v for k, v in (client_headers or {}).items()}
     match = SUB_PATH.match(path.split("?", 1)[0])
     if not match:
         return 404, {"Content-Type": "text/plain"}, b"not found\n"
-    upstream = fetch_upstream(match.group(1))
+    token = match.group(1)
+    upstream = fetch_upstream(token)
     if upstream is None:
         return 404, {"Content-Type": "text/plain"}, b"not found\n"
     links, userinfo = upstream
@@ -88,6 +185,13 @@ def render(path: str, user_agent: str) -> tuple[int, dict[str, str], bytes]:
         headers["support-url"] = SUPPORT_URL
     if WEB_URL:
         headers["profile-web-page-url"] = WEB_URL
+    hwid = (client_headers.get("x-hwid") or "").strip()
+    username = token_username(token)
+    if links and hwid and username and not device_allowed(
+        username, hwid, _plan_limit(userinfo), client_headers.get("x-device-model"), client_headers.get("x-device-os")
+    ):
+        headers["Content-Type"] = "text/plain; charset=utf-8"
+        return 200, headers, _limit_body()
     configs = []
     if links and any(client in user_agent.lower() for client in JSON_CLIENTS):
         configs = build_json_subscription(links, split=True, auto_remarks=AUTO_TITLE)
@@ -104,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 — имя задаёт http.server
         try:
-            status, headers, body = render(self.path, self.headers.get("User-Agent", ""))
+            status, headers, body = render(self.path, self.headers.get("User-Agent", ""), dict(self.headers.items()))
         except Exception:
             log.exception("subscription request failed")
             status, headers, body = 502, {"Content-Type": "text/plain"}, b"temporarily unavailable\n"

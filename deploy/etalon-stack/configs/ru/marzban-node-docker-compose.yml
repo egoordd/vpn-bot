@@ -1,0 +1,16 @@
+services:
+  marzban-node:
+    image: gozargah/marzban-node:latest
+    restart: always
+    network_mode: host
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    environment:
+      SSL_CLIENT_CERT_FILE: "/var/lib/marzban-node/ssl_client_cert.pem"
+      SERVICE_PORT: "62050"
+      XRAY_API_PORT: "62051"
+    volumes:
+      - /var/lib/marzban-node:/var/lib/marzban-node

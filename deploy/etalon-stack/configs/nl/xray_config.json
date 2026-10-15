@@ -1,0 +1,257 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "dns": {
+    "servers": [
+      "1.1.1.1",
+      "1.0.0.1",
+      "9.9.9.9"
+    ]
+  },
+  "inbounds": [
+    {
+      "tag": "VLESS NL",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "tcpSettings": {},
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "127.0.0.1:9443",
+          "xver": 0,
+          "serverNames": [
+            "89.221.203.114.sslip.io"
+          ],
+          "privateKey": "<секрет>",
+          "shortIds": ["<секрет>"]
+        },
+        "sockopt": {
+          "tcpKeepAliveIdle": 30,
+          "tcpKeepAliveInterval": 25
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    },
+    {
+      "tag": "VLESS DE",
+      "listen": "0.0.0.0",
+      "port": 2053,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "tcpSettings": {},
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "127.0.0.1:9443",
+          "xver": 0,
+          "serverNames": [
+            "89.221.203.114.sslip.io"
+          ],
+          "privateKey": "<секрет>",
+          "shortIds": ["<секрет>"]
+        },
+        "sockopt": {
+          "tcpKeepAliveIdle": 30,
+          "tcpKeepAliveInterval": 25
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    },
+    {
+      "tag": "VLESS FR",
+      "listen": "0.0.0.0",
+      "port": 2083,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "tcpSettings": {},
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "127.0.0.1:9443",
+          "xver": 0,
+          "serverNames": [
+            "89.221.203.114.sslip.io"
+          ],
+          "privateKey": "<секрет>",
+          "shortIds": ["<секрет>"]
+        },
+        "sockopt": {
+          "tcpKeepAliveIdle": 30,
+          "tcpKeepAliveInterval": 25
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "exit-nl",
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 1081
+          }
+        ]
+      }
+    },
+    {
+      "tag": "exit-de",
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 1082
+          }
+        ]
+      }
+    },
+    {
+      "tag": "exit-fr",
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 1083
+          }
+        ]
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": [
+          "bittorrent"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "regexp:\\.ru$",
+          "regexp:\\.su$",
+          "regexp:\\.xn--p1ai$",
+          "regexp:\\.xn--80asehdb$",
+          "domain:yandex.com",
+          "domain:yandex.net",
+          "domain:yastatic.net",
+          "domain:ya.ru",
+          "domain:vk.com",
+          "domain:vk.me",
+          "domain:vkuser.net",
+          "domain:userapi.com",
+          "domain:vk-cdn.net",
+          "domain:mycdn.me",
+          "domain:mail.ru",
+          "domain:max.ru",
+          "domain:oneme.ru",
+          "domain:sberbank.com",
+          "domain:sber.ru",
+          "domain:tbank.ru",
+          "domain:tinkoff.ru",
+          "domain:ozon.ru",
+          "domain:ozone.ru",
+          "domain:wildberries.ru",
+          "domain:wb.ru",
+          "domain:gosuslugi.ru",
+          "domain:nalog.gov.ru",
+          "domain:mos.ru",
+          "domain:avito.ru",
+          "domain:avito.st"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "VLESS NL"
+        ],
+        "outboundTag": "exit-nl"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "VLESS DE"
+        ],
+        "outboundTag": "exit-de"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "VLESS FR"
+        ],
+        "outboundTag": "exit-fr"
+      }
+    ]
+  }
+}
