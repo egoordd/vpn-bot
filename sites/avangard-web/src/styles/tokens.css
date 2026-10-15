@@ -1,0 +1,43 @@
+/* Avangard VPN — фирменный лист «Замок» (вариант 03): глубокий зелёный и античное золото. */
+:root {
+  --green: #0b231b;
+  --green-2: #10301f;
+  --green-3: #17402f;
+  --green-4: #1f5040;
+  --gold: #b08a3e;
+  --gold-l: #d6b878;
+  --gold-d: #8a6a2c;
+  --ivory: #f2ebdd;
+  --ivory-2: #e7dcc6;
+  --text: #efe7d6;
+  --mist: rgb(239 231 214 / 0.66);
+  --dim: rgb(239 231 214 / 0.45);
+  --line: rgb(176 138 62 / 0.26);
+  --line-soft: rgb(239 231 214 / 0.1);
+  --ink: #0b231b;
+
+  --gold-grad: linear-gradient(180deg, #d6b878, #b08a3e 70%);
+
+  --font-display: var(--font-comfortaa), "Comfortaa", sans-serif;
+  --font-body: var(--font-nunito), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+  --text-lg: clamp(1.1rem, 1.04rem + 0.3vw, 1.25rem);
+  --text-h3: clamp(1.05rem, 0.98rem + 0.4vw, 1.25rem);
+  --text-h2: clamp(1.7rem, 1.2rem + 2.1vw, 2.9rem);
+  --text-hero: clamp(2.6rem, 1.3rem + 5.4vw, 6rem);
+
+  --space-section: clamp(4.5rem, 3rem + 6vw, 9rem);
+  --max: 1160px;
+  --gutter: clamp(16px, 4vw, 40px);
+
+  --r-sm: 12px;
+  --r: 20px;
+  --r-lg: 30px;
+  --shadow: 0 30px 60px -30px rgb(0 0 0 / 0.6);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration: 260ms;
+}

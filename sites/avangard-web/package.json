@@ -1,0 +1,22 @@
+{
+  "name": "avangard-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Avangard VPN — сайт в стиле «Замок»: главная, тарифы и документы (статичная сборка).",
+  "scripts": {
+    "dev": "next dev -p 4177",
+    "build": "next build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "15.5.25",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.10",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "typescript": "5.5.3"
+  }
+}

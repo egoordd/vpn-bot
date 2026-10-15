@@ -1,0 +1,78 @@
+/* Камни кладкой: два широких сверху, три уже снизу — швы смещены, как в стене. */
+.stones {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+.stone {
+  grid-column: span 2;
+  position: relative;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: clamp(1.5rem, 2.5vw, 2.2rem);
+  border-radius: 6px;
+  background: linear-gradient(160deg, var(--green-3), var(--green-2));
+  border: 1px solid var(--line-soft);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), var(--shadow);
+  transition: transform var(--duration) var(--ease-out), border-color var(--duration) ease;
+}
+.stone:nth-child(-n + 2) {
+  grid-column: span 3;
+}
+.stone:hover {
+  transform: translateY(-4px);
+  border-color: var(--line);
+}
+.stone::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 3px;
+  border: 1px solid rgb(176 138 62 / 0.12);
+  pointer-events: none;
+}
+.stone__icon {
+  width: 34px;
+  height: 34px;
+  padding: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  fill: none;
+  stroke: var(--gold-l);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  box-sizing: content-box;
+}
+.stone h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-h3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold-l);
+}
+.stone p {
+  color: var(--mist);
+}
+
+@media (max-width: 860px) {
+  .stones {
+    grid-template-columns: 1fr 1fr;
+  }
+  .stone,
+  .stone:nth-child(-n + 2) {
+    grid-column: span 1;
+  }
+  .stone:last-child {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 540px) {
+  .stones {
+    grid-template-columns: 1fr;
+  }
+}

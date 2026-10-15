@@ -1,0 +1,154 @@
+.keep {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(1rem, 2vw, 1.5rem);
+}
+.keep__tower {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: clamp(2rem, 3vw, 2.8rem) 1.5rem;
+  border-radius: 140px 140px 10px 10px;
+  background: linear-gradient(180deg, var(--green-3), var(--green-2));
+  border: 1px solid var(--line);
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+.keep__icon {
+  width: 58px;
+  height: 79px;
+  color: var(--gold);
+}
+.keep__flag {
+  margin-top: 6px;
+  font-size: 1.6rem;
+}
+.keep__tower h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ivory);
+}
+.keep__tower p {
+  color: var(--dim);
+  font-size: var(--text-sm);
+}
+.keep__gate {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.keep__gate strong {
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: var(--gold-grad);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: 0 14px 30px -16px rgb(214 184 120 / 0.8);
+}
+.keep__gate p {
+  max-width: 15rem;
+  color: var(--mist);
+  font-size: var(--text-sm);
+}
+/* Линия между башнями: по ней бегает золотая искра — авто-выбор перебирает выходы. */
+.keep__line {
+  position: absolute;
+  left: -14%;
+  right: -14%;
+  top: calc(50% - 30px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold) 15%, var(--gold) 85%, transparent);
+  overflow: hidden;
+  z-index: -1;
+  container-type: inline-size;
+}
+.keep__line i {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  width: 60px;
+  height: 5px;
+  border-radius: 5px;
+  background: radial-gradient(closest-side, #fff4d6, transparent);
+  animation: keep-spark 3.2s ease-in-out infinite alternate;
+}
+@keyframes keep-spark {
+  from {
+    transform: translateX(-60px);
+  }
+  to {
+    transform: translateX(100cqw);
+  }
+}
+
+.steps {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1rem, 2vw, 1.5rem);
+  margin-top: clamp(3rem, 5vw, 5rem);
+}
+.step {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 26px 24px;
+  border-top: 1px solid var(--line);
+}
+.step__num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2.4rem;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  background: var(--gold-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.step h3 {
+  font-size: var(--text-h3);
+  color: var(--ivory);
+}
+.step p {
+  color: var(--mist);
+}
+
+@media (max-width: 860px) {
+  .keep {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .keep__gate {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .keep__line {
+    display: none;
+  }
+  .steps {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 560px) {
+  /* Узко: башня — ворота — башня в одну колонку, иначе «НИДЕРЛАНДЫ» с разрядкой не влезает. */
+  .keep {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .keep__tower {
+    border-radius: 110px 110px 10px 10px;
+  }
+  .keep__tower h3 {
+    letter-spacing: 0.1em;
+  }
+}

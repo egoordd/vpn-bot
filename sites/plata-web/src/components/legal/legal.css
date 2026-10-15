@@ -59,7 +59,7 @@
 .legal__body li::marker {
   color: var(--amber);
 }
-.legal__body a {
+.legal__body a:not(.btn) {
   color: var(--navy);
   font-weight: 600;
   text-decoration-color: var(--amber);

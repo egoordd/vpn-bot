@@ -1,0 +1,138 @@
+@import "../styles/tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+* {
+  margin: 0;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  scroll-padding-top: 88px;
+  background: var(--green);
+}
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: 1.65;
+  color: var(--text);
+  /* Цвет — у html: фон body перекрыл бы кладку (слой с z-index: -1 рисуется под ним). */
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+}
+/* Кладка крепостной стены — едва заметная фактура фона. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='96'%3E%3Cpath d='M0 .5H120M0 48.5H120M.5 0V48M60.5 48V96' stroke='%23B08A3E' stroke-opacity='.09' fill='none'/%3E%3C/svg%3E");
+  background-size: 120px 96px;
+  mask-image: radial-gradient(90% 70% at 50% 0%, #000 20%, transparent 85%);
+  -webkit-mask-image: radial-gradient(90% 70% at 50% 0%, #000 20%, transparent 85%);
+}
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+a {
+  color: inherit;
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+p {
+  text-wrap: pretty;
+}
+[hidden] {
+  display: none !important;
+}
+:focus-visible {
+  outline: 2px solid var(--gold-l);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* Заголовки — Comfortaa прописными с разрядкой, как в листе. */
+.display,
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+h3 {
+  font-family: var(--font-body);
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.005em;
+}
+
+.wrap {
+  width: 100%;
+  max-width: var(--max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+.section {
+  padding-block: var(--space-section);
+}
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-xs);
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--gold-l);
+}
+.eyebrow::before,
+.eyebrow::after {
+  content: "";
+  width: 28px;
+  height: 1px;
+  background: var(--gold);
+}
+.section-head {
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+  text-align: center;
+  max-width: 760px;
+  margin: 0 auto clamp(2.5rem, 2rem + 2.5vw, 4.5rem);
+}
+.section-head h2 {
+  font-size: var(--text-h2);
+  color: var(--ivory);
+}
+.section-head p {
+  font-size: var(--text-lg);
+  color: var(--mist);
+}
+.gold {
+  color: var(--gold-l);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
