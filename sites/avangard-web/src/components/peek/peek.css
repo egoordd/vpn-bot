@@ -1,13 +1,9 @@
+/* Один экран: завеса со скважиной раскрывается сама, когда блок на экране (без привязки к прокрутке). */
 .peek {
-  --p: 0;
   position: relative;
-  height: 260vh;
-}
-.peek__sticky {
-  position: sticky;
-  top: 0;
   height: 100vh;
   height: 100svh;
+  min-height: 560px;
   overflow: hidden;
 }
 .peek__inside {
@@ -25,8 +21,25 @@
     var(--ivory);
 }
 .peek__inside > * {
-  opacity: calc(0.2 + var(--p) * 1.1);
-  transform: scale(calc(0.94 + var(--p) * 0.06));
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 700ms ease, transform 900ms var(--ease-out);
+}
+.peek.is-open .peek__inside > * {
+  opacity: 1;
+  transform: none;
+}
+.peek.is-open .peek__inside > :nth-child(1) {
+  transition-delay: 650ms;
+}
+.peek.is-open .peek__inside > :nth-child(2) {
+  transition-delay: 750ms;
+}
+.peek.is-open .peek__inside > :nth-child(3) {
+  transition-delay: 850ms;
+}
+.peek.is-open .peek__inside > :nth-child(4) {
+  transition-delay: 950ms;
 }
 .peek__inside .eyebrow {
   color: var(--gold-d);
@@ -63,13 +76,29 @@
   width: 100%;
   height: 100%;
   transform-origin: 50% 50%;
-  will-change: transform;
+}
+.peek.is-open .peek__veil {
+  animation: peek-open 1.6s cubic-bezier(0.65, 0, 0.35, 1) 150ms forwards;
+}
+@keyframes peek-open {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  65% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(12);
+    opacity: 0;
+    visibility: hidden;
+  }
 }
 .peek__hint {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 12vh;
+  bottom: 12%;
   text-align: center;
   font-family: var(--font-display);
   font-weight: 700;
@@ -77,32 +106,20 @@
   letter-spacing: 0.4em;
   text-transform: uppercase;
   color: var(--gold-l);
-  opacity: calc(1 - var(--p) * 6);
+  transition: opacity 300ms ease;
 }
-.peek__hint::after {
-  content: "";
-  display: block;
-  width: 1px;
-  height: 42px;
-  margin: 14px auto 0;
-  background: linear-gradient(var(--gold), transparent);
+.peek.is-open .peek__hint {
+  opacity: 0;
 }
 
 /* Без анимации: просто светлый блок с текстом. */
 .peek.is-static {
   height: auto;
-}
-.peek.is-static .peek__sticky {
-  position: static;
-  height: auto;
+  min-height: 0;
 }
 .peek.is-static .peek__inside {
   position: static;
   padding-block: var(--space-section);
-}
-.peek.is-static .peek__inside > * {
-  opacity: 1;
-  transform: none;
 }
 .peek.is-static .peek__veil,
 .peek.is-static .peek__hint {

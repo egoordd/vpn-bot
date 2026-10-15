@@ -12,28 +12,20 @@ html {
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
   scroll-padding-top: 88px;
-  background: var(--green);
+  /* Кладка крепостной стены — едва заметная фактура вверху страницы, книзу растворяется. Обычный фон
+     (не fixed и без mask): быстрая прокрутка его только сдвигает, без перерисовки. */
+  background:
+    linear-gradient(180deg, rgb(11 35 27 / 0) 0, rgb(11 35 27 / 0.6) 700px, var(--green) 1500px) no-repeat,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='96'%3E%3Cpath d='M0 .5H120M0 48.5H120M.5 0V48M60.5 48V96' stroke='%23B08A3E' stroke-opacity='.09' fill='none'/%3E%3C/svg%3E") 0 0 / 120px 96px,
+    var(--green);
 }
 body {
   font-family: var(--font-body);
   font-size: var(--text-base);
   line-height: 1.65;
   color: var(--text);
-  /* Цвет — у html: фон body перекрыл бы кладку (слой с z-index: -1 рисуется под ним). */
   min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
-}
-/* Кладка крепостной стены — едва заметная фактура фона. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='96'%3E%3Cpath d='M0 .5H120M0 48.5H120M.5 0V48M60.5 48V96' stroke='%23B08A3E' stroke-opacity='.09' fill='none'/%3E%3C/svg%3E");
-  background-size: 120px 96px;
-  mask-image: radial-gradient(90% 70% at 50% 0%, #000 20%, transparent 85%);
-  -webkit-mask-image: radial-gradient(90% 70% at 50% 0%, #000 20%, transparent 85%);
 }
 img,
 svg {
