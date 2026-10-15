@@ -178,6 +178,9 @@ class Settings(BaseSettings):
     # Кому, кроме админов, разрешена только /trial — выдача пробников клиентам с
     # Авито (comma-separated Telegram ids). Остальная админка им не открывается.
     TRIAL_ISSUER_IDS: str = ""
+    # Кому, кроме админов, открыта только /stats (15.10.2026: @edismee): Telegram id
+    # или @ник через запятую. Ник сверяется без учёта регистра; остальная админка закрыта.
+    STATS_VIEWERS: str = ""
     # Support bot: users open tickets here; the support relay forwards them to the
     # reports bot and routes the admin's replies back. Username = for the deep link.
     SUPPORT_BOT_TOKEN: str = ""
@@ -225,6 +228,14 @@ class Settings(BaseSettings):
     @property
     def support_agent_ids(self) -> list[int]:
         return [int(item.strip()) for item in self.SUPPORT_AGENT_IDS.split(",") if item.strip()]
+
+    @property
+    def stats_viewers(self) -> tuple[frozenset[int], frozenset[str]]:
+        """(id, ники без @ в нижнем регистре) из STATS_VIEWERS."""
+        items = [item.strip() for item in self.STATS_VIEWERS.split(",") if item.strip()]
+        ids = frozenset(int(item) for item in items if item.lstrip("-").isdigit())
+        names = frozenset(item.lstrip("@").lower() for item in items if not item.lstrip("-").isdigit())
+        return ids, names
 
     @property
     def trial_issuer_ids(self) -> list[int]:

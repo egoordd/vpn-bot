@@ -173,3 +173,30 @@ async def test_non_admin_rejected(session_pool, monkeypatch):
     )
     await admin.stats_handler(message, session_pool)
     assert "только администраторам" in message.answer.await_args.args[0]
+
+
+@pytest.mark.integration
+async def test_a_stats_viewer_sees_stats_but_not_the_rest_of_the_admin(session_pool, monkeypatch):
+    """15.10.2026: владелец открыл /stats для @edismee — только сводку, без остальной админки."""
+    from bot.handlers import admin
+
+    monkeypatch.setattr(admin.settings, "ADMIN_IDS", "777")
+    monkeypatch.setattr(admin.settings, "STATS_VIEWERS", "@edismee, 4242")
+    async with session_pool() as session:
+        await Repository(session).create_user(telegram_id=1, username="a")
+
+    for user in (SimpleNamespace(id=555, username="EdisMee"), SimpleNamespace(id=4242, username=None)):
+        message = SimpleNamespace(text="/stats", from_user=user, answer=AsyncMock())
+        await admin.stats_handler(message, session_pool)
+        text = message.answer.await_args.args[0]
+        assert "Статистика" in text and "Всего: 1" in text, user
+        assert "/channels" not in text, "подсказка про /channels — только админам, зрителю она не откроется"
+
+        other = SimpleNamespace(text="/admin", from_user=user, answer=AsyncMock())
+        await admin.admin_help_handler(other)
+        assert "администраторам" in other.answer.await_args.args[0], "остальная админка закрыта"
+
+    stranger = SimpleNamespace(text="/stats", from_user=SimpleNamespace(id=556, username="edismee_fake"),
+                               answer=AsyncMock())
+    await admin.stats_handler(stranger, session_pool)
+    assert "администраторам" in stranger.answer.await_args.args[0]

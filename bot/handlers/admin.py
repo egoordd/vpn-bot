@@ -137,9 +137,18 @@ async def admin_help_handler(message: Message) -> None:
     await message.answer(text)
 
 
+def _can_view_stats(message: Message) -> bool:
+    if _is_admin(message):
+        return True
+    ids, names = settings.stats_viewers
+    username = (message.from_user.username or "").lower()
+    return message.from_user.id in ids or bool(username and username in names)
+
+
 @router.message(Command("stats"))
 async def stats_handler(message: Message, session_pool: async_sessionmaker[AsyncSession]) -> None:
-    if await _reject_non_admin(message):
+    if not _can_view_stats(message):
+        await message.answer("Команда доступна только администраторам")
         return
     async with session_pool() as session:
         repo = Repository(session)
@@ -160,7 +169,8 @@ async def stats_handler(message: Message, session_pool: async_sessionmaker[Async
         )
         + "\n\n🔑 <b>Активные подписки</b>\n"
         + bq(f"Всего: {active_total}", f"По тарифам: {tier_lines}")
-        + "\n\nЗдесь бот, сайт и зеркало вместе. По отдельности — /channels"
+        # /channels открыта только админам — зрителю сводки подсказка ни к чему.
+        + ("\n\nЗдесь бот, сайт и зеркало вместе. По отдельности — /channels" if _is_admin(message) else "")
     )
     await message.answer(text)
 
