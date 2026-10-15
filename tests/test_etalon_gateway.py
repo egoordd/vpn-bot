@@ -105,3 +105,16 @@ def test_paid_subscription_allows_five_devices(gw, monkeypatch, tmp_path):
 def test_token_username(gw):
     assert gw.token_username(TOKEN) == "corp_mrt_42"
     assert gw.token_username("garbage!!") is None
+
+
+def test_cli_lists_and_forgets_devices(gw, monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(gw, "DEVICE_DB", str(tmp_path / "devices.sqlite3"))
+    gw.device_allowed("corp_mrt_7", "iphone-1", 5, "iPhone 15", "iOS 18")
+    gw.device_allowed("corp_mrt_7", "mac-1", 5)
+    assert gw.cli(["devices", "corp_mrt_7"]) == 0
+    assert "iPhone 15" in capsys.readouterr().out
+    assert gw.cli(["forget", "corp_mrt_7", "mac-1"]) == 0
+    assert gw.devices("corp_mrt_7") == ["iphone-1"]
+    assert gw.cli(["forget", "corp_mrt_7"]) == 0
+    assert gw.devices("corp_mrt_7") == []
+    assert gw.cli(["oops"]) == 2

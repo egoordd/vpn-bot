@@ -224,6 +224,42 @@ class Handler(BaseHTTPRequestHandler):
         log.info("%s %s", args[1] if len(args) > 1 else "-", self.headers.get("User-Agent", "-")[:40])
 
 
+USAGE = """Использование:
+  etalon_gateway.py                       — запустить шлюз (так его запускает служба)
+  etalon_gateway.py devices ИМЯ           — устройства пользователя (имя как в панели, напр. corp_mrt_123)
+  etalon_gateway.py forget ИМЯ [HWID]     — забыть устройства пользователя (или одно устройство)"""
+
+
+def cli(args: list[str]) -> int:
+    """Команды для поддержки: посмотреть и сбросить устройства пользователя."""
+    if len(args) >= 2 and args[0] == "devices":
+        conn = _store()
+        try:
+            rows = conn.execute(
+                "SELECT hwid, model, os, last_seen FROM devices WHERE username = ? ORDER BY last_seen DESC", (args[1],)
+            ).fetchall()
+        finally:
+            conn.close()
+        for hwid, model, os_name, seen in rows:
+            print(f"{hwid}\t{model or '—'}\t{os_name or '—'}\t{time.strftime('%d.%m.%Y %H:%M', time.localtime(seen))}")
+        print(f"всего: {len(rows)}")
+        return 0
+    if len(args) in (2, 3) and args[0] == "forget":
+        conn = _store()
+        try:
+            if len(args) == 3:
+                n = conn.execute("DELETE FROM devices WHERE username = ? AND hwid = ?", (args[1], args[2])).rowcount
+            else:
+                n = conn.execute("DELETE FROM devices WHERE username = ?", (args[1],)).rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        print(f"удалено устройств: {n}")
+        return 0
+    print(USAGE)
+    return 2
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     host, port = LISTEN.rsplit(":", 1)
@@ -231,4 +267,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) > 1:
+        raise SystemExit(cli(sys.argv[1:]))
     main()
