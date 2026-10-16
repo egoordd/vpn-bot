@@ -2563,12 +2563,26 @@ def _bridge_all(monkeypatch):
     _bridge(monkeypatch)
     monkeypatch.setattr(sub_gateway, "BRIDGE_ALL_USERS", frozenset({"tg_*"}))
     monkeypatch.setattr(sub_gateway, "VK_FULL_IDS", {DE_EXIT: "full-de-uuid", NL_HOST: "full-nl-uuid"})
+    def named(host, port, name):
+        return f"vless://uuid@{host}:{port}?security=reality&type=tcp#{urllib.parse.quote(name)}"
+
     upstream = "\n".join([
-        _vless(NL_HOST, 2053), f"vless://uuid@{NL_HOST}:2100?security=reality&type=xhttp#xhttp",
-        _vless("78.17.154.225.sslip.io"), "trojan://pw@78.17.154.225.sslip.io:8444?security=tls#trojan",
-        _hy2("78.17.154.225.sslip.io"), _vless(US_HOST, 2102), _vless(LT_HOST, 2101),
+        named(LT_HOST, 2101, "🇱🇹 YouTube без рекламы"),
+        named(NL_HOST, 2053, "🇳🇱 Нидерланды"), f"vless://uuid@{NL_HOST}:2100?security=reality&type=xhttp#xhttp",
+        named("78.17.154.225.sslip.io", 2087, "🇵🇱 Польша"), "trojan://pw@78.17.154.225.sslip.io:8444?security=tls#trojan",
+        _hy2("78.17.154.225.sslip.io"), named(US_HOST, 2102, "🇺🇸 США"),
     ])
     monkeypatch.setattr(sub_gateway, "_fetch_upstream_sub", lambda token: (upstream, None))
+
+
+def test_bridge_all_carries_lithuania_under_its_own_name_and_place(monkeypatch):
+    _bridge_all(monkeypatch)
+    monkeypatch.setattr(sub_gateway, "VK_FULL_IDS", {DE_EXIT: "full-de-uuid", NL_HOST: "full-nl-uuid", LT_HOST: "full-lt-uuid"})
+    links, _ = sub_gateway.resolve_links(_panel_token("tg_42"))
+    vk = [link for link in links if sub_gateway._uri_host(link) == VK_HOST]
+    assert _names_of(vk)[0] == "🇱🇹 YouTube без рекламы", _names_of(vk)
+    assert sub_gateway._uri_userinfo(vk[0]) == "full-lt-uuid"
+    assert not any(sub_gateway._uri_host(link) == LT_HOST for link in links), "прямой Литвы больше нет"
 
 
 def _names_of(links):
@@ -2589,7 +2603,7 @@ def test_bridge_all_drops_direct_tcp_but_keeps_udp_and_lithuania(monkeypatch):
     links, _ = sub_gateway.resolve_links(_panel_token("tg_42"))
     direct_tcp = [link for link in links
                   if link.split("://")[0] in ("vless", "trojan") and sub_gateway._uri_host(link) != VK_HOST]
-    assert [sub_gateway._uri_host(link) for link in direct_tcp] == [LT_HOST]
+    assert [sub_gateway._uri_host(link) for link in direct_tcp] == [LT_HOST], "у Литвы моста нет — остаётся прямой"
     assert any(link.startswith("hysteria2://") for link in links), "UDP режут меньше — оставляем"
     assert "130.49.143.41" not in "".join(links), "без московского каскада"
 

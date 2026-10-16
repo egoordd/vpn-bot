@@ -1264,10 +1264,10 @@ def build_vk_full_links(exits: frozenset[str]) -> list[str]:
     ]
 
 
-def _vk_bridge_link(uid: str, exit_host: str) -> str:
-    """Вход через VK-мост с ключом uid, назван по стране выхода."""
+def _vk_bridge_link(uid: str, exit_host: str, name: str | None = None) -> str:
+    """Вход через VK-мост с ключом uid, назван по стране выхода (или как задан name)."""
     node = NODES.get(exit_host, {})
-    name = f"{node.get('flag', '')} {node.get('name', exit_host)}".strip()
+    name = name or f"{node.get('flag', '')} {node.get('name', exit_host)}".strip()
     return (
         f"vless://{uid}@{VK_RELAY_HOST}:{VK_RELAY_PORT}"
         f"?security=reality&type=tcp&flow=xtls-rprx-vision&sni={VK_RELAY_HOST}"
@@ -1287,14 +1287,23 @@ BRIDGE_ALL_USERS = _names(os.environ.get("BRIDGE_ALL_USERS", ""))
 _TCP_SCHEMES = ("vless", "trojan")
 
 
-def build_bridge_country_links() -> tuple[list[str], frozenset[str]]:
-    """(пункт на каждую страну через VK-мост, адреса выходов этих стран)."""
+def build_bridge_country_links(links: list[str] = ()) -> tuple[list[str], frozenset[str]]:
+    """(пункт на каждую страну через VK-мост, адреса выходов этих стран).
+
+    Пункт называется, как прямой Reality-вход этой страны в панели («🇱🇹 YouTube без
+    рекламы»), и стоит на его месте в порядке стран."""
     dead = _probed_dead_hosts()
     if not VK_RELAY_PBK or VK_RELAY_HOST in dead:
         return [], frozenset()
+    remarks: dict[str, str] = {}
+    for link in links:
+        if _is_reality_tcp(link) and "#" in link:
+            remarks.setdefault(pin_host(_link_exit(link) or ""), urllib.parse.unquote(link.rsplit("#", 1)[1]))
     keys = list(VK_RELAY_IDS.items()) + [(h, u) for h, u in VK_FULL_IDS.items() if h not in VK_RELAY_IDS]
     alive = [(exit_host, uid) for exit_host, uid in keys if exit_host not in dead]
-    return [_vk_bridge_link(uid, h) for h, uid in alive], frozenset(pin_host(h) for h, _ in alive)
+    alive.sort(key=lambda pair: NODE_PRIORITY.get(pair[0], _DEFAULT_PRIORITY))
+    bridged = [_vk_bridge_link(uid, h, remarks.get(pin_host(h))) for h, uid in alive]
+    return bridged, frozenset(pin_host(h) for h, _ in alive)
 
 
 def without_bridged_tcp(links: list[str], bridged_exits: frozenset[str]) -> list[str]:
@@ -1894,7 +1903,7 @@ def _resolve_links(token: str) -> tuple[list[str], str | None, str | None] | Non
         # Только серверы учётки (без общих Hy2/Trojan) и свой логин Hysteria2.
         hy2 = ind_hy2_link(username)
         combined = [link for link in combined if link.split("://", 1)[0] == "vless"] + ([hy2] if hy2 else [])
-    elif (bridged := build_bridge_country_links() if name_matches(BRIDGE_ALL_USERS, username) else ([], frozenset()))[0]:
+    elif (bridged := build_bridge_country_links(combined) if name_matches(BRIDGE_ALL_USERS, username) else ([], frozenset()))[0]:
         links_bridged, bridged_exits = bridged
         combined = without_bridged_tcp(combined, bridged_exits) + links_bridged + build_mobile_links(combined)
     else:
